@@ -10,7 +10,9 @@
 #include <algorithm>
 #include <array>
 #include <filesystem>
+#include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 
 namespace siege {
@@ -37,17 +39,81 @@ struct SoldierVisualLayout {
     float source_pixel_world_size;
     float render_scale;
     float legs_canvas_size;
-    float upper_canvas_size;
-    std::size_t non_firing_rifle_frame;
+    Vec2 legs_anchor;
+    Vec2 legs_shadow_anchor;
+    float death_canvas_size;
 };
 
 constexpr SoldierVisualLayout soldier_layout{
     .source_pixel_world_size = 2.0F,
     .render_scale = 0.5F,
     .legs_canvas_size = 32.0F,
-    .upper_canvas_size = 64.0F,
-    .non_firing_rifle_frame = 1,
+    .legs_anchor = {16.0F, 16.0F},
+    .legs_shadow_anchor = {16.0F, 16.0F},
+    .death_canvas_size = 64.0F,
 };
+
+struct TroopVisualDefinition {
+    TroopType troop_type;
+    WeaponType weapon_type;
+    std::string_view layer;
+    std::string_view frame_prefix;
+    float upper_canvas_size;
+    std::size_t non_firing_frame;
+    Vec2 body_anchor;
+    Vec2 body_shadow_anchor;
+    Vec2 firing_body_anchor;
+    Vec2 firing_body_shadow_anchor;
+    std::span<const std::size_t> firing_frames;
+    double firing_seconds_per_frame;
+};
+
+constexpr std::array<std::size_t, 9> rifle_firing_frames{9, 8, 7, 6, 5,
+                                                         4, 3, 2, 1};
+constexpr std::array<std::size_t, 6> machine_gun_firing_frames{11, 12, 13,
+                                                               14, 15, 16};
+
+constexpr TroopVisualDefinition rifle_visual{
+    .troop_type = TroopType::rifle,
+    .weapon_type = WeaponType::rifle,
+    .layer = "rifle",
+    .frame_prefix = "rifle",
+    .upper_canvas_size = 64.0F,
+    .non_firing_frame = 1,
+    .body_anchor = {32.0F, 32.0F},
+    .body_shadow_anchor = {32.0F, 32.0F},
+    .firing_body_anchor = {32.0F, 32.0F},
+    .firing_body_shadow_anchor = {32.0F, 32.0F},
+    .firing_frames = rifle_firing_frames,
+    .firing_seconds_per_frame = 0.04,
+};
+
+constexpr TroopVisualDefinition machine_gun_visual{
+    .troop_type = TroopType::machine_gun,
+    .weapon_type = WeaponType::machine_gun,
+    .layer = "machine_gun",
+    .frame_prefix = "machine_gun",
+    .upper_canvas_size = 128.0F,
+    .non_firing_frame = 1,
+    .body_anchor = {56.0F, 40.0F},
+    .body_shadow_anchor = {56.0F, 40.0F},
+    .firing_body_anchor = {64.0F, 64.0F},
+    .firing_body_shadow_anchor = {64.0F, 64.0F},
+    .firing_frames = machine_gun_firing_frames,
+    .firing_seconds_per_frame = 0.025,
+};
+
+const TroopVisualDefinition* visual_for(const TroopType troop_type) noexcept {
+    switch (troop_type) {
+    case TroopType::rifle:
+        return &rifle_visual;
+    case TroopType::machine_gun:
+        return &machine_gun_visual;
+    case TroopType::bazooka:
+        return nullptr;
+    }
+    return nullptr;
+}
 
 void set_color(SDL_Renderer* renderer, const Color color) {
     SDL_SetRenderDrawColor(renderer, color.red, color.green, color.blue, color.alpha);
@@ -65,17 +131,19 @@ Color color_for(const Zone& zone) {
     return neutral;
 }
 
-std::filesystem::path frame_path(const std::string& layer, const std::string& prefix,
+std::filesystem::path frame_path(const std::string_view layer,
+                                 const std::string_view prefix,
                                  const std::size_t frame) {
     return std::filesystem::path{"soldiers/color1/soldier1"} / layer /
-           (prefix + std::to_string(frame) + ".png");
+           (std::string{prefix} + std::to_string(frame) + ".png");
 }
 
 bool render_soldier_layer(SDL_Renderer* renderer, TextureCache& textures,
                           const WorldTransform& transform,
                           const std::filesystem::path& path,
                           const Vec2 position, const float facing,
-                          const float canvas_size, const float opacity = 1.0F) {
+                          const float canvas_size, const Vec2 anchor,
+                          const float opacity = 1.0F) {
     SDL_Texture* texture = textures.get(path);
     if (texture == nullptr ||
         !SDL_SetTextureAlphaModFloat(texture, std::clamp(opacity, 0.0F, 1.0F))) {
@@ -84,19 +152,32 @@ bool render_soldier_layer(SDL_Renderer* renderer, TextureCache& textures,
 
     const float world_size = canvas_size * soldier_layout.source_pixel_world_size *
                              soldier_layout.render_scale;
+    const float source_pixel_world_size =
+        soldier_layout.source_pixel_world_size * soldier_layout.render_scale;
     const Bounds world_bounds{
-        position.x - world_size * 0.5F,
-        position.y - world_size * 0.5F,
+        position.x - anchor.x * source_pixel_world_size,
+        position.y - anchor.y * source_pixel_world_size,
         world_size,
         world_size,
     };
     const auto bounds = transform.world_to_drawable(world_bounds);
     const SDL_FRect destination{bounds.x, bounds.y, bounds.width, bounds.height};
-    const SDL_FPoint pivot{destination.w * 0.5F, destination.h * 0.5F};
+    const SDL_FPoint pivot{destination.w * anchor.x / canvas_size,
+                           destination.h * anchor.y / canvas_size};
     const bool rendered = SDL_RenderTextureRotated(
         renderer, texture, nullptr, &destination, facing, &pivot, SDL_FLIP_NONE);
     const bool restored = SDL_SetTextureAlphaModFloat(texture, 1.0F);
     return rendered && restored;
+}
+
+bool render_soldier_layer(SDL_Renderer* renderer, TextureCache& textures,
+                          const WorldTransform& transform,
+                          const std::filesystem::path& path,
+                          const Vec2 position, const float facing,
+                          const float canvas_size, const float opacity = 1.0F) {
+    const Vec2 centered_anchor{canvas_size * 0.5F, canvas_size * 0.5F};
+    return render_soldier_layer(renderer, textures, transform, path, position,
+                                facing, canvas_size, centered_anchor, opacity);
 }
 
 } // namespace
@@ -122,13 +203,16 @@ void Renderer::update(const World& world, const double fixed_delta_seconds) {
     });
 
     for (const auto& event : world.fire_events()) {
-        if (event.troop_type != TroopType::rifle ||
-            event.weapon_type != WeaponType::rifle) {
+        const TroopVisualDefinition* visual = visual_for(event.troop_type);
+        if (visual == nullptr || event.weapon_type != visual->weapon_type) {
             continue;
         }
+
         auto [animation, inserted] = firing_animations_.try_emplace(
-            event.unit_id, std::vector<std::size_t>{9, 8, 7, 6, 5, 4, 3, 2, 1},
-            0.04, false);
+            event.unit_id,
+            std::vector<std::size_t>{visual->firing_frames.begin(),
+                                     visual->firing_frames.end()},
+            visual->firing_seconds_per_frame, false);
         if (!inserted) {
             animation->second.reset();
         }
@@ -237,7 +321,7 @@ bool Renderer::render_projectiles(const World& world,
 
 bool Renderer::render_corpses(const WorldTransform& transform) const {
     for (const auto& corpse : corpses_) {
-        if (corpse.death.troop_type != TroopType::rifle) {
+        if (visual_for(corpse.death.troop_type) == nullptr) {
             continue;
         }
         const std::size_t frame = corpse.animation.current_frame();
@@ -247,12 +331,12 @@ bool Renderer::render_corpses(const WorldTransform& transform) const {
                 renderer_, textures_, transform,
                 frame_path("shadows/death1", "death1_", frame),
                 corpse.death.position, corpse.death.facing_angle,
-                soldier_layout.upper_canvas_size, opacity) ||
+                soldier_layout.death_canvas_size, opacity) ||
             !render_soldier_layer(
                 renderer_, textures_, transform,
                 frame_path("death1", "death1_", frame),
                 corpse.death.position, corpse.death.facing_angle,
-                soldier_layout.upper_canvas_size, opacity)) {
+                soldier_layout.death_canvas_size, opacity)) {
             return false;
         }
     }
@@ -262,7 +346,8 @@ bool Renderer::render_corpses(const WorldTransform& transform) const {
 bool Renderer::render_units(const World& world, const WorldTransform& transform,
                             const double interpolation_alpha) const {
     for (const auto& unit : world.units()) {
-        if (unit.troop_type() != TroopType::rifle) {
+        const TroopVisualDefinition* visual = visual_for(unit.troop_type());
+        if (visual == nullptr) {
             continue;
         }
 
@@ -275,28 +360,43 @@ bool Renderer::render_units(const World& world, const WorldTransform& transform,
             animation != leg_animations_.end()) {
             leg_frame = animation->second.current_frame();
         }
-        std::size_t rifle_frame = soldier_layout.non_firing_rifle_frame;
+        std::size_t upper_frame = visual->non_firing_frame;
+        bool firing = false;
         if (const auto animation = firing_animations_.find(unit.id());
             animation != firing_animations_.end()) {
-            rifle_frame = animation->second.current_frame();
+            upper_frame = animation->second.current_frame();
+            firing = true;
         }
 
+        const Vec2 body_anchor =
+            firing ? visual->firing_body_anchor : visual->body_anchor;
+        const Vec2 body_shadow_anchor =
+            firing ? visual->firing_body_shadow_anchor
+                   : visual->body_shadow_anchor;
+
+        const std::string shadow_layer =
+            std::string{"shadows/"} + std::string{visual->layer};
+
+        struct Layer {
+            std::filesystem::path path;
+            float canvas_size;
+            Vec2 anchor;
+        };
         const std::array layers{
-            std::pair{frame_path("shadows/legs", "legs", leg_frame),
-                      soldier_layout.legs_canvas_size},
-            std::pair{frame_path("shadows/rifle", "rifle",
-                                 rifle_frame),
-                      soldier_layout.upper_canvas_size},
-            std::pair{frame_path("legs", "legs", leg_frame),
-                      soldier_layout.legs_canvas_size},
-            std::pair{frame_path("rifle", "rifle",
-                                 rifle_frame),
-                      soldier_layout.upper_canvas_size},
+            Layer{frame_path("shadows/legs", "legs", leg_frame),
+                  soldier_layout.legs_canvas_size,
+                  soldier_layout.legs_shadow_anchor},
+            Layer{frame_path(shadow_layer, visual->frame_prefix, upper_frame),
+                  visual->upper_canvas_size, body_shadow_anchor},
+            Layer{frame_path("legs", "legs", leg_frame),
+                  soldier_layout.legs_canvas_size, soldier_layout.legs_anchor},
+            Layer{frame_path(visual->layer, visual->frame_prefix, upper_frame),
+                  visual->upper_canvas_size, body_anchor},
         };
 
-        for (const auto& [path, canvas_size] : layers) {
+        for (const auto& [path, canvas_size, anchor] : layers) {
             if (!render_soldier_layer(renderer_, textures_, transform, path,
-                                      position, facing, canvas_size)) {
+                                      position, facing, canvas_size, anchor)) {
                 return false;
             }
         }

@@ -104,32 +104,28 @@ Projectile& World::spawn_projectile(const WeaponType weapon_type, const Team tea
 }
 
 void World::spawn_test_units() {
-    const auto spawn = [this](const Team team, const Vec2 position,
-                              const float initial_facing) {
-        units_.emplace_back(next_unit_id_++, rifle_definition.type, team, position,
-                            rifle_definition.move_speed,
-                            rifle_definition.rotation_speed,
-                            rifle_definition.vision_range,
-                            rifle_definition.vision_angle,
-                            rifle_definition.awareness_radius,
-                            rifle_definition.preferred_combat_range,
-                            rifle_definition.range_tolerance,
-                            rifle_definition.aggression,
-                            rifle_definition.retreat_bias,
-                            rifle_definition.max_health,
-                            rifle_definition.hit_radius,
-                            rifle_definition.weapon, initial_facing);
+    const auto spawn = [this](const TroopDefinition& definition, const Team team,
+                              const Vec2 position, const float initial_facing) {
+        units_.emplace_back(next_unit_id_++, definition.type, team, position,
+                            definition.move_speed, definition.rotation_speed,
+                            definition.vision_range, definition.vision_angle,
+                            definition.awareness_radius,
+                            definition.preferred_combat_range,
+                            definition.range_tolerance, definition.aggression,
+                            definition.retreat_bias, definition.max_health,
+                            definition.hit_radius, definition.weapon,
+                            initial_facing);
     };
 
-    spawn(Team::team_a, {150.0F, 250.0F}, 0.0F);
-    spawn(Team::team_a, {150.0F, 250.0F}, 180.0F);
-    spawn(Team::team_a, {180.0F, 520.0F}, 20.0F);
-    spawn(Team::team_a, {150.0F, 790.0F}, 160.0F);
+    spawn(rifle_definition, Team::team_a, {150.0F, 250.0F}, 0.0F);
+    spawn(rifle_definition, Team::team_a, {150.0F, 250.0F}, 180.0F);
+    spawn(machine_gun_definition, Team::team_a, {180.0F, 520.0F}, 20.0F);
+    spawn(machine_gun_definition, Team::team_a, {150.0F, 790.0F}, 160.0F);
 
-    spawn(Team::team_b, {1770.0F, 290.0F}, 0.0F);
-    spawn(Team::team_b, {1770.0F, 290.0F}, 180.0F);
-    spawn(Team::team_b, {1740.0F, 560.0F}, 340.0F);
-    spawn(Team::team_b, {1770.0F, 830.0F}, 200.0F);
+    spawn(rifle_definition, Team::team_b, {1770.0F, 290.0F}, 0.0F);
+    spawn(rifle_definition, Team::team_b, {1770.0F, 290.0F}, 180.0F);
+    spawn(machine_gun_definition, Team::team_b, {1740.0F, 560.0F}, 340.0F);
+    spawn(machine_gun_definition, Team::team_b, {1770.0F, 830.0F}, 200.0F);
 }
 
 } // namespace siege

@@ -4,6 +4,7 @@
 #include "core/projectile_collision.hpp"
 #include "core/simulation.hpp"
 #include "core/targeting.hpp"
+#include "core/troop_definition.hpp"
 #include "world/unit.hpp"
 #include "world/world.hpp"
 
@@ -43,6 +44,21 @@ siege::Unit test_unit(const siege::Unit::Id id, const siege::Team team,
                        facing};
 }
 
+siege::Unit unit_from_definition(const siege::Unit::Id id,
+                                 const siege::Team team,
+                                 const siege::Vec2 position,
+                                 const float facing,
+                                 const siege::TroopDefinition& definition) {
+    return siege::Unit{id, definition.type, team, position,
+                       definition.move_speed, definition.rotation_speed,
+                       definition.vision_range, definition.vision_angle,
+                       definition.awareness_radius,
+                       definition.preferred_combat_range,
+                       definition.range_tolerance, definition.aggression,
+                       definition.retreat_bias, definition.max_health,
+                       definition.hit_radius, definition.weapon, facing};
+}
+
 void arrange_combat_scenario(siege::World& world,
                              const siege::Vec2 observer_position,
                              const siege::Vec2 target_position) {
@@ -75,6 +91,57 @@ int main() {
     using namespace siege;
 
     bool passed = true;
+    passed &= check(rifle_definition.type == TroopType::rifle &&
+                        near(rifle_definition.move_speed, 72.0F) &&
+                        near(rifle_definition.rotation_speed, 90.0F) &&
+                        near(rifle_definition.preferred_combat_range, 280.0F) &&
+                        near(rifle_definition.weapon.fire_interval, 0.60F) &&
+                        near(rifle_definition.weapon.projectile_damage, 25.0F) &&
+                        near(rifle_definition.zone_control_weight, 1.0F),
+                    "rifle definition remains unchanged");
+    passed &= check(machine_gun_definition.type == TroopType::machine_gun &&
+                        machine_gun_definition.weapon.type ==
+                            WeaponType::machine_gun &&
+                        near(machine_gun_definition.move_speed, 54.0F) &&
+                        near(machine_gun_definition.rotation_speed, 60.0F) &&
+                        near(machine_gun_definition.vision_range, 600.0F) &&
+                        near(machine_gun_definition.preferred_combat_range, 390.0F) &&
+                        near(machine_gun_definition.range_tolerance, 45.0F) &&
+                        near(machine_gun_definition.weapon.fire_interval, 0.18F) &&
+                        near(machine_gun_definition.weapon.range, 480.0F) &&
+                        near(machine_gun_definition.weapon.projectile_damage, 10.0F) &&
+                        near(machine_gun_definition.zone_control_weight, 1.0F),
+                    "machine_gun definition exposes its distinct gameplay profile");
+
+    Unit machine_gun_rotation = unit_from_definition(
+        99, Team::team_a, {}, 0.0F, machine_gun_definition);
+    machine_gun_rotation.set_desired_facing_angle(90.0F);
+    machine_gun_rotation.rotate_toward_desired(0.1);
+    passed &= check(near(machine_gun_rotation.facing_angle(), 6.0F),
+                    "machine_gun rotation uses its troop-specific speed");
+
+    World mixed_world;
+    std::array<int, 2> team_a_counts{};
+    std::array<int, 2> team_b_counts{};
+    for (const auto& unit : mixed_world.units()) {
+        const std::size_t type_index =
+            unit.troop_type() == TroopType::machine_gun ? 1U : 0U;
+        (unit.team() == Team::team_a ? team_a_counts : team_b_counts)[type_index]++;
+    }
+    passed &= check(team_a_counts == std::array<int, 2>{2, 2} &&
+                        team_b_counts == std::array<int, 2>{2, 2},
+                    "demo world contains two rifles and two machine guns per team");
+    const Vec2 rifle_move_start = mixed_world.units()[0].position();
+    const Vec2 machine_gun_move_start = mixed_world.units()[2].position();
+    Simulation mixed_simulation{mixed_world};
+    mixed_simulation.update(1.0 / 60.0);
+    passed &= check(
+        near(length(mixed_world.units()[0].position() - rifle_move_start),
+             rifle_definition.move_speed / 60.0F) &&
+            near(length(mixed_world.units()[2].position() - machine_gun_move_start),
+                 machine_gun_definition.move_speed / 60.0F),
+        "rifle and machine_gun movement use their troop-specific speeds");
+
     Unit clockwise_wrap = test_unit(100, Team::team_a, {}, 350.0F);
     clockwise_wrap.set_desired_facing_angle(10.0F);
     clockwise_wrap.rotate_toward_desired(0.1);
@@ -349,6 +416,41 @@ int main() {
                         firing_world.projectiles().back().id() > first_projectile_id,
                     "fixed-step cooldown permits the next shot at the fire interval");
 
+    World machine_gun_firing_world;
+    isolate_collision_units(machine_gun_firing_world);
+    Unit& machine_gunner = machine_gun_firing_world.units()[2];
+    Unit& machine_gun_target = machine_gun_firing_world.units()[4];
+    machine_gunner.set_position({500.0F, 300.0F});
+    machine_gun_target.set_position(
+        machine_gunner.position() + direction_from_facing(20.0F) * 390.0F);
+    const Unit::Id machine_gunner_id = machine_gunner.id();
+    const Unit::Id machine_gun_target_id = machine_gun_target.id();
+    Simulation machine_gun_firing_simulation{machine_gun_firing_world};
+    machine_gun_firing_simulation.update(1.0 / 60.0);
+    passed &= check(machine_gunner.target_id() == machine_gun_target_id &&
+                        machine_gun_firing_world.projectiles().size() == 1 &&
+                        machine_gun_firing_world.projectiles().front().weapon_type() ==
+                            WeaponType::machine_gun &&
+                        near(machine_gun_firing_world.projectiles().front().damage(),
+                             machine_gun_definition.weapon.projectile_damage),
+                    "machine_gun targeting and projectile creation use generic combat systems");
+    passed &= check(machine_gun_firing_world.fire_events().size() == 1 &&
+                        machine_gun_firing_world.fire_events().front().troop_type ==
+                            TroopType::machine_gun &&
+                        machine_gun_firing_world.fire_events().front().weapon_type ==
+                            WeaponType::machine_gun,
+                    "machine_gun actual shot emits troop-specific firing event");
+    for (int tick = 0; tick < 10; ++tick) {
+        machine_gun_firing_simulation.update(1.0 / 60.0);
+        passed &= check(machine_gun_firing_world.fire_events().empty(),
+                        "machine_gun cooldown prevents an early repeat shot");
+    }
+    machine_gun_firing_simulation.update(1.0 / 60.0);
+    passed &= check(machine_gun_firing_world.fire_events().size() == 1 &&
+                        machine_gun_firing_world.fire_events().front().unit_id ==
+                            machine_gunner_id,
+                    "machine_gun cadence uses its shorter fixed-step fire interval");
+
     World expired_projectile_world;
     expired_projectile_world.spawn_projectile(
         WeaponType::rifle, Team::team_a,
@@ -433,6 +535,27 @@ int main() {
                         near(nearest_hit_world.units()[5].health(), 100.0F),
                     "projectile damages only the nearest intersected enemy");
 
+    World machine_gun_lifecycle_world;
+    isolate_collision_units(machine_gun_lifecycle_world);
+    const Unit::Id machine_gun_source_id =
+        machine_gun_lifecycle_world.units()[2].id();
+    const Unit::Id defeated_machine_gun_id =
+        machine_gun_lifecycle_world.units()[6].id();
+    machine_gun_lifecycle_world.units()[6].set_position({200.0F, 100.0F});
+    machine_gun_lifecycle_world.spawn_projectile(
+        WeaponType::machine_gun, Team::team_a, machine_gun_source_id,
+        {100.0F, 100.0F}, {12000.0F, 0.0F}, 1000.0F, 100.0F);
+    Simulation machine_gun_lifecycle_simulation{machine_gun_lifecycle_world};
+    machine_gun_lifecycle_simulation.update(1.0 / 60.0);
+    passed &= check(
+        machine_gun_lifecycle_world.find_unit(defeated_machine_gun_id) == nullptr &&
+            machine_gun_lifecycle_world.death_events().size() == 1 &&
+            machine_gun_lifecycle_world.death_events().front().unit_id ==
+                defeated_machine_gun_id &&
+            machine_gun_lifecycle_world.death_events().front().troop_type ==
+                TroopType::machine_gun,
+        "generic damage and death lifecycle remove a defeated machine_gun");
+
     Unit defeated = test_unit(400, Team::team_b, {200.0F, 100.0F}, 90.0F);
     defeated.apply_damage(125.0F);
     passed &= check(near(defeated.health(), 0.0F),
@@ -513,9 +636,11 @@ int main() {
         const auto& unit = world.units()[index];
         const float x_delta = unit.position().x - spawn_positions[index].x;
         if (unit.team() == Team::team_a) {
-            passed &= check(x_delta > 300.0F, "team_a advances toward increasing x");
+            passed &= check(x_delta > unit.move_speed() * 4.0F,
+                            "team_a advances using its troop movement profile");
         } else {
-            passed &= check(x_delta < -300.0F, "team_b advances toward decreasing x");
+            passed &= check(x_delta < -unit.move_speed() * 4.0F,
+                            "team_b advances using its troop movement profile");
         }
         passed &= check(std::abs(unit.position().y - unit.preferred_y()) < 55.0F,
                         "unit remains near its spawn preferred_y");

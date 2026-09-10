@@ -28,6 +28,12 @@ for index in 1 2 3 4; do
         "$shadow_source/death1_${index}.png"
     )
 done
+for index in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do
+    required_files+=(
+        "$soldier_source/machine_gun/machine_gun${index}.png"
+        "$shadow_source/machine_gun${index}.png"
+    )
+done
 
 if [[ ! -d "$source_root" ]]; then
     echo "error: CraftPix source pack not found: $source_root" >&2
@@ -44,9 +50,11 @@ done
 mkdir -p \
     "$destination/legs" \
     "$destination/rifle" \
+    "$destination/machine_gun" \
     "$destination/death1" \
     "$destination/shadows/legs" \
     "$destination/shadows/rifle" \
+    "$destination/shadows/machine_gun" \
     "$destination/shadows/death1"
 
 for index in 1 2 3 4 5 6 7; do
@@ -63,5 +71,11 @@ for index in 1 2 3 4; do
     cp "$shadow_source/death1_${index}.png" \
         "$destination/shadows/death1/death1_${index}.png"
 done
+for index in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do
+    cp "$soldier_source/machine_gun/machine_gun${index}.png" \
+        "$destination/machine_gun/machine_gun${index}.png"
+    cp "$shadow_source/machine_gun${index}.png" \
+        "$destination/shadows/machine_gun/machine_gun${index}.png"
+done
 
-echo "Synced 40 rifle soldier PNG files to: $destination"
+echo "Synced 72 rifle and machine-gun soldier PNG files to: $destination"

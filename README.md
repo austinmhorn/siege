@@ -1,8 +1,8 @@
 # siege
 
-`siege` is a native top-down C++ strategy game in early development. Milestone 3
-now includes fixed-step rifle combat, swept projectile collision, health, gameplay
-death removal, and client-side firing/death effects.
+`siege` is a native top-down C++ strategy game in early development. Milestone 4
+now includes mixed rifle and machine-gun combat built on shared fixed-step targeting,
+projectile, damage, death-lifecycle, and client-effects systems.
 
 ## Technology
 
@@ -28,7 +28,8 @@ optional (`brew install sdl3`). Before building, sync the locally purchased art:
 The script defaults to the original CraftPix pack at
 `/Users/austinhorn/Downloads/top-down-soldier-sprites-pixel-art/`. Pass a different
 pack root as its first argument when needed. It copies only the required
-`soldiers_color1/soldier1` leg, rifle, and `death1` layers plus matching shadows.
+`soldiers_color1/soldier1` leg, rifle, machine-gun, and `death1` layers plus
+matching shadows.
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
@@ -43,9 +44,10 @@ Pass `-DSIEGE_FETCH_SDL3=OFF` while configuring to require a system SDL3 package
 - Close the window or press Escape to quit.
 - Press F3 to toggle per-unit simulation diagnostics. D is a temporary fallback
   for macOS keyboards that reserve F3 for Mission Control.
-- Team A rifles advance right; Team B rifles advance left.
-- Moving units animate their legs independently. Actual rifle shots briefly play
-  the matching upper-body firing sequence, then return to non-firing `rifle1`.
+- Each team fields two rifles and two machine guns. Team A advances right; Team B
+  advances left.
+- Moving units animate their legs independently. Actual shots briefly play the
+  troop's matching upper-body firing sequence, then return to its non-firing frame.
 - Rifle perception uses a 500-unit, 90-degree forward cone and a 110-unit
   omnidirectional awareness radius.
 - The F3 overlay draws the current-facing vision cone and awareness radius.
@@ -60,6 +62,11 @@ Pass `-DSIEGE_FETCH_SDL3=OFF` while configuring to require a system SDL3 package
   projectiles deal 25 damage on the first swept-circle hit against a hostile
   unit; rifles have 100 health and a 20-unit hit radius. Units at zero health stop
   participating immediately, emit one death event, and leave active World units.
+- Machine guns move at 54 units/second, rotate at 60 degrees/second, and prefer a
+  `390 +/- 45` engagement band. They fire 1100-unit/second projectiles every 0.18
+  seconds within a 480-unit range and 14-degree arc, dealing 10 damage per hit.
+  Their longer 600-unit vision and sustained cadence distinguish them from rifles;
+  both troop definitions retain a future zone-control weight of 1.
 - Death events create a client-only, non-looping `death1` animation. Its final
   corpse frame then fades smoothly for 10 seconds before being destroyed.
 - Projectiles travel independently for up to 520 world units. F3 reports active
