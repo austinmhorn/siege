@@ -1,5 +1,6 @@
 #pragma once
 
+#include "world/combat_event.hpp"
 #include "world/projectile.hpp"
 #include "world/zone.hpp"
 #include "world/unit.hpp"
@@ -24,6 +25,11 @@ public:
     [[nodiscard]] Unit* find_unit(Unit::Id id) noexcept;
     [[nodiscard]] const std::vector<Projectile>& projectiles() const noexcept;
     [[nodiscard]] std::vector<Projectile>& projectiles() noexcept;
+    [[nodiscard]] const std::vector<DeathEvent>& death_events() const noexcept;
+    [[nodiscard]] const std::vector<FireEvent>& fire_events() const noexcept;
+    void clear_transient_events() noexcept;
+    void remove_dead_units();
+    void emit_fire_event(const Unit& unit);
     Projectile& spawn_projectile(WeaponType weapon_type, Team team,
                                  Unit::Id source_unit_id, Vec2 position,
                                  Vec2 velocity, float maximum_distance,
@@ -35,6 +41,8 @@ private:
     std::array<Zone, zone_count> zones_;
     std::vector<Unit> units_;
     std::vector<Projectile> projectiles_;
+    std::vector<DeathEvent> death_events_;
+    std::vector<FireEvent> fire_events_;
     Unit::Id next_unit_id_{1};
     Projectile::Id next_projectile_id_{1};
 };

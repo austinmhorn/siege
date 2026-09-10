@@ -103,6 +103,7 @@ bool outside_world(const Vec2 position) noexcept {
 Simulation::Simulation(World& world) noexcept : world_(world) {}
 
 void Simulation::update(const double fixed_delta_seconds) noexcept {
+    world_.clear_transient_events();
     auto& units = world_.units();
     for (auto& unit : units) {
         unit.begin_simulation_step();
@@ -125,6 +126,8 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
             ++projectile;
         }
     }
+
+    world_.remove_dead_units();
 
     std::vector<std::optional<Unit::Id>> target_ids;
     target_ids.reserve(units.size());
@@ -238,6 +241,7 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
                                 direction * unit.weapon().projectile_speed,
                                 unit.weapon().projectile_max_distance,
                                 unit.weapon().projectile_damage);
+        world_.emit_fire_event(unit);
         unit.reset_weapon_cooldown();
     }
 

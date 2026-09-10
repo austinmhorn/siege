@@ -1,8 +1,8 @@
 # siege
 
-`siege` is a native top-down C++ strategy game in early development. Milestone 2
-Milestone 3 Phase 1 adds reusable weapon profiles, fixed-step firing cooldowns,
-and independent rifle projectiles. Collision, damage, and death remain out of scope.
+`siege` is a native top-down C++ strategy game in early development. Milestone 3
+now includes fixed-step rifle combat, swept projectile collision, health, gameplay
+death removal, and client-side firing/death effects.
 
 ## Technology
 
@@ -27,8 +27,8 @@ optional (`brew install sdl3`). Before building, sync the locally purchased art:
 
 The script defaults to the original CraftPix pack at
 `/Users/austinhorn/Downloads/top-down-soldier-sprites-pixel-art/`. Pass a different
-pack root as its first argument when needed. It copies only the Phase 2
-`soldiers_color1/soldier1` leg and rifle layers plus their matching shadows.
+pack root as its first argument when needed. It copies only the required
+`soldiers_color1/soldier1` leg, rifle, and `death1` layers plus matching shadows.
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
@@ -44,7 +44,8 @@ Pass `-DSIEGE_FETCH_SDL3=OFF` while configuring to require a system SDL3 package
 - Press F3 to toggle per-unit simulation diagnostics. D is a temporary fallback
   for macOS keyboards that reserve F3 for Mission Control.
 - Team A rifles advance right; Team B rifles advance left.
-- Moving units animate their legs while keeping a non-firing rifle upper frame.
+- Moving units animate their legs independently. Actual rifle shots briefly play
+  the matching upper-body firing sequence, then return to non-firing `rifle1`.
 - Rifle perception uses a 500-unit, 90-degree forward cone and a 110-unit
   omnidirectional awareness radius.
 - The F3 overlay draws the current-facing vision cone and awareness radius.
@@ -57,10 +58,12 @@ Pass `-DSIEGE_FETCH_SDL3=OFF` while configuring to require a system SDL3 package
 - Aligned rifle units fire 960-unit/second tracers every 0.60 seconds while their
   target is inside the 360-unit weapon range and 12-degree firing arc. Rifle
   projectiles deal 25 damage on the first swept-circle hit against a hostile
-  unit; rifles have 100 health and a 20-unit hit radius. Units at zero health
-  remain rendered for diagnostics but no longer perceive, target, move, or fire.
-- Projectiles travel independently for up to 520 world units without collision or
-  damage. F3 reports projectile count and per-unit weapon cooldown.
+  unit; rifles have 100 health and a 20-unit hit radius. Units at zero health stop
+  participating immediately, emit one death event, and leave active World units.
+- Death events create a client-only, non-looping `death1` animation. Its final
+  corpse frame then fades smoothly for 10 seconds before being destroyed.
+- Projectiles travel independently for up to 520 world units. F3 reports active
+  unit, projectile, corpse, firing-effect, health, and weapon-cooldown state.
 - The complete battlefield remains visible while the window is resized.
 - World resolution: 1920x1080.
 - Simulation rate: 60 fixed ticks per second, independent of rendering rate.

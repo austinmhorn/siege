@@ -2,6 +2,8 @@
 
 #include "core/troop_definition.hpp"
 
+#include <algorithm>
+
 namespace siege {
 namespace {
 
@@ -59,6 +61,36 @@ const std::vector<Projectile>& World::projectiles() const noexcept {
 
 std::vector<Projectile>& World::projectiles() noexcept {
     return projectiles_;
+}
+
+const std::vector<DeathEvent>& World::death_events() const noexcept {
+    return death_events_;
+}
+
+const std::vector<FireEvent>& World::fire_events() const noexcept {
+    return fire_events_;
+}
+
+void World::clear_transient_events() noexcept {
+    death_events_.clear();
+    fire_events_.clear();
+}
+
+void World::remove_dead_units() {
+    for (const auto& unit : units_) {
+        if (!unit.is_alive()) {
+            death_events_.push_back(DeathEvent{
+                unit.id(), unit.troop_type(), unit.team(), unit.position(),
+                unit.facing_angle(),
+            });
+        }
+    }
+    std::erase_if(units_, [](const Unit& unit) { return !unit.is_alive(); });
+}
+
+void World::emit_fire_event(const Unit& unit) {
+    fire_events_.push_back(
+        FireEvent{unit.id(), unit.troop_type(), unit.weapon().type});
 }
 
 Projectile& World::spawn_projectile(const WeaponType weapon_type, const Team team,

@@ -31,6 +31,7 @@ constexpr Color divider{196, 203, 207, 255};
 constexpr Color team_a_projectile{126, 218, 255, 255};
 constexpr Color team_b_projectile{255, 174, 102, 255};
 constexpr float projectile_tracer_length = 18.0F;
+constexpr double corpse_fade_seconds = 10.0;
 
 struct SoldierVisualLayout {
     float source_pixel_world_size;
@@ -70,6 +71,34 @@ std::filesystem::path frame_path(const std::string& layer, const std::string& pr
            (prefix + std::to_string(frame) + ".png");
 }
 
+bool render_soldier_layer(SDL_Renderer* renderer, TextureCache& textures,
+                          const WorldTransform& transform,
+                          const std::filesystem::path& path,
+                          const Vec2 position, const float facing,
+                          const float canvas_size, const float opacity = 1.0F) {
+    SDL_Texture* texture = textures.get(path);
+    if (texture == nullptr ||
+        !SDL_SetTextureAlphaModFloat(texture, std::clamp(opacity, 0.0F, 1.0F))) {
+        return false;
+    }
+
+    const float world_size = canvas_size * soldier_layout.source_pixel_world_size *
+                             soldier_layout.render_scale;
+    const Bounds world_bounds{
+        position.x - world_size * 0.5F,
+        position.y - world_size * 0.5F,
+        world_size,
+        world_size,
+    };
+    const auto bounds = transform.world_to_drawable(world_bounds);
+    const SDL_FRect destination{bounds.x, bounds.y, bounds.width, bounds.height};
+    const SDL_FPoint pivot{destination.w * 0.5F, destination.h * 0.5F};
+    const bool rendered = SDL_RenderTextureRotated(
+        renderer, texture, nullptr, &destination, facing, &pivot, SDL_FLIP_NONE);
+    const bool restored = SDL_SetTextureAlphaModFloat(texture, 1.0F);
+    return rendered && restored;
+}
+
 } // namespace
 
 Renderer::Renderer(SDL_Renderer* renderer, std::filesystem::path asset_root)
@@ -87,6 +116,43 @@ void Renderer::update(const World& world, const double fixed_delta_seconds) {
             entry->second.reset();
         }
     }
+
+    std::erase_if(leg_animations_, [&world](const auto& entry) {
+        return world.find_unit(entry.first) == nullptr;
+    });
+
+    for (const auto& event : world.fire_events()) {
+        if (event.troop_type != TroopType::rifle ||
+            event.weapon_type != WeaponType::rifle) {
+            continue;
+        }
+        auto [animation, inserted] = firing_animations_.try_emplace(
+            event.unit_id, std::vector<std::size_t>{9, 8, 7, 6, 5, 4, 3, 2, 1},
+            0.04, false);
+        if (!inserted) {
+            animation->second.reset();
+        }
+    }
+    for (auto& [unit_id, animation] : firing_animations_) {
+        static_cast<void>(unit_id);
+        animation.update(fixed_delta_seconds);
+    }
+    std::erase_if(firing_animations_, [&world](const auto& entry) {
+        return entry.second.finished() || world.find_unit(entry.first) == nullptr;
+    });
+
+    for (const auto& event : world.death_events()) {
+        corpses_.push_back(CorpseVisual{event});
+    }
+    for (auto& corpse : corpses_) {
+        corpse.animation.update(fixed_delta_seconds);
+        if (corpse.animation.finished()) {
+            corpse.fade_elapsed += fixed_delta_seconds;
+        }
+    }
+    std::erase_if(corpses_, [](const CorpseVisual& corpse) {
+        return corpse.fade_elapsed >= corpse_fade_seconds;
+    });
 }
 
 void Renderer::toggle_debug_overlay() noexcept {
@@ -129,13 +195,15 @@ bool Renderer::render(const World& world, const double interpolation_alpha,
         }
     }
 
-    if (!render_projectiles(world, transform, interpolation_alpha) ||
+    if (!render_corpses(transform) ||
+        !render_projectiles(world, transform, interpolation_alpha) ||
         !render_units(world, transform, interpolation_alpha)) {
         return false;
     }
 
     if (debug_overlay_enabled_ &&
-        !debug_renderer_.render(world, transform, render_fps, 60.0)) {
+        !debug_renderer_.render(world, transform, render_fps, 60.0,
+                                corpses_.size(), firing_animations_.size())) {
         return false;
     }
 
@@ -167,6 +235,30 @@ bool Renderer::render_projectiles(const World& world,
     return true;
 }
 
+bool Renderer::render_corpses(const WorldTransform& transform) const {
+    for (const auto& corpse : corpses_) {
+        if (corpse.death.troop_type != TroopType::rifle) {
+            continue;
+        }
+        const std::size_t frame = corpse.animation.current_frame();
+        const float opacity = static_cast<float>(
+            1.0 - std::clamp(corpse.fade_elapsed / corpse_fade_seconds, 0.0, 1.0));
+        if (!render_soldier_layer(
+                renderer_, textures_, transform,
+                frame_path("shadows/death1", "death1_", frame),
+                corpse.death.position, corpse.death.facing_angle,
+                soldier_layout.upper_canvas_size, opacity) ||
+            !render_soldier_layer(
+                renderer_, textures_, transform,
+                frame_path("death1", "death1_", frame),
+                corpse.death.position, corpse.death.facing_angle,
+                soldier_layout.upper_canvas_size, opacity)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool Renderer::render_units(const World& world, const WorldTransform& transform,
                             const double interpolation_alpha) const {
     for (const auto& unit : world.units()) {
@@ -183,45 +275,28 @@ bool Renderer::render_units(const World& world, const WorldTransform& transform,
             animation != leg_animations_.end()) {
             leg_frame = animation->second.current_frame();
         }
-
-        const auto render_layer = [this, &transform, position, facing](
-                                      const std::filesystem::path& path,
-                                      const float canvas_size) {
-            SDL_Texture* texture = textures_.get(path);
-            if (texture == nullptr) {
-                return false;
-            }
-
-            const float world_size = canvas_size * soldier_layout.source_pixel_world_size *
-                                     soldier_layout.render_scale;
-            const Bounds world_bounds{
-                position.x - world_size * 0.5F,
-                position.y - world_size * 0.5F,
-                world_size,
-                world_size,
-            };
-            const auto bounds = transform.world_to_drawable(world_bounds);
-            const SDL_FRect destination{bounds.x, bounds.y, bounds.width, bounds.height};
-            const SDL_FPoint pivot{destination.w * 0.5F, destination.h * 0.5F};
-            return SDL_RenderTextureRotated(renderer_, texture, nullptr, &destination,
-                                            facing, &pivot, SDL_FLIP_NONE);
-        };
+        std::size_t rifle_frame = soldier_layout.non_firing_rifle_frame;
+        if (const auto animation = firing_animations_.find(unit.id());
+            animation != firing_animations_.end()) {
+            rifle_frame = animation->second.current_frame();
+        }
 
         const std::array layers{
             std::pair{frame_path("shadows/legs", "legs", leg_frame),
                       soldier_layout.legs_canvas_size},
             std::pair{frame_path("shadows/rifle", "rifle",
-                                 soldier_layout.non_firing_rifle_frame),
+                                 rifle_frame),
                       soldier_layout.upper_canvas_size},
             std::pair{frame_path("legs", "legs", leg_frame),
                       soldier_layout.legs_canvas_size},
             std::pair{frame_path("rifle", "rifle",
-                                 soldier_layout.non_firing_rifle_frame),
+                                 rifle_frame),
                       soldier_layout.upper_canvas_size},
         };
 
         for (const auto& [path, canvas_size] : layers) {
-            if (!render_layer(path, canvas_size)) {
+            if (!render_soldier_layer(renderer_, textures_, transform, path,
+                                      position, facing, canvas_size)) {
                 return false;
             }
         }

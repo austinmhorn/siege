@@ -291,6 +291,8 @@ int main() {
     no_fire_simulation.update(1.0 / 60.0);
     passed &= check(no_fire_world.projectiles().empty(),
                     "unit without a target does not fire");
+    passed &= check(no_fire_world.fire_events().empty(),
+                    "no firing event is emitted without an actual shot");
 
     Unit weapon_observer =
         test_unit(350, Team::team_a, {100.0F, 100.0F}, 0.0F);
@@ -313,6 +315,10 @@ int main() {
     firing_simulation.update(1.0 / 60.0);
     passed &= check(firing_world.projectiles().size() == 1,
                     "valid aligned target creates one projectile");
+    passed &= check(firing_world.fire_events().size() == 1 &&
+                        firing_world.fire_events().front().unit_id ==
+                            firing_world.units()[0].id(),
+                    "actual projectile creation emits one firing event");
     const Projectile::Id first_projectile_id =
         firing_world.projectiles().front().id();
     const Vec2 fired_position = firing_world.projectiles().front().position();
@@ -325,6 +331,8 @@ int main() {
     firing_simulation.update(1.0 / 60.0);
     passed &= check(firing_world.projectiles().size() == 1,
                     "weapon cooldown prevents an immediate repeat shot");
+    passed &= check(firing_world.fire_events().empty(),
+                    "cooldown-blocked firing emits no firing event");
     passed &= check(near(
                         length(firing_world.projectiles().front().position() -
                                fired_position),
@@ -432,28 +440,44 @@ int main() {
     passed &= check(!defeated.is_alive(),
                     "zero-health unit becomes non-alive");
 
-    World dead_unit_world;
-    arrange_combat_scenario(dead_unit_world, {500.0F, 200.0F},
-                            {500.0F, 480.0F});
-    auto& dead_unit = dead_unit_world.units()[0];
-    const Vec2 dead_position = dead_unit.position();
-    dead_unit.set_target_id(dead_unit_world.units()[4].id());
-    dead_unit.apply_damage(dead_unit.max_health());
-    Simulation dead_unit_simulation{dead_unit_world};
-    dead_unit_simulation.update(1.0 / 60.0);
-    passed &= check(length(dead_unit.position() - dead_position) < 0.001F &&
-                        dead_unit.movement_state() == MovementState::idle &&
-                        dead_unit.combat_movement_state() ==
-                            CombatMovementState::inactive,
-                    "dead unit cannot move and reports inactive");
-    passed &= check(!dead_unit.target_id().has_value() &&
-                        !select_target(dead_unit, dead_unit_world.units()).has_value(),
-                    "dead unit cannot retain or acquire a target");
-    bool dead_unit_fired = false;
-    for (const auto& projectile : dead_unit_world.projectiles()) {
-        dead_unit_fired |= projectile.source_unit_id() == dead_unit.id();
-    }
-    passed &= check(!dead_unit_fired, "dead unit cannot fire");
+    World lifecycle_world;
+    arrange_combat_scenario(lifecycle_world, {500.0F, 200.0F},
+                            {500.0F, 300.0F});
+    lifecycle_world.units()[5].set_position({500.0F, 450.0F});
+    const Unit::Id observer_id = lifecycle_world.units()[0].id();
+    const Unit::Id defeated_id = lifecycle_world.units()[4].id();
+    const Unit::Id replacement_id = lifecycle_world.units()[5].id();
+    lifecycle_world.units()[0].set_target_id(defeated_id);
+    lifecycle_world.units()[4].set_target_id(observer_id);
+    lifecycle_world.units()[4].apply_damage(
+        lifecycle_world.units()[4].max_health());
+    const Unit& pending_removal = lifecycle_world.units()[4];
+    passed &= check(!pending_removal.is_alive() &&
+                        pending_removal.movement_state() == MovementState::idle &&
+                        pending_removal.combat_movement_state() ==
+                            CombatMovementState::inactive &&
+                        !pending_removal.target_id().has_value(),
+                    "lethal damage immediately marks unit inactive before removal");
+    passed &= check(!select_target(pending_removal, lifecycle_world.units()).has_value() &&
+                        !can_fire_at(pending_removal, lifecycle_world.units()[0]),
+                    "dead unit cannot target or fire before lifecycle removal");
+
+    Simulation lifecycle_simulation{lifecycle_world};
+    lifecycle_simulation.update(1.0 / 60.0);
+    passed &= check(lifecycle_world.find_unit(defeated_id) == nullptr &&
+                        lifecycle_world.units().size() == 7,
+                    "dead gameplay unit is removed from active world units");
+    passed &= check(lifecycle_world.death_events().size() == 1 &&
+                        lifecycle_world.death_events().front().unit_id == defeated_id,
+                    "removed unit emits exactly one death event");
+    const Unit* lifecycle_observer = lifecycle_world.find_unit(observer_id);
+    passed &= check(lifecycle_observer != nullptr &&
+                        lifecycle_observer->target_id() == replacement_id,
+                    "survivor clears removed target ID and reacquires replacement");
+
+    lifecycle_simulation.update(1.0 / 60.0);
+    passed &= check(lifecycle_world.death_events().empty(),
+                    "removed unit cannot emit a duplicate death event");
 
     std::vector<Unit> dead_target_units{
         test_unit(410, Team::team_a, {100.0F, 100.0F}, 270.0F),

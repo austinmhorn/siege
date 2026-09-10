@@ -75,14 +75,17 @@ bool draw_vision_cone(SDL_Renderer* renderer, const WorldTransform& transform,
 DebugRenderer::DebugRenderer(SDL_Renderer* renderer) noexcept : renderer_(renderer) {}
 
 bool DebugRenderer::render(const World& world, const WorldTransform& transform,
-                           const double render_fps, const double simulation_hz) const {
+                           const double render_fps, const double simulation_hz,
+                           const std::size_t corpse_count,
+                           const std::size_t firing_effect_count) const {
     SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
     set_color(renderer_, 245, 245, 245);
     if (!SDL_RenderDebugTextFormat(renderer_, transform.viewport().x + 8.0F,
                                    transform.viewport().y + 8.0F,
-                                   "F3 debug | sim %.0f Hz | render %.1f FPS | units %zu | projectiles %zu",
+                                   "F3 debug | sim %.0f Hz | render %.1f FPS | units %zu | projectiles %zu | corpses %zu | firing %zu",
                                    simulation_hz, render_fps, world.units().size(),
-                                   world.projectiles().size())) {
+                                   world.projectiles().size(), corpse_count,
+                                   firing_effect_count)) {
         return false;
     }
 
@@ -126,20 +129,6 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                             marker.x, marker.y + marker_size)) {
             return false;
         }
-        if (!unit.is_alive()) {
-            set_color(renderer_, 255, 72, 72);
-            if (!SDL_RenderLine(renderer_, marker.x - marker_size,
-                                marker.y - marker_size,
-                                marker.x + marker_size,
-                                marker.y + marker_size) ||
-                !SDL_RenderLine(renderer_, marker.x - marker_size,
-                                marker.y + marker_size,
-                                marker.x + marker_size,
-                                marker.y - marker_size)) {
-                return false;
-            }
-        }
-
         set_color(renderer_, 255, 215, 40);
         const Vec2 facing_end =
             position + direction_from_facing(unit.facing_angle()) * direction_length;
