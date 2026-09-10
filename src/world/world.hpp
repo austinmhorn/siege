@@ -1,8 +1,10 @@
 #pragma once
 
 #include "world/zone.hpp"
+#include "world/unit.hpp"
 
 #include <array>
+#include <vector>
 
 namespace siege {
 
@@ -15,10 +17,15 @@ public:
     World();
 
     [[nodiscard]] const std::array<Zone, zone_count>& zones() const noexcept;
+    [[nodiscard]] const std::vector<Unit>& units() const noexcept;
+    [[nodiscard]] std::vector<Unit>& units() noexcept;
 
 private:
+    void spawn_test_units();
+
     std::array<Zone, zone_count> zones_;
+    std::vector<Unit> units_;
+    Unit::Id next_unit_id_{1};
 };
 
 } // namespace siege
-

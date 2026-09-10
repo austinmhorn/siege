@@ -53,6 +53,7 @@ int Game::run() {
     using clock = std::chrono::steady_clock;
     auto previous_time = clock::now();
     double accumulator = 0.0;
+    double render_fps = 0.0;
     bool running = true;
 
     while (running) {
@@ -62,20 +63,25 @@ int Game::run() {
                 (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_ESCAPE)) {
                 running = false;
             } else if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
-                       event.key.key == SDLK_R) {
-                client_renderer.rotate_test_soldier();
+                       (event.key.key == SDLK_F3 || event.key.key == SDLK_D)) {
+                client_renderer.toggle_debug_overlay();
             }
         }
 
         const auto current_time = clock::now();
         const std::chrono::duration<double> elapsed = current_time - previous_time;
         previous_time = current_time;
+        if (elapsed.count() > 0.0) {
+            const double instantaneous_fps = 1.0 / elapsed.count();
+            render_fps = render_fps == 0.0 ? instantaneous_fps
+                                           : render_fps * 0.9 + instantaneous_fps * 0.1;
+        }
         accumulator += std::min(elapsed.count(), maximum_frame_delta);
 
         int update_count = 0;
         while (accumulator >= fixed_delta && update_count < maximum_updates_per_frame) {
             simulation_.update(fixed_delta);
-            client_renderer.update(fixed_delta);
+            client_renderer.update(world_, fixed_delta);
             accumulator -= fixed_delta;
             ++update_count;
         }
@@ -84,7 +90,7 @@ int Game::run() {
         }
 
         const double interpolation_alpha = accumulator / fixed_delta;
-        if (!client_renderer.render(world_, interpolation_alpha)) {
+        if (!client_renderer.render(world_, interpolation_alpha, render_fps)) {
             std::fprintf(stderr, "Rendering failed: %s\n", SDL_GetError());
             return 1;
         }

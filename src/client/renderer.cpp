@@ -1,6 +1,8 @@
 #include "client/renderer.hpp"
 
 #include "client/world_transform.hpp"
+#include "core/math.hpp"
+#include "world/unit.hpp"
 #include "world/world.hpp"
 
 #include <SDL3/SDL.h>
@@ -28,17 +30,17 @@ constexpr Color team_b{132, 55, 50, 255};
 constexpr Color divider{196, 203, 207, 255};
 
 struct SoldierVisualLayout {
-    Point world_position;
     float source_pixel_world_size;
     float legs_canvas_size;
     float upper_canvas_size;
+    std::size_t non_firing_rifle_frame;
 };
 
-constexpr SoldierVisualLayout test_soldier_layout{
-    .world_position = {280.0F, 540.0F},
+constexpr SoldierVisualLayout soldier_layout{
     .source_pixel_world_size = 2.0F,
     .legs_canvas_size = 32.0F,
     .upper_canvas_size = 64.0F,
+    .non_firing_rifle_frame = 1,
 };
 
 void set_color(SDL_Renderer* renderer, const Color color) {
@@ -67,22 +69,27 @@ std::filesystem::path frame_path(const std::string& layer, const std::string& pr
 
 Renderer::Renderer(SDL_Renderer* renderer, std::filesystem::path asset_root)
     : renderer_(renderer), textures_(renderer, std::move(asset_root)),
-      rifle_animation_({1, 2, 3, 4, 5, 6, 7, 8, 9}, 0.12, true) {}
+      debug_renderer_(renderer) {}
 
-void Renderer::update(const double fixed_delta_seconds) noexcept {
-    rifle_animation_.update(fixed_delta_seconds);
-}
-
-void Renderer::rotate_test_soldier() noexcept {
-    test_soldier_angle_degrees_ += 17.0;
-    if (test_soldier_angle_degrees_ >= 360.0) {
-        test_soldier_angle_degrees_ -= 360.0;
+void Renderer::update(const World& world, const double fixed_delta_seconds) {
+    for (const auto& unit : world.units()) {
+        auto [entry, inserted] = leg_animations_.try_emplace(
+            unit.id(), std::vector<std::size_t>{1, 2, 3, 4, 5, 6, 7}, 0.10, true);
+        static_cast<void>(inserted);
+        if (unit.movement_state() == MovementState::moving) {
+            entry->second.update(fixed_delta_seconds);
+        } else {
+            entry->second.reset();
+        }
     }
 }
 
-bool Renderer::render(const World& world, const double interpolation_alpha) const {
-    static_cast<void>(interpolation_alpha);
+void Renderer::toggle_debug_overlay() noexcept {
+    debug_overlay_enabled_ = !debug_overlay_enabled_;
+}
 
+bool Renderer::render(const World& world, const double interpolation_alpha,
+                      const double render_fps) const {
     int output_width = 0;
     int output_height = 0;
     if (!SDL_GetRenderOutputSize(renderer_, &output_width, &output_height)) {
@@ -117,49 +124,74 @@ bool Renderer::render(const World& world, const double interpolation_alpha) cons
         }
     }
 
-    if (!render_test_soldier(transform)) {
+    if (!render_units(world, transform, interpolation_alpha)) {
+        return false;
+    }
+
+    if (debug_overlay_enabled_ &&
+        !debug_renderer_.render(world, transform, render_fps, 60.0)) {
         return false;
     }
 
     return SDL_RenderPresent(renderer_);
 }
 
-bool Renderer::render_test_soldier(const WorldTransform& transform) const {
-    const auto frame = rifle_animation_.current_frame();
-    const auto render_layer = [this, &transform](const std::filesystem::path& path,
-                                                 const float canvas_size) {
-        SDL_Texture* texture = textures_.get(path);
-        if (texture == nullptr) {
-            return false;
+bool Renderer::render_units(const World& world, const WorldTransform& transform,
+                            const double interpolation_alpha) const {
+    for (const auto& unit : world.units()) {
+        if (unit.troop_type() != TroopType::rifle) {
+            continue;
         }
 
-        const float world_size = canvas_size * test_soldier_layout.source_pixel_world_size;
-        const Bounds world_bounds{
-            test_soldier_layout.world_position.x - world_size * 0.5F,
-            test_soldier_layout.world_position.y - world_size * 0.5F,
-            world_size,
-            world_size,
+        const float alpha = static_cast<float>(interpolation_alpha);
+        const Vec2 position = lerp(unit.previous_position(), unit.position(), alpha);
+        const float facing =
+            lerp_angle(unit.previous_facing_angle(), unit.facing_angle(), alpha);
+        std::size_t leg_frame = 1;
+        if (const auto animation = leg_animations_.find(unit.id());
+            animation != leg_animations_.end()) {
+            leg_frame = animation->second.current_frame();
+        }
+
+        const auto render_layer = [this, &transform, position, facing](
+                                      const std::filesystem::path& path,
+                                      const float canvas_size) {
+            SDL_Texture* texture = textures_.get(path);
+            if (texture == nullptr) {
+                return false;
+            }
+
+            const float world_size = canvas_size * soldier_layout.source_pixel_world_size;
+            const Bounds world_bounds{
+                position.x - world_size * 0.5F,
+                position.y - world_size * 0.5F,
+                world_size,
+                world_size,
+            };
+            const auto bounds = transform.world_to_drawable(world_bounds);
+            const SDL_FRect destination{bounds.x, bounds.y, bounds.width, bounds.height};
+            const SDL_FPoint pivot{destination.w * 0.5F, destination.h * 0.5F};
+            return SDL_RenderTextureRotated(renderer_, texture, nullptr, &destination,
+                                            facing, &pivot, SDL_FLIP_NONE);
         };
-        const auto bounds = transform.world_to_drawable(world_bounds);
-        const SDL_FRect destination{bounds.x, bounds.y, bounds.width, bounds.height};
-        const SDL_FPoint pivot{destination.w * 0.5F, destination.h * 0.5F};
-        return SDL_RenderTextureRotated(renderer_, texture, nullptr, &destination,
-                                        test_soldier_angle_degrees_, &pivot, SDL_FLIP_NONE);
-    };
 
-    const std::array layers{
-        std::pair{frame_path("shadows/legs", "legs", 7),
-                  test_soldier_layout.legs_canvas_size},
-        std::pair{frame_path("shadows/rifle", "rifle", frame),
-                  test_soldier_layout.upper_canvas_size},
-        std::pair{frame_path("legs", "legs", 7), test_soldier_layout.legs_canvas_size},
-        std::pair{frame_path("rifle", "rifle", frame),
-                  test_soldier_layout.upper_canvas_size},
-    };
+        const std::array layers{
+            std::pair{frame_path("shadows/legs", "legs", leg_frame),
+                      soldier_layout.legs_canvas_size},
+            std::pair{frame_path("shadows/rifle", "rifle",
+                                 soldier_layout.non_firing_rifle_frame),
+                      soldier_layout.upper_canvas_size},
+            std::pair{frame_path("legs", "legs", leg_frame),
+                      soldier_layout.legs_canvas_size},
+            std::pair{frame_path("rifle", "rifle",
+                                 soldier_layout.non_firing_rifle_frame),
+                      soldier_layout.upper_canvas_size},
+        };
 
-    for (const auto& [path, canvas_size] : layers) {
-        if (!render_layer(path, canvas_size)) {
-            return false;
+        for (const auto& [path, canvas_size] : layers) {
+            if (!render_layer(path, canvas_size)) {
+                return false;
+            }
         }
     }
     return true;

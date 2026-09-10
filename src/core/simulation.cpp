@@ -2,15 +2,104 @@
 
 #include "world/world.hpp"
 
+#include <algorithm>
+#include <cmath>
+#include <vector>
+
 namespace siege {
+namespace {
+
+constexpr float separation_radius = 80.0F;
+constexpr float separation_weight = 0.9F;
+constexpr float preferred_y_scale = 120.0F;
+constexpr float maximum_y_correction = 0.45F;
+constexpr float world_margin = 32.0F;
+
+struct MotionIntent {
+    Vec2 velocity;
+    float desired_facing;
+    MovementState state;
+};
+
+Vec2 separation_for(const Unit& unit, const std::vector<Unit>& units) noexcept {
+    Vec2 separation{};
+    for (const auto& other : units) {
+        if (other.id() == unit.id() || other.team() != unit.team()) {
+            continue;
+        }
+
+        Vec2 offset = unit.position() - other.position();
+        float distance = length(offset);
+        if (distance >= separation_radius) {
+            continue;
+        }
+
+        if (distance <= 0.0001F) {
+            offset = Vec2{0.0F, unit.id() < other.id() ? -1.0F : 1.0F};
+            distance = 0.0F;
+        } else {
+            offset = offset * (1.0F / distance);
+        }
+
+        const float influence = 1.0F - distance / separation_radius;
+        separation = separation + offset * influence;
+    }
+    return separation * separation_weight;
+}
+
+float facing_for(const Vec2 direction) noexcept {
+    constexpr float radians_to_degrees = 57.29577951308232F;
+    return normalized_angle(std::atan2(-direction.x, direction.y) * radians_to_degrees);
+}
+
+} // namespace
 
 Simulation::Simulation(World& world) noexcept : world_(world) {}
 
 void Simulation::update(const double fixed_delta_seconds) noexcept {
-    // Phase 1 has no changing world state. Keeping the update boundary explicit
-    // establishes where deterministic world rules will run in later phases.
-    static_cast<void>(world_);
-    static_cast<void>(fixed_delta_seconds);
+    auto& units = world_.units();
+    for (auto& unit : units) {
+        unit.begin_simulation_step();
+    }
+
+    std::vector<MotionIntent> intents;
+    intents.reserve(units.size());
+    for (const auto& unit : units) {
+        const float advance_x = unit.team() == Team::team_a ? 1.0F : -1.0F;
+        const bool reached_edge =
+            (unit.team() == Team::team_a && unit.position().x >= World::width - world_margin) ||
+            (unit.team() == Team::team_b && unit.position().x <= world_margin);
+        if (unit.team() == Team::none || reached_edge) {
+            intents.push_back(MotionIntent{{}, unit.facing_angle(), MovementState::idle});
+            continue;
+        }
+
+        const float y_error = unit.preferred_y() - unit.position().y;
+        Vec2 steering{
+            advance_x,
+            std::clamp(y_error / preferred_y_scale, -maximum_y_correction,
+                       maximum_y_correction),
+        };
+        steering = steering + separation_for(unit, units);
+        const Vec2 direction = normalized(steering);
+        intents.push_back(MotionIntent{direction * unit.move_speed(), facing_for(direction),
+                                       MovementState::moving});
+    }
+
+    for (std::size_t index = 0; index < units.size(); ++index) {
+        auto& unit = units[index];
+        const auto& intent = intents[index];
+        const auto next_position =
+            unit.position() + intent.velocity * static_cast<float>(fixed_delta_seconds);
+        unit.set_position(Vec2{
+            std::clamp(next_position.x, world_margin, World::width - world_margin),
+            std::clamp(next_position.y, world_margin, World::height - world_margin),
+        });
+        unit.set_desired_facing_angle(intent.desired_facing);
+        unit.rotate_toward_desired(fixed_delta_seconds);
+        unit.set_movement_state(intent.state);
+    }
+
     ++tick_count_;
 }
 
@@ -19,4 +108,3 @@ unsigned long long Simulation::tick_count() const noexcept {
 }
 
 } // namespace siege
-

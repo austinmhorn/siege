@@ -34,7 +34,9 @@ add_executable(siege
     src/core/simulation.cpp
     src/client/frame_animation.cpp
     src/world/world.cpp
+    src/world/unit.cpp
     src/world/zone.cpp
+    src/client/debug_renderer.cpp
     src/client/renderer.cpp
     src/client/texture_cache.cpp
     src/client/world_transform.cpp
@@ -55,4 +57,22 @@ if(MSVC)
     target_compile_options(siege PRIVATE /W4 /permissive-)
 else()
     target_compile_options(siege PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(siege_core_tests
+        tests/core_tests.cpp
+        src/core/simulation.cpp
+        src/world/unit.cpp
+        src/world/world.cpp
+        src/world/zone.cpp
+    )
+    target_include_directories(siege_core_tests PRIVATE src)
+    if(MSVC)
+        target_compile_options(siege_core_tests PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(siege_core_tests PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+    add_test(NAME siege_core_tests COMMAND siege_core_tests)
 endif()
