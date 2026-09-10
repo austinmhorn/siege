@@ -64,4 +64,17 @@ struct Vec2 {
                                       std::clamp(alpha, 0.0F, 1.0F));
 }
 
+// Facing angles follow the artwork convention: 0 degrees points down and
+// positive rotation is clockwise in screen/world coordinates.
+[[nodiscard]] inline Vec2 direction_from_facing(const float degrees) noexcept {
+    constexpr float degrees_to_radians = 0.017453292519943295F;
+    const float radians = degrees * degrees_to_radians;
+    return Vec2{-std::sin(radians), std::cos(radians)};
+}
+
+[[nodiscard]] inline float facing_from_direction(const Vec2 direction) noexcept {
+    constexpr float radians_to_degrees = 57.29577951308232F;
+    return normalized_angle(std::atan2(-direction.x, direction.y) * radians_to_degrees);
+}
+
 } // namespace siege

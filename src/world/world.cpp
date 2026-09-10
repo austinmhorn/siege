@@ -40,7 +40,10 @@ void World::spawn_test_units() {
                               const float initial_facing) {
         units_.emplace_back(next_unit_id_++, rifle_definition.type, team, position,
                             rifle_definition.move_speed,
-                            rifle_definition.rotation_speed, initial_facing);
+                            rifle_definition.rotation_speed,
+                            rifle_definition.vision_range,
+                            rifle_definition.vision_angle,
+                            rifle_definition.awareness_radius, initial_facing);
     };
 
     spawn(Team::team_a, {150.0F, 250.0F}, 0.0F);

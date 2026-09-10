@@ -28,7 +28,9 @@ public:
     using Id = std::uint32_t;
 
     Unit(Id id, TroopType troop_type, Team team, Vec2 spawn_position,
-         float move_speed, float rotation_speed, float initial_facing_angle) noexcept;
+         float move_speed, float rotation_speed, float vision_range,
+         float vision_angle, float awareness_radius,
+         float initial_facing_angle) noexcept;
 
     void begin_simulation_step() noexcept;
     void set_position(Vec2 position) noexcept;
@@ -47,6 +49,9 @@ public:
     [[nodiscard]] float preferred_y() const noexcept;
     [[nodiscard]] float move_speed() const noexcept;
     [[nodiscard]] float rotation_speed() const noexcept;
+    [[nodiscard]] float vision_range() const noexcept;
+    [[nodiscard]] float vision_angle() const noexcept;
+    [[nodiscard]] float awareness_radius() const noexcept;
     [[nodiscard]] MovementState movement_state() const noexcept;
 
 private:
@@ -61,6 +66,9 @@ private:
     float preferred_y_{};
     float move_speed_{};
     float rotation_speed_{};
+    float vision_range_{};
+    float vision_angle_{};
+    float awareness_radius_{};
     MovementState movement_state_{MovementState::idle};
 };
 

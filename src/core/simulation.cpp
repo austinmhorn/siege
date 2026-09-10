@@ -47,11 +47,6 @@ Vec2 separation_for(const Unit& unit, const std::vector<Unit>& units) noexcept {
     return separation * separation_weight;
 }
 
-float facing_for(const Vec2 direction) noexcept {
-    constexpr float radians_to_degrees = 57.29577951308232F;
-    return normalized_angle(std::atan2(-direction.x, direction.y) * radians_to_degrees);
-}
-
 } // namespace
 
 Simulation::Simulation(World& world) noexcept : world_(world) {}
@@ -82,7 +77,8 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
         };
         steering = steering + separation_for(unit, units);
         const Vec2 direction = normalized(steering);
-        intents.push_back(MotionIntent{direction * unit.move_speed(), facing_for(direction),
+        intents.push_back(MotionIntent{direction * unit.move_speed(),
+                                       facing_from_direction(direction),
                                        MovementState::moving});
     }
 

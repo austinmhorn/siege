@@ -31,6 +31,7 @@ endif()
 add_executable(siege
     src/main.cpp
     src/core/game.cpp
+    src/core/perception.cpp
     src/core/simulation.cpp
     src/client/frame_animation.cpp
     src/world/world.cpp
@@ -63,6 +64,7 @@ include(CTest)
 if(BUILD_TESTING)
     add_executable(siege_core_tests
         tests/core_tests.cpp
+        src/core/perception.cpp
         src/core/simulation.cpp
         src/world/unit.cpp
         src/world/world.cpp
