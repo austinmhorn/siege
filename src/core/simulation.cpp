@@ -2,6 +2,7 @@
 
 #include "core/combat_behavior.hpp"
 #include "core/targeting.hpp"
+#include "core/weapon.hpp"
 #include "world/world.hpp"
 
 #include <algorithm>
@@ -71,7 +72,20 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
     auto& units = world_.units();
     for (auto& unit : units) {
         unit.begin_simulation_step();
+        unit.tick_weapon_cooldown(fixed_delta_seconds);
     }
+
+    auto& projectiles = world_.projectiles();
+    for (auto& projectile : projectiles) {
+        projectile.begin_simulation_step();
+        projectile.advance(fixed_delta_seconds);
+    }
+    std::erase_if(projectiles, [](const Projectile& projectile) {
+        const Vec2 position = projectile.position();
+        return projectile.expired() || position.x < 0.0F ||
+               position.x > World::width || position.y < 0.0F ||
+               position.y > World::height;
+    });
 
     std::vector<std::optional<Unit::Id>> target_ids;
     target_ids.reserve(units.size());
@@ -158,6 +172,24 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
         unit.rotate_toward_desired(fixed_delta_seconds);
         unit.set_movement_state(intent.state);
         unit.set_combat_movement_state(intent.combat_state);
+    }
+
+    for (auto& unit : units) {
+        if (!unit.target_id().has_value()) {
+            continue;
+        }
+
+        const Unit* target = world_.find_unit(*unit.target_id());
+        if (target == nullptr || !can_fire_at(unit, *target)) {
+            continue;
+        }
+
+        const Vec2 direction = normalized(target->position() - unit.position());
+        world_.spawn_projectile(unit.weapon().type, unit.team(), unit.id(),
+                                unit.position(),
+                                direction * unit.weapon().projectile_speed,
+                                unit.weapon().projectile_max_distance);
+        unit.reset_weapon_cooldown();
     }
 
     ++tick_count_;

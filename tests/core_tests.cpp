@@ -28,7 +28,16 @@ siege::Unit test_unit(const siege::Unit::Id id, const siege::Team team,
                       const siege::Vec2 position, const float facing) {
     return siege::Unit{id, siege::TroopType::rifle, team, position,
                        72.0F, 90.0F, 500.0F, 90.0F, 110.0F,
-                       280.0F, 35.0F, 0.9F, 0.75F, facing};
+                       280.0F, 35.0F, 0.9F, 0.75F,
+                       siege::WeaponDefinition{
+                           .type = siege::WeaponType::rifle,
+                           .projectile_speed = 960.0F,
+                           .fire_interval = 0.60F,
+                           .range = 360.0F,
+                           .firing_arc = 12.0F,
+                           .projectile_max_distance = 520.0F,
+                       },
+                       facing};
 }
 
 void arrange_combat_scenario(siege::World& world,
@@ -261,6 +270,81 @@ int main() {
     separation_simulation.update(1.0 / 60.0);
     passed &= check(separation_world.units()[0].position().x < separated_start_x,
                     "separation still moves an engaging unit away from a nearby friendly");
+
+    World no_fire_world;
+    Simulation no_fire_simulation{no_fire_world};
+    no_fire_simulation.update(1.0 / 60.0);
+    passed &= check(no_fire_world.projectiles().empty(),
+                    "unit without a target does not fire");
+
+    Unit weapon_observer =
+        test_unit(350, Team::team_a, {100.0F, 100.0F}, 0.0F);
+    const Unit weapon_out_of_range =
+        test_unit(351, Team::team_b, {100.0F, 461.0F}, 180.0F);
+    weapon_observer.set_target_id(weapon_out_of_range.id());
+    passed &= check(!can_fire_at(weapon_observer, weapon_out_of_range),
+                    "target outside weapon range cannot be fired upon");
+
+    const Unit weapon_outside_arc =
+        test_unit(352, Team::team_b, {200.0F, 100.0F}, 180.0F);
+    weapon_observer.set_target_id(weapon_outside_arc.id());
+    passed &= check(!can_fire_at(weapon_observer, weapon_outside_arc),
+                    "target outside current-facing firing arc cannot be fired upon");
+
+    World firing_world;
+    arrange_combat_scenario(firing_world, {500.0F, 200.0F},
+                            {500.0F, 480.0F});
+    Simulation firing_simulation{firing_world};
+    firing_simulation.update(1.0 / 60.0);
+    passed &= check(firing_world.projectiles().size() == 1,
+                    "valid aligned target creates one projectile");
+    const Projectile::Id first_projectile_id =
+        firing_world.projectiles().front().id();
+    const Vec2 fired_position = firing_world.projectiles().front().position();
+    const Vec2 fired_velocity = firing_world.projectiles().front().velocity();
+    const Vec2 direction_to_target = normalized(
+        firing_world.units()[4].position() - fired_position);
+    passed &= check(dot(normalized(fired_velocity), direction_to_target) > 0.999F,
+                    "projectile direction points toward target");
+
+    firing_simulation.update(1.0 / 60.0);
+    passed &= check(firing_world.projectiles().size() == 1,
+                    "weapon cooldown prevents an immediate repeat shot");
+    passed &= check(near(
+                        length(firing_world.projectiles().front().position() -
+                               fired_position),
+                        length(fired_velocity) / 60.0F, 0.02F),
+                    "projectile advances by velocity times fixed timestep");
+
+    for (int tick = 1; tick < 35; ++tick) {
+        firing_simulation.update(1.0 / 60.0);
+    }
+    passed &= check(firing_world.units()[0].weapon_cooldown_remaining() > 0.0F,
+                    "cooldown remains active before full fire interval");
+    firing_simulation.update(1.0 / 60.0);
+    passed &= check(!firing_world.projectiles().empty() &&
+                        firing_world.projectiles().back().id() > first_projectile_id,
+                    "fixed-step cooldown permits the next shot at the fire interval");
+
+    World expired_projectile_world;
+    expired_projectile_world.spawn_projectile(
+        WeaponType::rifle, Team::team_a,
+        expired_projectile_world.units()[0].id(), {100.0F, 100.0F},
+        {100.0F, 0.0F}, 1.0F);
+    Simulation expired_projectile_simulation{expired_projectile_world};
+    expired_projectile_simulation.update(1.0 / 60.0);
+    passed &= check(expired_projectile_world.projectiles().empty(),
+                    "expired projectile is removed");
+
+    World out_of_bounds_projectile_world;
+    out_of_bounds_projectile_world.spawn_projectile(
+        WeaponType::rifle, Team::team_b,
+        out_of_bounds_projectile_world.units()[4].id(), {1919.0F, 100.0F},
+        {120.0F, 0.0F}, 100.0F);
+    Simulation out_of_bounds_projectile_simulation{out_of_bounds_projectile_world};
+    out_of_bounds_projectile_simulation.update(1.0 / 60.0);
+    passed &= check(out_of_bounds_projectile_world.projectiles().empty(),
+                    "out-of-bounds projectile is removed");
 
     World world;
     Simulation simulation{world};

@@ -22,6 +22,10 @@ struct Vec2 {
     return Vec2{vector.x * scalar, vector.y * scalar};
 }
 
+[[nodiscard]] inline float dot(const Vec2 left, const Vec2 right) noexcept {
+    return left.x * right.x + left.y * right.y;
+}
+
 [[nodiscard]] inline float length_squared(const Vec2 vector) noexcept {
     return vector.x * vector.x + vector.y * vector.y;
 }

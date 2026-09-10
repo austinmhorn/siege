@@ -59,7 +59,7 @@ Unit::Unit(const Id id, const TroopType troop_type, const Team team,
            const float vision_angle, const float awareness_radius,
            const float preferred_combat_range, const float range_tolerance,
            const float aggression, const float retreat_bias,
-           const float initial_facing_angle) noexcept
+           const WeaponDefinition weapon, const float initial_facing_angle) noexcept
     : id_(id), troop_type_(troop_type), team_(team), position_(spawn_position),
       previous_position_(spawn_position),
       facing_angle_(normalized_angle(initial_facing_angle)),
@@ -69,7 +69,7 @@ Unit::Unit(const Id id, const TroopType troop_type, const Team team,
       vision_angle_(vision_angle), awareness_radius_(awareness_radius),
       preferred_combat_range_(preferred_combat_range),
       range_tolerance_(range_tolerance), aggression_(aggression),
-      retreat_bias_(retreat_bias) {}
+      retreat_bias_(retreat_bias), weapon_(weapon) {}
 
 void Unit::begin_simulation_step() noexcept {
     previous_position_ = position_;
@@ -107,6 +107,19 @@ void Unit::set_combat_movement_state(const CombatMovementState state) noexcept {
     combat_movement_state_ = state;
 }
 
+void Unit::tick_weapon_cooldown(const double delta_seconds) noexcept {
+    weapon_cooldown_remaining_ =
+        std::max(0.0F, weapon_cooldown_remaining_ -
+                          static_cast<float>(delta_seconds));
+    if (weapon_cooldown_remaining_ <= 0.0001F) {
+        weapon_cooldown_remaining_ = 0.0F;
+    }
+}
+
+void Unit::reset_weapon_cooldown() noexcept {
+    weapon_cooldown_remaining_ = std::max(weapon_.fire_interval, 0.0F);
+}
+
 Unit::Id Unit::id() const noexcept { return id_; }
 TroopType Unit::troop_type() const noexcept { return troop_type_; }
 Team Unit::team() const noexcept { return team_; }
@@ -128,6 +141,10 @@ float Unit::preferred_combat_range() const noexcept {
 float Unit::range_tolerance() const noexcept { return range_tolerance_; }
 float Unit::aggression() const noexcept { return aggression_; }
 float Unit::retreat_bias() const noexcept { return retreat_bias_; }
+const WeaponDefinition& Unit::weapon() const noexcept { return weapon_; }
+float Unit::weapon_cooldown_remaining() const noexcept {
+    return weapon_cooldown_remaining_;
+}
 MovementState Unit::movement_state() const noexcept { return movement_state_; }
 CombatMovementState Unit::combat_movement_state() const noexcept {
     return combat_movement_state_;

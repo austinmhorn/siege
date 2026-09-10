@@ -53,6 +53,23 @@ Unit* World::find_unit(const Unit::Id id) noexcept {
     return nullptr;
 }
 
+const std::vector<Projectile>& World::projectiles() const noexcept {
+    return projectiles_;
+}
+
+std::vector<Projectile>& World::projectiles() noexcept {
+    return projectiles_;
+}
+
+Projectile& World::spawn_projectile(const WeaponType weapon_type, const Team team,
+                                    const Unit::Id source_unit_id,
+                                    const Vec2 position, const Vec2 velocity,
+                                    const float maximum_distance) {
+    return projectiles_.emplace_back(next_projectile_id_++, weapon_type, team,
+                                     source_unit_id, position, velocity,
+                                     maximum_distance);
+}
+
 void World::spawn_test_units() {
     const auto spawn = [this](const Team team, const Vec2 position,
                               const float initial_facing) {
@@ -65,7 +82,8 @@ void World::spawn_test_units() {
                             rifle_definition.preferred_combat_range,
                             rifle_definition.range_tolerance,
                             rifle_definition.aggression,
-                            rifle_definition.retreat_bias, initial_facing);
+                            rifle_definition.retreat_bias,
+                            rifle_definition.weapon, initial_facing);
     };
 
     spawn(Team::team_a, {150.0F, 250.0F}, 0.0F);

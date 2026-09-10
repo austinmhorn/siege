@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/weapon.hpp"
 #include "world/unit.hpp"
 
 namespace siege {
@@ -15,6 +16,7 @@ struct TroopDefinition {
     float range_tolerance;
     float aggression;
     float retreat_bias;
+    WeaponDefinition weapon;
 };
 
 inline constexpr TroopDefinition rifle_definition{
@@ -28,6 +30,14 @@ inline constexpr TroopDefinition rifle_definition{
     .range_tolerance = 35.0F,
     .aggression = 0.9F,
     .retreat_bias = 0.75F,
+    .weapon = WeaponDefinition{
+        .type = WeaponType::rifle,
+        .projectile_speed = 960.0F,
+        .fire_interval = 0.60F,
+        .range = 360.0F,
+        .firing_arc = 12.0F,
+        .projectile_max_distance = 520.0F,
+    },
 };
 
 } // namespace siege

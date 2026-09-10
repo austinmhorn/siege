@@ -26,6 +26,9 @@ private:
     [[nodiscard]] bool render_units(const World& world,
                                     const class WorldTransform& transform,
                                     double interpolation_alpha) const;
+    [[nodiscard]] bool render_projectiles(const World& world,
+                                          const class WorldTransform& transform,
+                                          double interpolation_alpha) const;
 
     SDL_Renderer* renderer_{};
     mutable TextureCache textures_;

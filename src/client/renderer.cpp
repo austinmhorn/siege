@@ -28,6 +28,9 @@ constexpr Color neutral{66, 72, 78, 255};
 constexpr Color team_a{46, 91, 132, 255};
 constexpr Color team_b{132, 55, 50, 255};
 constexpr Color divider{196, 203, 207, 255};
+constexpr Color team_a_projectile{126, 218, 255, 255};
+constexpr Color team_b_projectile{255, 174, 102, 255};
+constexpr float projectile_tracer_length = 18.0F;
 
 struct SoldierVisualLayout {
     float source_pixel_world_size;
@@ -126,7 +129,8 @@ bool Renderer::render(const World& world, const double interpolation_alpha,
         }
     }
 
-    if (!render_units(world, transform, interpolation_alpha)) {
+    if (!render_projectiles(world, transform, interpolation_alpha) ||
+        !render_units(world, transform, interpolation_alpha)) {
         return false;
     }
 
@@ -136,6 +140,31 @@ bool Renderer::render(const World& world, const double interpolation_alpha,
     }
 
     return SDL_RenderPresent(renderer_);
+}
+
+bool Renderer::render_projectiles(const World& world,
+                                  const WorldTransform& transform,
+                                  const double interpolation_alpha) const {
+    const float alpha = static_cast<float>(interpolation_alpha);
+    for (const auto& projectile : world.projectiles()) {
+        const Vec2 position =
+            lerp(projectile.previous_position(), projectile.position(), alpha);
+        const Vec2 direction = normalized(projectile.velocity());
+        const Vec2 trail = position - direction * projectile_tracer_length;
+        const auto draw_position =
+            transform.world_to_drawable(Point{position.x, position.y});
+        const auto draw_trail = transform.world_to_drawable(Point{trail.x, trail.y});
+
+        set_color(renderer_, projectile.team() == Team::team_a
+                                 ? team_a_projectile
+                                 : team_b_projectile);
+        if (!SDL_RenderLine(renderer_, draw_trail.x, draw_trail.y,
+                            draw_position.x, draw_position.y) ||
+            !SDL_RenderPoint(renderer_, draw_position.x, draw_position.y)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 bool Renderer::render_units(const World& world, const WorldTransform& transform,

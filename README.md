@@ -1,8 +1,8 @@
 # siege
 
 `siege` is a native top-down C++ strategy game in early development. Milestone 2
-Phase 3 adds reusable combat-range behavior profiles and deterministic closing,
-engaging, and retreating movement. Firing and damage remain out of scope.
+Milestone 3 Phase 1 adds reusable weapon profiles, fixed-step firing cooldowns,
+and independent rifle projectiles. Collision, damage, and death remain out of scope.
 
 ## Technology
 
@@ -54,6 +54,10 @@ Pass `-DSIEGE_FETCH_SDL3=OFF` while configuring to require a system SDL3 package
 - Targeted rifle units close when farther than their `280 +/- 35` range band, hold
   while inside it, and retreat when too close; separation remains active.
 - The F3 overlay reports combat movement state and draws preferred combat range.
+- Aligned rifle units fire 960-unit/second tracers every 0.60 seconds while their
+  target is inside the 360-unit weapon range and 12-degree firing arc.
+- Projectiles travel independently for up to 520 world units without collision or
+  damage. F3 reports projectile count and per-unit weapon cooldown.
 - The complete battlefield remains visible while the window is resized.
 - World resolution: 1920x1080.
 - Simulation rate: 60 fixed ticks per second, independent of rendering rate.

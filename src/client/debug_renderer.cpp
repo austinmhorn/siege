@@ -80,8 +80,9 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
     set_color(renderer_, 245, 245, 245);
     if (!SDL_RenderDebugTextFormat(renderer_, transform.viewport().x + 8.0F,
                                    transform.viewport().y + 8.0F,
-                                   "F3 debug | sim %.0f Hz | render %.1f FPS | units %zu",
-                                   simulation_hz, render_fps, world.units().size())) {
+                                   "F3 debug | sim %.0f Hz | render %.1f FPS | units %zu | projectiles %zu",
+                                   simulation_hz, render_fps, world.units().size(),
+                                   world.projectiles().size())) {
         return false;
     }
 
@@ -178,7 +179,12 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                                        unit.vision_range(), unit.vision_angle(),
                                        unit.awareness_radius(),
                                        unit.preferred_combat_range(),
-                                       unit.range_tolerance())) {
+                                       unit.range_tolerance()) ||
+            !SDL_RenderDebugTextFormat(renderer_, marker.x + 10.0F, marker.y + 11.0F,
+                                       "weapon %.0f arc %.0f cd %.2f",
+                                       unit.weapon().range,
+                                       unit.weapon().firing_arc,
+                                       unit.weapon_cooldown_remaining())) {
             return false;
         }
     }
