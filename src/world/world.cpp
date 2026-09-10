@@ -1,5 +1,6 @@
 #include "world/world.hpp"
 
+#include "core/economy.hpp"
 #include "core/troop_definition.hpp"
 
 #include <algorithm>
@@ -21,7 +22,9 @@ World::World()
              Zone{1, zone_bounds(1), ZoneType::objective, Team::none},
              Zone{2, zone_bounds(2), ZoneType::objective, Team::none},
              Zone{3, zone_bounds(3), ZoneType::objective, Team::none},
-             Zone{4, zone_bounds(4), ZoneType::home, Team::team_b}} {
+             Zone{4, zone_bounds(4), ZoneType::home, Team::team_b}},
+      players_{PlayerState{Team::team_a, default_economy_rules.starting_cash},
+               PlayerState{Team::team_b, default_economy_rules.starting_cash}} {
     spawn_test_units();
 }
 
@@ -30,6 +33,30 @@ const std::array<Zone, World::zone_count>& World::zones() const noexcept {
 }
 
 std::array<Zone, World::zone_count>& World::zones() noexcept { return zones_; }
+
+const std::array<PlayerState, 2>& World::players() const noexcept {
+    return players_;
+}
+
+std::array<PlayerState, 2>& World::players() noexcept { return players_; }
+
+const PlayerState* World::find_player(const Team team) const noexcept {
+    for (const auto& player : players_) {
+        if (player.team() == team) {
+            return &player;
+        }
+    }
+    return nullptr;
+}
+
+PlayerState* World::find_player(const Team team) noexcept {
+    for (auto& player : players_) {
+        if (player.team() == team) {
+            return &player;
+        }
+    }
+    return nullptr;
+}
 
 const std::vector<Unit>& World::units() const noexcept {
     return units_;

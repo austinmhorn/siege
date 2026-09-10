@@ -1,6 +1,7 @@
 #include "core/simulation.hpp"
 
 #include "core/combat_behavior.hpp"
+#include "core/economy.hpp"
 #include "core/projectile_collision.hpp"
 #include "core/support_positioning.hpp"
 #include "core/targeting.hpp"
@@ -285,6 +286,7 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
     }
 
     update_zone_capture(world_, fixed_delta_seconds);
+    update_passive_income(world_);
 
     for (auto& unit : units) {
         if (!unit.target_id().has_value()) {

@@ -1,6 +1,7 @@
 #include "client/debug_renderer.hpp"
 
 #include "client/world_transform.hpp"
+#include "core/economy.hpp"
 #include "core/math.hpp"
 #include "core/zone_capture.hpp"
 #include "world/unit.hpp"
@@ -131,6 +132,20 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                                    simulation_hz, render_fps, world.units().size(),
                                    world.projectiles().size(), corpse_count,
                                    firing_effect_count, explosion_effect_count)) {
+        return false;
+    }
+
+    const PlayerState* team_a_player = world.find_player(Team::team_a);
+    const PlayerState* team_b_player = world.find_player(Team::team_b);
+    if (team_a_player == nullptr || team_b_player == nullptr ||
+        !SDL_RenderDebugTextFormat(
+            renderer_, transform.viewport().x + 8.0F,
+            transform.viewport().y + 18.0F,
+            "economy | Team A $%lld | Team B $%lld | passive +$%lld/s",
+            static_cast<long long>(team_a_player->cash()),
+            static_cast<long long>(team_b_player->cash()),
+            static_cast<long long>(
+                default_economy_rules.passive_income_per_second))) {
         return false;
     }
 

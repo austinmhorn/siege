@@ -32,6 +32,7 @@ add_executable(siege
     src/main.cpp
     src/core/game.cpp
     src/core/combat_behavior.cpp
+    src/core/economy.cpp
     src/core/perception.cpp
     src/core/projectile_collision.cpp
     src/core/weapon.cpp
@@ -43,6 +44,7 @@ add_executable(siege
     src/world/world.cpp
     src/world/unit.cpp
     src/world/projectile.cpp
+    src/world/player_state.cpp
     src/world/zone.cpp
     src/client/debug_renderer.cpp
     src/client/renderer.cpp
@@ -74,6 +76,7 @@ if(BUILD_TESTING)
     add_executable(siege_core_tests
         tests/core_tests.cpp
         src/core/combat_behavior.cpp
+        src/core/economy.cpp
         src/core/perception.cpp
         src/core/projectile_collision.cpp
         src/core/weapon.cpp
@@ -83,6 +86,7 @@ if(BUILD_TESTING)
         src/core/zone_capture.cpp
         src/world/unit.cpp
         src/world/projectile.cpp
+        src/world/player_state.cpp
         src/world/world.cpp
         src/world/zone.cpp
     )

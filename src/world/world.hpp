@@ -1,6 +1,7 @@
 #pragma once
 
 #include "world/combat_event.hpp"
+#include "world/player_state.hpp"
 #include "world/projectile.hpp"
 #include "world/zone.hpp"
 #include "world/zone_event.hpp"
@@ -21,6 +22,10 @@ public:
 
     [[nodiscard]] const std::array<Zone, zone_count>& zones() const noexcept;
     [[nodiscard]] std::array<Zone, zone_count>& zones() noexcept;
+    [[nodiscard]] const std::array<PlayerState, 2>& players() const noexcept;
+    [[nodiscard]] std::array<PlayerState, 2>& players() noexcept;
+    [[nodiscard]] const PlayerState* find_player(Team team) const noexcept;
+    [[nodiscard]] PlayerState* find_player(Team team) noexcept;
     [[nodiscard]] const std::vector<Unit>& units() const noexcept;
     [[nodiscard]] std::vector<Unit>& units() noexcept;
     [[nodiscard]] const Unit* find_unit(Unit::Id id) const noexcept;
@@ -48,6 +53,7 @@ private:
     void spawn_test_units();
 
     std::array<Zone, zone_count> zones_;
+    std::array<PlayerState, 2> players_;
     std::vector<Unit> units_;
     std::vector<Projectile> projectiles_;
     std::vector<DeathEvent> death_events_;

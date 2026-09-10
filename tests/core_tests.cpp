@@ -1,4 +1,5 @@
 #include "core/combat_behavior.hpp"
+#include "core/economy.hpp"
 #include "core/math.hpp"
 #include "core/perception.hpp"
 #include "core/projectile_collision.hpp"
@@ -109,6 +110,59 @@ int main() {
     using namespace siege;
 
     bool passed = true;
+
+    World economy_world;
+    economy_world.units().clear();
+    economy_world.projectiles().clear();
+    const PlayerState* initial_team_a = economy_world.find_player(Team::team_a);
+    const PlayerState* initial_team_b = economy_world.find_player(Team::team_b);
+    passed &= check(initial_team_a != nullptr && initial_team_b != nullptr &&
+                        initial_team_a->cash() == 25'000 &&
+                        initial_team_b->cash() == 25'000,
+                    "both players start with 25000 cash");
+
+    Simulation economy_simulation{economy_world};
+    for (int tick = 0; tick < 60; ++tick) {
+        economy_simulation.update(1.0 / 60.0);
+    }
+    passed &= check(economy_world.find_player(Team::team_a)->cash() == 25'100 &&
+                        economy_world.find_player(Team::team_b)->cash() == 25'100,
+                    "one fixed-step second awards 100 passive cash equally");
+
+    World batched_economy_world;
+    batched_economy_world.units().clear();
+    update_passive_income(batched_economy_world, 60);
+    passed &= check(
+        batched_economy_world.find_player(Team::team_a)->cash() ==
+                economy_world.find_player(Team::team_a)->cash() &&
+            batched_economy_world.find_player(Team::team_b)->cash() ==
+                economy_world.find_player(Team::team_b)->cash(),
+        "batched and individual fixed ticks produce deterministic income");
+
+    World render_rate_a;
+    World render_rate_b;
+    render_rate_a.units().clear();
+    render_rate_b.units().clear();
+    Simulation render_rate_a_simulation{render_rate_a};
+    Simulation render_rate_b_simulation{render_rate_b};
+    Money render_snapshot_checksum = 0;
+    for (int tick = 0; tick < 120; ++tick) {
+        render_rate_a_simulation.update(1.0 / 60.0);
+        for (int render = 0; render <= tick % 7; ++render) {
+            render_snapshot_checksum +=
+                render_rate_b.find_player(Team::team_a)->cash();
+        }
+        render_rate_b_simulation.update(1.0 / 60.0);
+    }
+    passed &= check(
+        render_snapshot_checksum > 0 &&
+            render_rate_a.find_player(Team::team_a)->cash() == 25'200 &&
+            render_rate_a.find_player(Team::team_a)->cash() ==
+                render_rate_b.find_player(Team::team_a)->cash() &&
+            render_rate_a.find_player(Team::team_b)->cash() ==
+                render_rate_b.find_player(Team::team_b)->cash(),
+        "different render-read rates cannot affect fixed-step cash");
+
     passed &= check(rifle_definition.type == TroopType::rifle &&
                         near(rifle_definition.move_speed, 72.0F) &&
                         near(rifle_definition.rotation_speed, 90.0F) &&

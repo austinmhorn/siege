@@ -115,6 +115,10 @@ for local builds when the generated `assets/` directory exists.
 - The complete battlefield remains visible while the window is resized.
 - World resolution: 1920x1080.
 - Simulation rate: 60 fixed ticks per second, independent of rendering rate.
+- Team A and Team B each begin with 25,000 integer cash and receive identical
+  passive income of 100 cash per second. Income uses an integer fixed-tick
+  remainder, so simulation time—not rendering rate—controls cash. F3 displays
+  both balances and the passive rate; purchasing and rewards are not implemented.
 
 The private purchased source pack under `.local_assets/soldiers/` and generated
 runtime content under `assets/soldiers/` are both intentionally excluded from
