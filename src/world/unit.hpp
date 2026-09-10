@@ -4,6 +4,7 @@
 #include "world/zone.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <string_view>
 
 namespace siege {
@@ -35,6 +36,8 @@ public:
     void begin_simulation_step() noexcept;
     void set_position(Vec2 position) noexcept;
     void set_desired_facing_angle(float angle) noexcept;
+    void set_target_id(std::optional<Id> target_id) noexcept;
+    void clear_target() noexcept;
     void rotate_toward_desired(double delta_seconds) noexcept;
     void set_movement_state(MovementState state) noexcept;
 
@@ -46,6 +49,7 @@ public:
     [[nodiscard]] float facing_angle() const noexcept;
     [[nodiscard]] float previous_facing_angle() const noexcept;
     [[nodiscard]] float desired_facing_angle() const noexcept;
+    [[nodiscard]] std::optional<Id> target_id() const noexcept;
     [[nodiscard]] float preferred_y() const noexcept;
     [[nodiscard]] float move_speed() const noexcept;
     [[nodiscard]] float rotation_speed() const noexcept;
@@ -63,6 +67,7 @@ private:
     float facing_angle_{};
     float previous_facing_angle_{};
     float desired_facing_angle_{};
+    std::optional<Id> target_id_{};
     float preferred_y_{};
     float move_speed_{};
     float rotation_speed_{};

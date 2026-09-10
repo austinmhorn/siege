@@ -19,6 +19,8 @@ public:
     [[nodiscard]] const std::array<Zone, zone_count>& zones() const noexcept;
     [[nodiscard]] const std::vector<Unit>& units() const noexcept;
     [[nodiscard]] std::vector<Unit>& units() noexcept;
+    [[nodiscard]] const Unit* find_unit(Unit::Id id) const noexcept;
+    [[nodiscard]] Unit* find_unit(Unit::Id id) noexcept;
 
 private:
     void spawn_test_units();

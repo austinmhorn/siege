@@ -1,9 +1,9 @@
 # siege
 
 `siege` is a native top-down C++ strategy game in early development. Milestone 2
-Phase 1 adds reusable vision-cone and awareness-radius geometry to the
-existing moving units and debug visualization. Perception does not yet influence
-movement or choose targets, and combat remains out of scope.
+Phase 2 adds persistent nearest-enemy target acquisition and gradual target-facing
+to the existing perception system. Combat, firing, and combat positioning remain
+out of scope.
 
 ## Technology
 
@@ -49,6 +49,9 @@ Pass `-DSIEGE_FETCH_SDL3=OFF` while configuring to require a system SDL3 package
 - Rifle perception uses a 500-unit, 90-degree forward cone and a 110-unit
   omnidirectional awareness radius.
 - The F3 overlay draws the current-facing vision cone and awareness radius.
+- Units retain a perceptible target by ID, reacquire the nearest perceptible enemy
+  after losing it, and gradually turn toward the selected target.
+- The F3 overlay labels each unit's target and draws a red observer-to-target line.
 - The complete battlefield remains visible while the window is resized.
 - World resolution: 1920x1080.
 - Simulation rate: 60 fixed ticks per second, independent of rendering rate.

@@ -1,5 +1,6 @@
 #include "core/simulation.hpp"
 
+#include "core/targeting.hpp"
 #include "world/world.hpp"
 
 #include <algorithm>
@@ -57,29 +58,45 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
         unit.begin_simulation_step();
     }
 
+    std::vector<std::optional<Unit::Id>> target_ids;
+    target_ids.reserve(units.size());
+    for (const auto& unit : units) {
+        target_ids.push_back(select_target(unit, units));
+    }
+
     std::vector<MotionIntent> intents;
     intents.reserve(units.size());
-    for (const auto& unit : units) {
+    for (std::size_t index = 0; index < units.size(); ++index) {
+        const auto& unit = units[index];
         const float advance_x = unit.team() == Team::team_a ? 1.0F : -1.0F;
         const bool reached_edge =
             (unit.team() == Team::team_a && unit.position().x >= World::width - world_margin) ||
             (unit.team() == Team::team_b && unit.position().x <= world_margin);
-        if (unit.team() == Team::none || reached_edge) {
-            intents.push_back(MotionIntent{{}, unit.facing_angle(), MovementState::idle});
-            continue;
+        Vec2 velocity{};
+        float desired_facing = unit.facing_angle();
+        MovementState state = MovementState::idle;
+        if (unit.team() != Team::none && !reached_edge) {
+            const float y_error = unit.preferred_y() - unit.position().y;
+            Vec2 steering{
+                advance_x,
+                std::clamp(y_error / preferred_y_scale, -maximum_y_correction,
+                           maximum_y_correction),
+            };
+            steering = steering + separation_for(unit, units);
+            const Vec2 direction = normalized(steering);
+            velocity = direction * unit.move_speed();
+            desired_facing = facing_from_direction(direction);
+            state = MovementState::moving;
         }
 
-        const float y_error = unit.preferred_y() - unit.position().y;
-        Vec2 steering{
-            advance_x,
-            std::clamp(y_error / preferred_y_scale, -maximum_y_correction,
-                       maximum_y_correction),
-        };
-        steering = steering + separation_for(unit, units);
-        const Vec2 direction = normalized(steering);
-        intents.push_back(MotionIntent{direction * unit.move_speed(),
-                                       facing_from_direction(direction),
-                                       MovementState::moving});
+        if (target_ids[index].has_value()) {
+            const Unit* target = world_.find_unit(*target_ids[index]);
+            const Vec2 target_direction = target->position() - unit.position();
+            if (length_squared(target_direction) > 0.0001F) {
+                desired_facing = facing_from_direction(target_direction);
+            }
+        }
+        intents.push_back(MotionIntent{velocity, desired_facing, state});
     }
 
     for (std::size_t index = 0; index < units.size(); ++index) {
@@ -91,6 +108,7 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
             std::clamp(next_position.x, world_margin, World::width - world_margin),
             std::clamp(next_position.y, world_margin, World::height - world_margin),
         });
+        unit.set_target_id(target_ids[index]);
         unit.set_desired_facing_angle(intent.desired_facing);
         unit.rotate_toward_desired(fixed_delta_seconds);
         unit.set_movement_state(intent.state);

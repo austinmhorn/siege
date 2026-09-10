@@ -101,6 +101,17 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
             return false;
         }
 
+        if (unit.target_id().has_value()) {
+            const Unit* target = world.find_unit(*unit.target_id());
+            if (target != nullptr) {
+                set_color(renderer_, 255, 92, 92, 205);
+                if (!draw_world_line(renderer_, transform, position,
+                                     target->position())) {
+                    return false;
+                }
+            }
+        }
+
         set_color(renderer_, 255, 255, 255);
         if (!SDL_RenderLine(renderer_, marker.x - marker_size, marker.y,
                             marker.x + marker_size, marker.y) ||
@@ -134,11 +145,20 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
         const auto type = to_string(unit.troop_type());
         const auto team = to_string(unit.team());
         const auto state = to_string(unit.movement_state());
-        if (!SDL_RenderDebugTextFormat(
-                renderer_, marker.x + 10.0F, marker.y - 19.0F, "#%u %.*s %.*s %.*s",
-                unit.id(), static_cast<int>(type.size()), type.data(),
-                static_cast<int>(team.size()), team.data(), static_cast<int>(state.size()),
-                state.data()) ||
+        const bool target_text_rendered = unit.target_id().has_value()
+            ? SDL_RenderDebugTextFormat(
+                  renderer_, marker.x + 10.0F, marker.y - 19.0F,
+                  "#%u %.*s %.*s %.*s target #%u", unit.id(),
+                  static_cast<int>(type.size()), type.data(),
+                  static_cast<int>(team.size()), team.data(),
+                  static_cast<int>(state.size()), state.data(), *unit.target_id())
+            : SDL_RenderDebugTextFormat(
+                  renderer_, marker.x + 10.0F, marker.y - 19.0F,
+                  "#%u %.*s %.*s %.*s target none", unit.id(),
+                  static_cast<int>(type.size()), type.data(),
+                  static_cast<int>(team.size()), team.data(),
+                  static_cast<int>(state.size()), state.data());
+        if (!target_text_rendered ||
             !SDL_RenderDebugTextFormat(renderer_, marker.x + 10.0F, marker.y - 9.0F,
                                        "p %.0f,%.0f py %.0f m%.0f r%.0f", position.x,
                                        position.y, unit.preferred_y(), unit.move_speed(),

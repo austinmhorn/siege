@@ -1,12 +1,14 @@
 #include "core/math.hpp"
 #include "core/perception.hpp"
 #include "core/simulation.hpp"
+#include "core/targeting.hpp"
 #include "world/unit.hpp"
 #include "world/world.hpp"
 
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <vector>
 
 namespace {
 
@@ -96,6 +98,67 @@ int main() {
     const Unit friendly = test_unit(210, Team::team_a, {200.0F, 100.0F}, 90.0F);
     passed &= check(!can_perceive(observer, friendly),
                     "perception queries reject friendly units");
+
+    std::vector<Unit> acquisition_units{
+        test_unit(300, Team::team_a, {100.0F, 100.0F}, 270.0F),
+        test_unit(302, Team::team_b, {350.0F, 100.0F}, 90.0F),
+        test_unit(301, Team::team_b, {250.0F, 100.0F}, 90.0F),
+    };
+    passed &= check(select_target(acquisition_units[0], acquisition_units) == 301,
+                    "nearest visible enemy is acquired");
+
+    std::vector<Unit> visibility_units{
+        test_unit(310, Team::team_a, {100.0F, 100.0F}, 270.0F),
+        test_unit(311, Team::team_b, {-50.0F, 100.0F}, 90.0F),
+        test_unit(312, Team::team_b, {300.0F, 100.0F}, 90.0F),
+        test_unit(309, Team::team_a, {150.0F, 100.0F}, 90.0F),
+    };
+    passed &= check(select_target(visibility_units[0], visibility_units) == 312,
+                    "closer invisible enemy and friendly unit are ignored");
+
+    std::vector<Unit> friendly_units{
+        test_unit(313, Team::team_a, {100.0F, 100.0F}, 270.0F),
+        test_unit(314, Team::team_a, {150.0F, 100.0F}, 90.0F),
+        test_unit(315, Team::team_b, {300.0F, 100.0F}, 90.0F),
+    };
+    passed &= check(select_target(friendly_units[0], friendly_units) == 315,
+                    "closer friendly unit is ignored during acquisition");
+
+    std::vector<Unit> persistence_units{
+        test_unit(320, Team::team_a, {100.0F, 100.0F}, 270.0F),
+        test_unit(321, Team::team_b, {350.0F, 100.0F}, 90.0F),
+        test_unit(322, Team::team_b, {200.0F, 100.0F}, 90.0F),
+    };
+    persistence_units[0].set_target_id(321);
+    passed &= check(select_target(persistence_units[0], persistence_units) == 321,
+                    "current target is retained while perceptible");
+    persistence_units[1].set_position({700.0F, 100.0F});
+    passed &= check(select_target(persistence_units[0], persistence_units) == 322,
+                    "new target is acquired after current target is lost");
+    persistence_units[2].set_position({800.0F, 100.0F});
+    passed &= check(!select_target(persistence_units[0], persistence_units).has_value(),
+                    "target is cleared when no enemy remains perceptible");
+
+    std::vector<Unit> tie_units{
+        test_unit(330, Team::team_a, {0.0F, 0.0F}, 0.0F),
+        test_unit(332, Team::team_b, {-100.0F, 100.0F}, 180.0F),
+        test_unit(331, Team::team_b, {100.0F, 100.0F}, 180.0F),
+    };
+    passed &= check(select_target(tie_units[0], tie_units) == 331,
+                    "equal-distance target tie selects the lowest unit ID");
+
+    World facing_world;
+    facing_world.units()[4].set_position({150.0F, 350.0F});
+    facing_world.units()[5].set_position({1800.0F, 500.0F});
+    facing_world.units()[6].set_position({1800.0F, 700.0F});
+    facing_world.units()[7].set_position({1800.0F, 900.0F});
+    Simulation facing_simulation{facing_world};
+    facing_simulation.update(1.0 / 60.0);
+    passed &= check(facing_world.units()[0].target_id() ==
+                        facing_world.units()[4].id(),
+                    "simulation stores the acquired target ID");
+    passed &= check(near(facing_world.units()[0].desired_facing_angle(), 0.0F),
+                    "desired facing points toward the acquired target");
 
     World world;
     Simulation simulation{world};

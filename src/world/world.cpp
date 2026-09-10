@@ -35,6 +35,24 @@ std::vector<Unit>& World::units() noexcept {
     return units_;
 }
 
+const Unit* World::find_unit(const Unit::Id id) const noexcept {
+    for (const auto& unit : units_) {
+        if (unit.id() == id) {
+            return &unit;
+        }
+    }
+    return nullptr;
+}
+
+Unit* World::find_unit(const Unit::Id id) noexcept {
+    for (auto& unit : units_) {
+        if (unit.id() == id) {
+            return &unit;
+        }
+    }
+    return nullptr;
+}
+
 void World::spawn_test_units() {
     const auto spawn = [this](const Team team, const Vec2 position,
                               const float initial_facing) {

@@ -65,6 +65,14 @@ void Unit::set_desired_facing_angle(const float angle) noexcept {
     desired_facing_angle_ = normalized_angle(angle);
 }
 
+void Unit::set_target_id(const std::optional<Id> target_id) noexcept {
+    target_id_ = target_id;
+}
+
+void Unit::clear_target() noexcept {
+    target_id_.reset();
+}
+
 void Unit::rotate_toward_desired(const double delta_seconds) noexcept {
     const float delta = shortest_angle_delta(facing_angle_, desired_facing_angle_);
     const float maximum_step = rotation_speed_ * static_cast<float>(delta_seconds);
@@ -84,6 +92,7 @@ Vec2 Unit::previous_position() const noexcept { return previous_position_; }
 float Unit::facing_angle() const noexcept { return facing_angle_; }
 float Unit::previous_facing_angle() const noexcept { return previous_facing_angle_; }
 float Unit::desired_facing_angle() const noexcept { return desired_facing_angle_; }
+std::optional<Unit::Id> Unit::target_id() const noexcept { return target_id_; }
 float Unit::preferred_y() const noexcept { return preferred_y_; }
 float Unit::move_speed() const noexcept { return move_speed_; }
 float Unit::rotation_speed() const noexcept { return rotation_speed_; }
