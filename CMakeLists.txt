@@ -32,14 +32,24 @@ add_executable(siege
     src/main.cpp
     src/core/game.cpp
     src/core/simulation.cpp
+    src/client/frame_animation.cpp
     src/world/world.cpp
     src/world/zone.cpp
     src/client/renderer.cpp
+    src/client/texture_cache.cpp
     src/client/world_transform.cpp
 )
 
 target_include_directories(siege PRIVATE src)
 target_link_libraries(siege PRIVATE SDL3::SDL3)
+
+add_custom_command(
+    TARGET siege POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_SOURCE_DIR}/assets"
+            "$<TARGET_FILE_DIR:siege>/assets"
+    COMMENT "Copying local runtime assets"
+)
 
 if(MSVC)
     target_compile_options(siege PRIVATE /W4 /permissive-)

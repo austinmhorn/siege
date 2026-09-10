@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 
 namespace siege {
 
@@ -42,7 +43,13 @@ int Game::run() {
     constexpr double maximum_frame_delta = 0.25;
     constexpr int maximum_updates_per_frame = 8;
 
-    Renderer client_renderer{renderer_};
+    const char* base_path = SDL_GetBasePath();
+    if (base_path == nullptr) {
+        std::fprintf(stderr, "Could not resolve executable path: %s\n", SDL_GetError());
+        return 1;
+    }
+    const auto asset_root = std::filesystem::path{base_path} / "assets";
+    Renderer client_renderer{renderer_, asset_root};
     using clock = std::chrono::steady_clock;
     auto previous_time = clock::now();
     double accumulator = 0.0;
@@ -54,6 +61,9 @@ int Game::run() {
             if (event.type == SDL_EVENT_QUIT ||
                 (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_ESCAPE)) {
                 running = false;
+            } else if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
+                       event.key.key == SDLK_R) {
+                client_renderer.rotate_test_soldier();
             }
         }
 
@@ -65,6 +75,7 @@ int Game::run() {
         int update_count = 0;
         while (accumulator >= fixed_delta && update_count < maximum_updates_per_frame) {
             simulation_.update(fixed_delta);
+            client_renderer.update(fixed_delta);
             accumulator -= fixed_delta;
             ++update_count;
         }
@@ -95,4 +106,3 @@ void Game::shutdown() noexcept {
 }
 
 } // namespace siege
-
