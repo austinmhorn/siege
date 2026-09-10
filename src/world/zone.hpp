@@ -38,6 +38,7 @@ public:
     void clear_presence() noexcept;
     void add_presence(Team team) noexcept;
     void advance_capture(float amount) noexcept;
+    void set_owner(Team owner) noexcept;
 
 private:
     std::size_t index_{};

@@ -3,6 +3,7 @@
 #include "world/combat_event.hpp"
 #include "world/projectile.hpp"
 #include "world/zone.hpp"
+#include "world/zone_event.hpp"
 #include "world/unit.hpp"
 
 #include <array>
@@ -29,6 +30,8 @@ public:
     [[nodiscard]] const std::vector<DeathEvent>& death_events() const noexcept;
     [[nodiscard]] const std::vector<FireEvent>& fire_events() const noexcept;
     [[nodiscard]] const std::vector<ExplosionEvent>& explosion_events() const noexcept;
+    [[nodiscard]] const std::vector<ZoneOwnershipEvent>& zone_ownership_events()
+        const noexcept;
     void clear_transient_events() noexcept;
     void remove_dead_units();
     void emit_fire_event(const Unit& unit);
@@ -37,6 +40,9 @@ public:
                                  Vec2 velocity, float maximum_distance,
                                  float damage, float splash_radius = 0.0F);
     void emit_explosion_event(const Projectile& projectile, Vec2 position);
+    void emit_zone_ownership_event(std::size_t zone_id, Team previous_owner,
+                                   Team new_owner,
+                                   ZoneTransitionType type);
 
 private:
     void spawn_test_units();
@@ -47,6 +53,7 @@ private:
     std::vector<DeathEvent> death_events_;
     std::vector<FireEvent> fire_events_;
     std::vector<ExplosionEvent> explosion_events_;
+    std::vector<ZoneOwnershipEvent> zone_ownership_events_;
     Unit::Id next_unit_id_{1};
     Projectile::Id next_projectile_id_{1};
 };

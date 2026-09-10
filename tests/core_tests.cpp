@@ -255,6 +255,106 @@ int main() {
                         home_world.zones()[0].team_a_count() == 0,
                     "home zones do not track capture presence or capture progress");
 
+    World ownership_world;
+    ownership_world.units().clear();
+    passed &= check(ownership_world.zones()[1].owner() == Team::none &&
+                        ownership_world.zones()[2].owner() == Team::none &&
+                        ownership_world.zones()[3].owner() == Team::none,
+                    "all objectives begin neutral");
+    ownership_world.zones()[1].advance_capture(50.0F);
+    update_zone_capture(ownership_world, 0.0);
+    passed &= check(ownership_world.zones()[1].owner() == Team::none &&
+                        ownership_world.zone_ownership_events().empty(),
+                    "partial neutral progress does not assign ownership");
+
+    ownership_world.zones()[1].advance_capture(50.0F);
+    update_zone_capture(ownership_world, 0.0);
+    passed &= check(
+        ownership_world.zones()[1].owner() == Team::team_a &&
+            ownership_world.zone_ownership_events().size() == 1 &&
+            ownership_world.zone_ownership_events().front().zone_id == 1 &&
+            ownership_world.zone_ownership_events().front().previous_owner ==
+                Team::none &&
+            ownership_world.zone_ownership_events().front().new_owner ==
+                Team::team_a &&
+            ownership_world.zone_ownership_events().front().type ==
+                ZoneTransitionType::captured,
+        "neutral objective captures for Team A at positive 100");
+    ownership_world.clear_transient_events();
+    update_zone_capture(ownership_world, 0.0);
+    passed &= check(ownership_world.zone_ownership_events().empty(),
+                    "captured boundary does not emit duplicate events");
+
+    ownership_world.zones()[1].advance_capture(-60.0F);
+    update_zone_capture(ownership_world, 0.0);
+    passed &= check(ownership_world.zones()[1].owner() == Team::team_a &&
+                        ownership_world.zone_ownership_events().empty(),
+                    "Team A objective remains owned while its meter is positive");
+    ownership_world.zones()[1].advance_capture(-40.0F);
+    update_zone_capture(ownership_world, 0.0);
+    passed &= check(
+        ownership_world.zones()[1].owner() == Team::none &&
+            ownership_world.zone_ownership_events().size() == 1 &&
+            ownership_world.zone_ownership_events().front().previous_owner ==
+                Team::team_a &&
+            ownership_world.zone_ownership_events().front().new_owner ==
+                Team::none &&
+            ownership_world.zone_ownership_events().front().type ==
+                ZoneTransitionType::neutralized,
+        "Team A objective neutralizes when its meter reaches zero");
+    ownership_world.clear_transient_events();
+    update_zone_capture(ownership_world, 0.0);
+    passed &= check(ownership_world.zone_ownership_events().empty(),
+                    "neutral boundary does not emit duplicate events");
+
+    ownership_world.zones()[1].advance_capture(-60.0F);
+    update_zone_capture(ownership_world, 0.0);
+    passed &= check(ownership_world.zones()[1].owner() == Team::none,
+                    "negative partial progress remains neutral after neutralization");
+    ownership_world.zones()[1].advance_capture(-40.0F);
+    update_zone_capture(ownership_world, 0.0);
+    passed &= check(
+        ownership_world.zones()[1].owner() == Team::team_b &&
+            ownership_world.zone_ownership_events().size() == 1 &&
+            ownership_world.zone_ownership_events().front().previous_owner ==
+                Team::none &&
+            ownership_world.zone_ownership_events().front().new_owner ==
+                Team::team_b &&
+            ownership_world.zone_ownership_events().front().type ==
+                ZoneTransitionType::captured,
+        "enemy must continue to negative 100 before Team B captures");
+
+    World direct_b_world;
+    direct_b_world.units().clear();
+    direct_b_world.zones()[2].advance_capture(-100.0F);
+    update_zone_capture(direct_b_world, 0.0);
+    passed &= check(direct_b_world.zones()[2].owner() == Team::team_b,
+                    "neutral objective captures for Team B at negative 100");
+
+    World crossing_world;
+    crossing_world.units().clear();
+    crossing_world.zones()[2].advance_capture(100.0F);
+    update_zone_capture(crossing_world, 0.0);
+    crossing_world.clear_transient_events();
+    crossing_world.zones()[2].advance_capture(-200.0F);
+    update_zone_capture(crossing_world, 0.0);
+    passed &= check(
+        crossing_world.zones()[2].owner() == Team::team_b &&
+            crossing_world.zone_ownership_events().size() == 2 &&
+            crossing_world.zone_ownership_events()[0].previous_owner ==
+                Team::team_a &&
+            crossing_world.zone_ownership_events()[0].new_owner == Team::none &&
+            crossing_world.zone_ownership_events()[1].previous_owner ==
+                Team::none &&
+            crossing_world.zone_ownership_events()[1].new_owner == Team::team_b,
+        "large meter changes still emit neutralization before enemy capture");
+
+    home_world.zones()[0].set_owner(Team::team_b);
+    home_world.zones()[4].set_owner(Team::team_a);
+    passed &= check(home_world.zones()[0].owner() == Team::team_a &&
+                        home_world.zones()[4].owner() == Team::team_b,
+                    "home-zone ownership remains permanent");
+
     Unit machine_gun_rotation = unit_from_definition(
         99, Team::team_a, {}, 0.0F, machine_gun_definition);
     machine_gun_rotation.set_desired_facing_angle(90.0F);

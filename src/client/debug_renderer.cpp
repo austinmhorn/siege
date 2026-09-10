@@ -131,7 +131,9 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
         set_color(renderer_, 245, 245, 245);
         if (!SDL_RenderDebugTextFormat(
                 renderer_, label.x - 84.0F, label.y,
-                "Z%zu A%d B%d P%+d C%+.1f", zone.index(),
+                "Z%zu %.*s A%d B%d P%+d C%+.1f", zone.index(),
+                static_cast<int>(to_string(zone.owner()).size()),
+                to_string(zone.owner()).data(),
                 zone.team_a_count(), zone.team_b_count(), zone.pressure(),
                 zone.capture_value()) ||
             !draw_capture_meter(renderer_, transform, zone)) {

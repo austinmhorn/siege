@@ -93,7 +93,12 @@ Pass `-DSIEGE_FETCH_SDL3=OFF` while configuring to require a system SDL3 package
   each. Their persistent `-100` (Team B) to `+100` (Team A) meters move at 5 points
   per second for each net troop, with effective pressure capped at 3. Empty and
   equally contested objectives retain their current progress; home zones do not
-  participate. F3 shows counts, raw pressure, capture value, and a directional bar.
+  participate. Neutral objectives become owned only at either full extreme. An
+  owned objective remains owned while its meter stays on that team's side of zero,
+  becomes neutral at zero, and must then reach the opposite extreme before enemy
+  capture. Transient neutralization and capture events report every actual owner
+  transition once. F3 shows owner, counts, raw pressure, capture value, and a
+  directional bar; owned objectives use subtle team tints outside debug mode.
 - The complete battlefield remains visible while the window is resized.
 - World resolution: 1920x1080.
 - Simulation rate: 60 fixed ticks per second, independent of rendering rate.

@@ -77,10 +77,16 @@ const std::vector<ExplosionEvent>& World::explosion_events() const noexcept {
     return explosion_events_;
 }
 
+const std::vector<ZoneOwnershipEvent>& World::zone_ownership_events()
+    const noexcept {
+    return zone_ownership_events_;
+}
+
 void World::clear_transient_events() noexcept {
     death_events_.clear();
     fire_events_.clear();
     explosion_events_.clear();
+    zone_ownership_events_.clear();
 }
 
 void World::remove_dead_units() {
@@ -117,6 +123,14 @@ void World::emit_explosion_event(const Projectile& projectile,
         projectile.id(), projectile.weapon_type(), projectile.team(), position,
         projectile.splash_radius(),
     });
+}
+
+void World::emit_zone_ownership_event(const std::size_t zone_id,
+                                      const Team previous_owner,
+                                      const Team new_owner,
+                                      const ZoneTransitionType type) {
+    zone_ownership_events_.push_back(
+        ZoneOwnershipEvent{zone_id, previous_owner, new_owner, type});
 }
 
 void World::spawn_test_units() {

@@ -29,6 +29,8 @@ constexpr Color letterbox{12, 15, 20, 255};
 constexpr Color neutral{66, 72, 78, 255};
 constexpr Color team_a{46, 91, 132, 255};
 constexpr Color team_b{132, 55, 50, 255};
+constexpr Color objective_team_a{57, 76, 94, 255};
+constexpr Color objective_team_b{88, 62, 61, 255};
 constexpr Color divider{196, 203, 207, 255};
 constexpr Color team_a_projectile{126, 218, 255, 255};
 constexpr Color team_b_projectile{255, 174, 102, 255};
@@ -143,9 +145,9 @@ void set_color(SDL_Renderer* renderer, const Color color) {
 Color color_for(const Zone& zone) {
     switch (zone.owner()) {
     case Team::team_a:
-        return team_a;
+        return zone.type() == ZoneType::home ? team_a : objective_team_a;
     case Team::team_b:
-        return team_b;
+        return zone.type() == ZoneType::home ? team_b : objective_team_b;
     case Team::none:
         return neutral;
     }

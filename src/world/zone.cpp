@@ -51,4 +51,10 @@ void Zone::advance_capture(const float amount) noexcept {
     }
 }
 
+void Zone::set_owner(const Team owner) noexcept {
+    if (type_ == ZoneType::objective) {
+        owner_ = owner;
+    }
+}
+
 } // namespace siege
