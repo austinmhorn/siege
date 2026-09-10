@@ -27,7 +27,7 @@ public:
 private:
     struct CorpseVisual {
         DeathEvent death;
-        FrameAnimation animation{{4, 3, 2, 1}, 0.12, false};
+        FrameAnimation animation{{1, 2, 3, 4}, 0.12, false};
         double fade_elapsed{};
     };
 
