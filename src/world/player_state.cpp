@@ -23,6 +23,12 @@ bool PlayerState::try_spend(const Money amount) noexcept {
     return true;
 }
 
+void PlayerState::credit(const Money amount) noexcept {
+    if (amount > 0) {
+        cash_ += amount;
+    }
+}
+
 void PlayerState::accrue_passive_income(
     const Money cash_per_second, const std::uint32_t fixed_ticks_per_second,
     const std::uint64_t fixed_tick_count) noexcept {

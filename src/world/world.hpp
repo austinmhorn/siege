@@ -44,6 +44,8 @@ public:
     [[nodiscard]] const std::vector<ExplosionEvent>& explosion_events() const noexcept;
     [[nodiscard]] const std::vector<ZoneOwnershipEvent>& zone_ownership_events()
         const noexcept;
+    [[nodiscard]] std::vector<ZoneOwnershipEvent>& zone_ownership_events()
+        noexcept;
     void clear_transient_events() noexcept;
     void remove_dead_units();
     void emit_fire_event(const Unit& unit);

@@ -123,6 +123,13 @@ int main() {
                         initial_team_a->cash() == 25'000 &&
                         initial_team_b->cash() == 25'000,
                     "both players start with 25000 cash");
+    passed &= check(
+        default_economy_rules.passive_income_per_second == 100 &&
+            kill_reward_for(TroopType::rifle) == 250 &&
+            kill_reward_for(TroopType::machine_gun) == 400 &&
+            kill_reward_for(TroopType::bazooka) == 600 &&
+            default_economy_rules.objective_capture_reward == 1'000,
+        "passive income and all troop/capture rewards are centralized");
 
     Simulation economy_simulation{economy_world};
     for (int tick = 0; tick < 60; ++tick) {
@@ -165,6 +172,42 @@ int main() {
             render_rate_a.find_player(Team::team_b)->cash() ==
                 render_rate_b.find_player(Team::team_b)->cash(),
         "different render-read rates cannot affect fixed-step cash");
+
+    World team_a_capture_reward_world;
+    team_a_capture_reward_world.units().clear();
+    const Money team_a_capture_cash =
+        team_a_capture_reward_world.find_player(Team::team_a)->cash();
+    team_a_capture_reward_world.zones()[1].advance_capture(100.0F);
+    update_zone_capture(team_a_capture_reward_world, 0.0);
+    award_zone_capture_rewards(team_a_capture_reward_world);
+    passed &= check(
+        team_a_capture_reward_world.find_player(Team::team_a)->cash() ==
+            team_a_capture_cash + 1'000,
+        "neutral objective capture rewards Team A exactly 1000");
+    award_zone_capture_rewards(team_a_capture_reward_world);
+    passed &= check(
+        team_a_capture_reward_world.find_player(Team::team_a)->cash() ==
+            team_a_capture_cash + 1'000,
+        "reprocessing the same capture event gives no duplicate reward");
+    team_a_capture_reward_world.zones()[1].advance_capture(-100.0F);
+    update_zone_capture(team_a_capture_reward_world, 0.0);
+    award_zone_capture_rewards(team_a_capture_reward_world);
+    passed &= check(
+        team_a_capture_reward_world.find_player(Team::team_a)->cash() ==
+            team_a_capture_cash + 1'000,
+        "objective neutralization gives no cash reward");
+
+    World team_b_capture_reward_world;
+    team_b_capture_reward_world.units().clear();
+    const Money team_b_capture_cash =
+        team_b_capture_reward_world.find_player(Team::team_b)->cash();
+    team_b_capture_reward_world.zones()[3].advance_capture(-100.0F);
+    update_zone_capture(team_b_capture_reward_world, 0.0);
+    award_zone_capture_rewards(team_b_capture_reward_world);
+    passed &= check(
+        team_b_capture_reward_world.find_player(Team::team_b)->cash() ==
+            team_b_capture_cash + 1'000,
+        "neutral objective capture rewards Team B exactly once");
 
     World purchase_world;
     purchase_world.units().clear();
@@ -1265,6 +1308,50 @@ int main() {
                     "hostile projectile hit reduces health");
     passed &= check(hostile_hit_world.projectiles().empty(),
                     "projectile disappears after its first hit");
+
+    const auto simulated_kill_reward = [](const std::size_t victim_index,
+                                          const float damage) {
+        World reward_world;
+        isolate_collision_units(reward_world);
+        reward_world.units()[victim_index].set_position({200.0F, 100.0F});
+        const Money difference_before =
+            reward_world.find_player(Team::team_a)->cash() -
+            reward_world.find_player(Team::team_b)->cash();
+        reward_world.spawn_projectile(
+            WeaponType::rifle, Team::team_a, reward_world.units()[0].id(),
+            {100.0F, 100.0F}, {12000.0F, 0.0F}, 1000.0F, damage);
+        Simulation reward_simulation{reward_world};
+        reward_simulation.update(1.0 / 60.0);
+        return reward_world.find_player(Team::team_a)->cash() -
+               reward_world.find_player(Team::team_b)->cash() -
+               difference_before;
+    };
+    passed &= check(simulated_kill_reward(4, 1'000.0F) == 250,
+                    "killing a rifle awards 250 to the killer team");
+    passed &= check(simulated_kill_reward(6, 1'000.0F) == 400,
+                    "killing a machine_gun awards 400 to the killer team");
+    passed &= check(simulated_kill_reward(10, 1'000.0F) == 600,
+                    "killing a bazooka awards 600 to the killer team");
+    passed &= check(simulated_kill_reward(4, 25.0F) == 0,
+                    "nonlethal projectile damage gives no kill reward");
+
+    World single_reward_world;
+    isolate_collision_units(single_reward_world);
+    single_reward_world.units()[4].set_position({200.0F, 100.0F});
+    single_reward_world.spawn_projectile(
+        WeaponType::rifle, Team::team_a, single_reward_world.units()[0].id(),
+        {100.0F, 100.0F}, {12000.0F, 0.0F}, 1000.0F, 1'000.0F);
+    Simulation single_reward_simulation{single_reward_world};
+    single_reward_simulation.update(1.0 / 60.0);
+    const Money difference_after_lethal =
+        single_reward_world.find_player(Team::team_a)->cash() -
+        single_reward_world.find_player(Team::team_b)->cash();
+    single_reward_simulation.update(1.0 / 60.0);
+    passed &= check(
+        single_reward_world.find_player(Team::team_a)->cash() -
+                single_reward_world.find_player(Team::team_b)->cash() ==
+            difference_after_lethal,
+        "a lethal hit rewards exactly once after the victim is removed");
 
     World friendly_hit_world;
     isolate_collision_units(friendly_hit_world);

@@ -30,6 +30,12 @@ public:
                               double render_fps) const;
 
 private:
+    enum class DeploymentFeedback {
+        none,
+        invalid_location,
+        insufficient_cash,
+    };
+
     struct CorpseVisual {
         DeathEvent death;
         FrameAnimation animation{{1, 2, 3, 4}, 0.12, false};
@@ -66,6 +72,8 @@ private:
     std::vector<ExplosionVisual> explosions_;
     bool debug_overlay_enabled_{};
     std::optional<TroopType> selected_troop_{};
+    DeploymentFeedback deployment_feedback_{DeploymentFeedback::none};
+    double deployment_feedback_seconds_{};
     Point pointer_drawable_{};
 };
 

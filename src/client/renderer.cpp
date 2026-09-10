@@ -48,6 +48,7 @@ constexpr float deployment_button_width = 180.0F;
 constexpr float deployment_button_height = 46.0F;
 constexpr float deployment_button_gap = 12.0F;
 constexpr float pending_marker_radius = 18.0F;
+constexpr double deployment_feedback_duration_seconds = 1.5;
 constexpr float capture_bar_world_inset = 42.0F;
 constexpr float capture_bar_world_y = 18.0F;
 constexpr float capture_bar_world_height = 18.0F;
@@ -363,6 +364,12 @@ Renderer::Renderer(SDL_Renderer* renderer, std::filesystem::path asset_root)
       debug_renderer_(renderer) {}
 
 void Renderer::update(const World& world, const double fixed_delta_seconds) {
+    deployment_feedback_seconds_ =
+        std::max(0.0, deployment_feedback_seconds_ - fixed_delta_seconds);
+    if (deployment_feedback_seconds_ <= 0.0) {
+        deployment_feedback_ = DeploymentFeedback::none;
+    }
+
     for (const auto& unit : world.units()) {
         auto [entry, inserted] = leg_animations_.try_emplace(
             unit.id(), std::vector<std::size_t>{1, 2, 3, 4, 5, 6, 7}, 0.10, true);
@@ -432,6 +439,8 @@ void Renderer::toggle_debug_overlay() noexcept {
 bool Renderer::cancel_placement() noexcept {
     const bool was_active = selected_troop_.has_value();
     selected_troop_.reset();
+    deployment_feedback_ = DeploymentFeedback::none;
+    deployment_feedback_seconds_ = 0.0;
     return was_active;
 }
 
@@ -453,6 +462,8 @@ void Renderer::handle_left_click(World& world, const float drawable_x,
         if (contains(deployment_button_rect(index, output_width, output_height),
                      click)) {
             selected_troop_ = purchasable_troops[index];
+            deployment_feedback_ = DeploymentFeedback::none;
+            deployment_feedback_seconds_ = 0.0;
             return;
         }
     }
@@ -469,12 +480,23 @@ void Renderer::handle_left_click(World& world, const float drawable_x,
                                    output_height};
     const auto world_point = transform.drawable_to_world(click);
     if (!world_point.has_value()) {
+        deployment_feedback_ = DeploymentFeedback::invalid_location;
+        deployment_feedback_seconds_ = deployment_feedback_duration_seconds;
         return;
     }
-    if (request_deployment(world, Team::team_a, *selected_troop_,
-                           Vec2{world_point->x, world_point->y}) ==
-        DeploymentResult::accepted) {
+    const DeploymentResult result = request_deployment(
+        world, Team::team_a, *selected_troop_,
+        Vec2{world_point->x, world_point->y});
+    if (result == DeploymentResult::accepted) {
         selected_troop_.reset();
+        deployment_feedback_ = DeploymentFeedback::none;
+        deployment_feedback_seconds_ = 0.0;
+    } else {
+        deployment_feedback_ =
+            result == DeploymentResult::insufficient_cash
+                ? DeploymentFeedback::insufficient_cash
+                : DeploymentFeedback::invalid_location;
+        deployment_feedback_seconds_ = deployment_feedback_duration_seconds;
     }
 }
 
@@ -595,6 +617,15 @@ bool Renderer::render_pending_deployments(
         if (!SDL_RenderFillRect(renderer_, &fill)) {
             return false;
         }
+        const auto troop = to_string(deployment.troop_type);
+        set_color(renderer_, Color{245, 250, 247, 255});
+        if (!SDL_RenderDebugTextFormat(
+                renderer_, marker.x - 30.0F,
+                marker.y - 30.0F * transform.scale(), "%.*s %.1fs",
+                static_cast<int>(troop.size()), troop.data(),
+                deployment.remaining_seconds)) {
+            return false;
+        }
     }
     return true;
 }
@@ -647,7 +678,23 @@ bool Renderer::render_deployment_ui(const World& world,
                 static_cast<long long>(definition->purchase_cost)) ||
             !SDL_RenderDebugTextFormat(
                 renderer_, button.x + 10.0F, button.y + 25.0F,
-                "deploy %.2fs", definition->deployment_seconds)) {
+                selected ? "SELECTED | %.2fs" : "deploy %.2fs",
+                definition->deployment_seconds)) {
+            return false;
+        }
+    }
+
+    if (deployment_feedback_ != DeploymentFeedback::none) {
+        const bool insufficient =
+            deployment_feedback_ == DeploymentFeedback::insufficient_cash;
+        set_color(renderer_, insufficient ? Color{255, 204, 92, 255}
+                                          : Color{255, 112, 112, 255});
+        if (!SDL_RenderDebugText(
+                renderer_, 14.0F,
+                static_cast<float>(output_height) - deployment_bar_height -
+                    18.0F,
+                insufficient ? "Insufficient cash"
+                             : "Invalid deployment location")) {
             return false;
         }
     }

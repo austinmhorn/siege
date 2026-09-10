@@ -115,8 +115,8 @@ std::optional<ProjectileHit> nearest_projectile_hit(
     return ProjectileHit{nearest, nearest_fraction};
 }
 
-void apply_explosion(const Projectile& projectile, const Vec2 position,
-                     std::vector<Unit>& units) noexcept {
+void apply_explosion(World& world, const Projectile& projectile,
+                     const Vec2 position, std::vector<Unit>& units) noexcept {
     const float radius_squared =
         projectile.splash_radius() * projectile.splash_radius();
     for (auto& candidate : units) {
@@ -126,6 +126,9 @@ void apply_explosion(const Projectile& projectile, const Vec2 position,
         }
         if (length_squared(candidate.position() - position) <= radius_squared) {
             candidate.apply_damage(projectile.damage());
+            if (!candidate.is_alive()) {
+                (void)award_projectile_kill(world, projectile, candidate);
+            }
         }
     }
 }
@@ -160,9 +163,13 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
                     (projectile->position() - projectile->previous_position()) *
                         hit->segment_fraction;
                 world_.emit_explosion_event(*projectile, impact_position);
-                apply_explosion(*projectile, impact_position, units);
+                apply_explosion(world_, *projectile, impact_position, units);
             } else {
                 hit->unit->apply_damage(projectile->damage());
+                if (!hit->unit->is_alive()) {
+                    (void)award_projectile_kill(world_, *projectile,
+                                                *hit->unit);
+                }
             }
             projectile = projectiles.erase(projectile);
         } else if (projectile->expired() ||
@@ -299,6 +306,7 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
     }
 
     update_zone_capture(world_, fixed_delta_seconds);
+    award_zone_capture_rewards(world_);
     update_passive_income(world_);
 
     for (auto& unit : units) {

@@ -153,6 +153,10 @@ const std::vector<ZoneOwnershipEvent>& World::zone_ownership_events()
     return zone_ownership_events_;
 }
 
+std::vector<ZoneOwnershipEvent>& World::zone_ownership_events() noexcept {
+    return zone_ownership_events_;
+}
+
 void World::clear_transient_events() noexcept {
     death_events_.clear();
     fire_events_.clear();

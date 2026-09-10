@@ -16,6 +16,7 @@ struct ZoneOwnershipEvent {
     Team previous_owner;
     Team new_owner;
     ZoneTransitionType type;
+    bool reward_processed{};
 };
 
 } // namespace siege
