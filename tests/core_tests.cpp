@@ -1,5 +1,8 @@
 #include "core/combat_behavior.hpp"
+#include "client/capture_bar.hpp"
+#include "core/deployment.hpp"
 #include "core/economy.hpp"
+#include "core/frontline.hpp"
 #include "core/math.hpp"
 #include "core/perception.hpp"
 #include "core/projectile_collision.hpp"
@@ -162,6 +165,256 @@ int main() {
             render_rate_a.find_player(Team::team_b)->cash() ==
                 render_rate_b.find_player(Team::team_b)->cash(),
         "different render-read rates cannot affect fixed-step cash");
+
+    World purchase_world;
+    purchase_world.units().clear();
+    const Money purchase_start =
+        purchase_world.find_player(Team::team_a)->cash();
+    passed &= check(
+        request_deployment(purchase_world, Team::team_a, TroopType::rifle,
+                           {100.0F, 420.0F}) == DeploymentResult::accepted &&
+            purchase_world.find_player(Team::team_a)->cash() ==
+                purchase_start - 2'500 &&
+            purchase_world.pending_deployments().size() == 1,
+        "valid home-zone rifle purchase deducts cash once and queues deployment");
+
+    const Money after_purchase =
+        purchase_world.find_player(Team::team_a)->cash();
+    passed &= check(
+        request_deployment(purchase_world, Team::team_a,
+                           TroopType::machine_gun, {800.0F, 420.0F}) ==
+                DeploymentResult::invalid_location &&
+            purchase_world.find_player(Team::team_a)->cash() == after_purchase &&
+            purchase_world.pending_deployments().size() == 1,
+        "neutral-zone placement is rejected without charging");
+    passed &= check(
+        request_deployment(purchase_world, Team::team_a, TroopType::bazooka,
+                           {1800.0F, 420.0F}) ==
+                DeploymentResult::invalid_location &&
+            purchase_world.find_player(Team::team_a)->cash() == after_purchase,
+        "enemy home-zone placement is rejected without charging");
+
+    World unsecured_world;
+    unsecured_world.units().clear();
+    unsecured_world.zones()[1].set_owner(Team::team_a);
+    passed &= check(
+        request_deployment(unsecured_world, Team::team_a, TroopType::rifle,
+                           {500.0F, 420.0F}) ==
+                DeploymentResult::invalid_location &&
+            unsecured_world.find_player(Team::team_a)->cash() == 25'000,
+        "owned but unsecured objective rejects placement without charging");
+
+    World secured_world;
+    secured_world.units().clear();
+    secured_world.zones()[1].advance_capture(100.0F);
+    update_zone_capture(secured_world, 0.0);
+    update_zone_capture(secured_world, 2.0);
+    passed &= check(
+        request_deployment(secured_world, Team::team_a,
+                           TroopType::machine_gun, {500.0F, 420.0F}) ==
+                DeploymentResult::accepted &&
+            secured_world.find_player(Team::team_a)->cash() == 21'000,
+        "secured forward objective accepts owner placement and charges cost");
+    const Money secured_cash =
+        secured_world.find_player(Team::team_a)->cash();
+    passed &= check(
+        request_deployment(secured_world, Team::team_a, TroopType::rifle,
+                           {700.0F, 420.0F}) ==
+                DeploymentResult::invalid_location &&
+            secured_world.find_player(Team::team_a)->cash() == secured_cash,
+        "secured objective front 25 percent remains invalid without charging");
+
+    World insufficient_world;
+    insufficient_world.units().clear();
+    PlayerState* poor_player = insufficient_world.find_player(Team::team_a);
+    const bool drained_cash = poor_player->try_spend(25'000);
+    passed &= check(
+        drained_cash &&
+            request_deployment(insufficient_world, Team::team_a,
+                               TroopType::bazooka, {100.0F, 420.0F}) ==
+                DeploymentResult::insufficient_cash &&
+            poor_player->cash() == 0 &&
+            insufficient_world.pending_deployments().empty(),
+        "insufficient cash rejects purchase without queueing or overdrawing");
+
+    World countdown_world;
+    countdown_world.units().clear();
+    passed &= check(
+        request_deployment(countdown_world, Team::team_a, TroopType::bazooka,
+                           {120.0F, 321.0F}) == DeploymentResult::accepted,
+        "bazooka deployment request is accepted in Team A home zone");
+    update_pending_deployments(countdown_world, 1.74);
+    passed &= check(countdown_world.units().empty() &&
+                        countdown_world.pending_deployments().size() == 1 &&
+                        std::abs(countdown_world.pending_deployments().front()
+                                     .remaining_seconds -
+                                 0.01) < 1.0e-8,
+                    "unit does not spawn before its deterministic timer expires");
+    update_pending_deployments(countdown_world, 0.01);
+    passed &= check(countdown_world.pending_deployments().empty() &&
+                        countdown_world.units().size() == 1 &&
+                        countdown_world.units().front().troop_type() ==
+                            TroopType::bazooka &&
+                        near(countdown_world.units().front().position().y,
+                             321.0F) &&
+                        near(countdown_world.units().front().preferred_y(),
+                             321.0F),
+                    "timer completion spawns the requested troop at placement preferred_y");
+
+    World partitioned_timer_world;
+    World single_step_timer_world;
+    partitioned_timer_world.units().clear();
+    single_step_timer_world.units().clear();
+    const auto partitioned_request = request_deployment(
+        partitioned_timer_world, Team::team_a, TroopType::rifle,
+        {100.0F, 300.0F});
+    const auto single_step_request = request_deployment(
+        single_step_timer_world, Team::team_a, TroopType::rifle,
+        {100.0F, 300.0F});
+    for (int tick = 0; tick < 45; ++tick) {
+        update_pending_deployments(partitioned_timer_world, 1.0 / 60.0);
+    }
+    update_pending_deployments(single_step_timer_world, 0.75);
+    passed &= check(partitioned_request == DeploymentResult::accepted &&
+                        single_step_request == DeploymentResult::accepted &&
+                        partitioned_timer_world.units().size() == 1 &&
+                        single_step_timer_world.units().size() == 1 &&
+                        partitioned_timer_world.pending_deployments().empty() &&
+                        single_step_timer_world.pending_deployments().empty(),
+                    "deployment countdown is deterministic across timestep partitions");
+
+    passed &= check(
+        rifle_definition.purchase_cost == 2'500 &&
+            std::abs(rifle_definition.deployment_seconds - 0.75) < 1.0e-9 &&
+            machine_gun_definition.purchase_cost == 4'000 &&
+            std::abs(machine_gun_definition.deployment_seconds - 1.25) <
+                1.0e-9 &&
+            bazooka_definition.purchase_cost == 6'000 &&
+            std::abs(bazooka_definition.deployment_seconds - 1.75) < 1.0e-9,
+        "each troop exposes its centralized purchase cost and deployment time");
+
+    World frontline_world;
+    frontline_world.units().clear();
+    const auto initial_a_frontline =
+        frontline_objective(frontline_world, Team::team_a);
+    const auto initial_b_frontline =
+        frontline_objective(frontline_world, Team::team_b);
+    const float initial_a_hold_x =
+        initial_a_frontline.has_value() ? initial_a_frontline->hold_x : 652.8F;
+    passed &= check(initial_a_frontline.has_value() &&
+                        initial_a_frontline->zone_index == 1 &&
+                        near(initial_a_frontline->forward_boundary_x, 768.0F) &&
+                        initial_b_frontline.has_value() &&
+                        initial_b_frontline->zone_index == 3 &&
+                        near(initial_b_frontline->forward_boundary_x, 1152.0F),
+                    "frontline objective selection is mirrored by team");
+
+    World team_a_gate_world;
+    team_a_gate_world.units().clear();
+    team_a_gate_world.units().push_back(
+        test_unit(5000, Team::team_a, {767.5F, 300.0F}, 270.0F));
+    team_a_gate_world.units().push_back(
+        test_unit(5001, Team::team_b, {1100.0F, 300.0F}, 90.0F));
+    Simulation team_a_gate_simulation{team_a_gate_world};
+    team_a_gate_simulation.update(1.0);
+    passed &= check(team_a_gate_world.units()[0].position().x < 768.0F,
+                    "Team A combat pursuit cannot cross uncaptured frontline boundary");
+
+    World team_b_gate_world;
+    team_b_gate_world.units().clear();
+    team_b_gate_world.units().push_back(
+        test_unit(5010, Team::team_b, {1152.5F, 300.0F}, 90.0F));
+    team_b_gate_world.units().push_back(
+        test_unit(5011, Team::team_a, {820.0F, 300.0F}, 270.0F));
+    Simulation team_b_gate_simulation{team_b_gate_world};
+    team_b_gate_simulation.update(1.0);
+    passed &= check(team_b_gate_world.units()[0].position().x > 1152.0F,
+                    "Team B combat pursuit obeys mirrored frontline boundary");
+
+    World frontline_entry_world;
+    frontline_entry_world.units().clear();
+    frontline_entry_world.units().push_back(
+        test_unit(5020, Team::team_a, {383.5F, 300.0F}, 270.0F));
+    Simulation frontline_entry_simulation{frontline_entry_world};
+    frontline_entry_simulation.update(1.0 / 60.0);
+    passed &= check(frontline_entry_world.units()[0].position().x > 384.0F,
+                    "units may enter their current frontline objective");
+
+    World frontline_hold_world;
+    frontline_hold_world.units().clear();
+    frontline_hold_world.units().push_back(
+        test_unit(5021, Team::team_a,
+                  {initial_a_hold_x, 300.0F}, 270.0F));
+    Simulation frontline_hold_simulation{frontline_hold_world};
+    for (int tick = 0; tick < 120; ++tick) {
+        frontline_hold_simulation.update(1.0 / 60.0);
+    }
+    passed &= check(
+        std::abs(frontline_hold_world.units()[0].position().x -
+                 initial_a_hold_x) < 1.0F &&
+            frontline_hold_world.units()[0].position().x < 700.0F,
+        "targetless unit settles at interior frontline hold instead of boundary");
+
+    World unlocked_frontline_world;
+    unlocked_frontline_world.units().clear();
+    unlocked_frontline_world.zones()[1].advance_capture(100.0F);
+    update_zone_capture(unlocked_frontline_world, 0.0);
+    const auto advanced_frontline =
+        frontline_objective(unlocked_frontline_world, Team::team_a);
+    unlocked_frontline_world.units().push_back(
+        test_unit(5030, Team::team_a, {767.5F, 300.0F}, 270.0F));
+    Simulation unlocked_frontline_simulation{unlocked_frontline_world};
+    unlocked_frontline_simulation.update(0.1);
+    passed &= check(advanced_frontline.has_value() &&
+                        advanced_frontline->zone_index == 2 &&
+                        near(advanced_frontline->forward_boundary_x, 1152.0F) &&
+                        unlocked_frontline_world.units()[0].position().x >
+                            768.0F,
+                    "full ownership unlocks advancement and moves limit to next objective");
+
+    unlocked_frontline_world.units().clear();
+    unlocked_frontline_world.units().push_back(
+        test_unit(5031, Team::team_a, {1151.5F, 300.0F}, 270.0F));
+    unlocked_frontline_world.units().push_back(
+        test_unit(5032, Team::team_b, {1490.0F, 300.0F}, 90.0F));
+    Simulation next_gate_simulation{unlocked_frontline_world};
+    next_gate_simulation.update(1.0);
+    passed &= check(unlocked_frontline_world.units()[0].position().x < 1152.0F,
+                    "new frontline objective becomes the next movement limit");
+
+    World frontline_combat_world;
+    frontline_combat_world.units().clear();
+    frontline_combat_world.units().push_back(
+        test_unit(5040, Team::team_a, {600.0F, 300.0F}, 270.0F));
+    frontline_combat_world.units().push_back(
+        test_unit(5041, Team::team_b, {620.0F, 300.0F}, 90.0F));
+    Simulation frontline_combat_simulation{frontline_combat_world};
+    frontline_combat_simulation.update(0.1);
+    passed &= check(frontline_combat_world.units()[0].position().x < 600.0F &&
+                        frontline_combat_world.units()[1].position().x > 620.0F &&
+                        frontline_combat_world.units()[0]
+                                .combat_movement_state() ==
+                            CombatMovementState::retreating,
+                    "close-range retreat remains active inside the frontline");
+
+    World frontline_closing_world;
+    frontline_closing_world.units().clear();
+    frontline_closing_world.units().push_back(
+        test_unit(5050, Team::team_a, {420.0F, 300.0F}, 270.0F));
+    frontline_closing_world.units().push_back(
+        test_unit(5051, Team::team_b, {740.0F, 300.0F}, 90.0F));
+    Simulation frontline_closing_simulation{frontline_closing_world};
+    frontline_closing_simulation.update(0.1);
+    passed &= check(frontline_closing_world.units()[0].position().x > 420.0F &&
+                        frontline_closing_world.units()[0]
+                                .combat_movement_state() ==
+                            CombatMovementState::closing,
+                    "combat closing remains active within the frontline objective");
+
+    passed &= check(near(capture_bar_fraction(100.0F), 0.0F) &&
+                        near(capture_bar_fraction(0.0F), 0.5F) &&
+                        near(capture_bar_fraction(-100.0F), 1.0F),
+                    "capture bar maps Team A left, neutral center, Team B right");
 
     passed &= check(rifle_definition.type == TroopType::rifle &&
                         near(rifle_definition.move_speed, 72.0F) &&

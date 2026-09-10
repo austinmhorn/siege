@@ -59,12 +59,29 @@ int Game::run() {
     while (running) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_EVENT_QUIT ||
-                (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_ESCAPE)) {
+            if (event.type == SDL_EVENT_QUIT) {
                 running = false;
+            } else if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
+                       event.key.key == SDLK_ESCAPE) {
+                if (!client_renderer.cancel_placement()) {
+                    running = false;
+                }
             } else if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
                        (event.key.key == SDLK_F3 || event.key.key == SDLK_D)) {
                 client_renderer.toggle_debug_overlay();
+            } else if (event.type == SDL_EVENT_MOUSE_MOTION) {
+                if (SDL_ConvertEventToRenderCoordinates(renderer_, &event)) {
+                    client_renderer.set_pointer_position(event.motion.x,
+                                                         event.motion.y);
+                }
+            } else if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
+                       event.button.button == SDL_BUTTON_LEFT) {
+                if (SDL_ConvertEventToRenderCoordinates(renderer_, &event)) {
+                    client_renderer.set_pointer_position(event.button.x,
+                                                         event.button.y);
+                    client_renderer.handle_left_click(
+                        world_, event.button.x, event.button.y);
+                }
             }
         }
 

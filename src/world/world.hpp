@@ -2,6 +2,7 @@
 
 #include "world/combat_event.hpp"
 #include "world/player_state.hpp"
+#include "world/pending_deployment.hpp"
 #include "world/projectile.hpp"
 #include "world/zone.hpp"
 #include "world/zone_event.hpp"
@@ -30,6 +31,12 @@ public:
     [[nodiscard]] std::vector<Unit>& units() noexcept;
     [[nodiscard]] const Unit* find_unit(Unit::Id id) const noexcept;
     [[nodiscard]] Unit* find_unit(Unit::Id id) noexcept;
+    [[nodiscard]] const std::vector<PendingDeployment>& pending_deployments()
+        const noexcept;
+    [[nodiscard]] std::vector<PendingDeployment>& pending_deployments() noexcept;
+    PendingDeployment& queue_deployment(Team team, TroopType troop_type,
+                                        Vec2 position, double total_seconds);
+    Unit& spawn_unit(TroopType troop_type, Team team, Vec2 position);
     [[nodiscard]] const std::vector<Projectile>& projectiles() const noexcept;
     [[nodiscard]] std::vector<Projectile>& projectiles() noexcept;
     [[nodiscard]] const std::vector<DeathEvent>& death_events() const noexcept;
@@ -55,12 +62,14 @@ private:
     std::array<Zone, zone_count> zones_;
     std::array<PlayerState, 2> players_;
     std::vector<Unit> units_;
+    std::vector<PendingDeployment> pending_deployments_;
     std::vector<Projectile> projectiles_;
     std::vector<DeathEvent> death_events_;
     std::vector<FireEvent> fire_events_;
     std::vector<ExplosionEvent> explosion_events_;
     std::vector<ZoneOwnershipEvent> zone_ownership_events_;
     Unit::Id next_unit_id_{1};
+    PendingDeployment::Id next_pending_deployment_id_{1};
     Projectile::Id next_projectile_id_{1};
 };
 

@@ -84,6 +84,50 @@ Unit* World::find_unit(const Unit::Id id) noexcept {
     return nullptr;
 }
 
+const std::vector<PendingDeployment>& World::pending_deployments() const noexcept {
+    return pending_deployments_;
+}
+
+std::vector<PendingDeployment>& World::pending_deployments() noexcept {
+    return pending_deployments_;
+}
+
+PendingDeployment& World::queue_deployment(
+    const Team team, const TroopType troop_type, const Vec2 position,
+    const double total_seconds) {
+    pending_deployments_.push_back(PendingDeployment{
+        .id = next_pending_deployment_id_++,
+        .team = team,
+        .troop_type = troop_type,
+        .position = position,
+        .total_seconds = std::max(0.0, total_seconds),
+        .remaining_seconds = std::max(0.0, total_seconds),
+    });
+    return pending_deployments_.back();
+}
+
+Unit& World::spawn_unit(const TroopType troop_type, const Team team,
+                        const Vec2 position) {
+    const TroopDefinition* definition = troop_definition_for(troop_type);
+    // Callers validate troop types before reaching the World. Keep a safe
+    // baseline here for future serialized/network requests.
+    if (definition == nullptr) {
+        definition = &rifle_definition;
+    }
+    const float initial_facing = team == Team::team_b ? 90.0F : 270.0F;
+    return units_.emplace_back(
+        next_unit_id_++, definition->type, team, position,
+        definition->move_speed, definition->rotation_speed,
+        definition->vision_range, definition->vision_angle,
+        definition->awareness_radius, definition->preferred_combat_range,
+        definition->range_tolerance, definition->aggression,
+        definition->retreat_bias, definition->frontline_screen_weight,
+        definition->support_positioning_bias,
+        definition->support_rear_distance, definition->support_search_radius,
+        definition->max_health, definition->hit_radius, definition->weapon,
+        initial_facing);
+}
+
 const std::vector<Projectile>& World::projectiles() const noexcept {
     return projectiles_;
 }

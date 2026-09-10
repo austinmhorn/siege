@@ -1,7 +1,9 @@
 #include "core/simulation.hpp"
 
 #include "core/combat_behavior.hpp"
+#include "core/deployment.hpp"
 #include "core/economy.hpp"
+#include "core/frontline.hpp"
 #include "core/projectile_collision.hpp"
 #include "core/support_positioning.hpp"
 #include "core/targeting.hpp"
@@ -190,7 +192,8 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
             continue;
         }
 
-        const float advance_x = unit.team() == Team::team_a ? 1.0F : -1.0F;
+        const float advance_x =
+            autonomous_advance_x(world_, unit.team(), unit.position());
         const bool reached_edge =
             (unit.team() == Team::team_a && unit.position().x >= World::width - world_margin) ||
             (unit.team() == Team::team_b && unit.position().x <= world_margin);
@@ -213,9 +216,11 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
                                                         unit.move_speed())
                            : velocity_from_steering(steering,
                                                     unit.move_speed());
-            const Vec2 direction = normalized(velocity);
-            desired_facing = facing_from_direction(direction);
-            state = MovementState::moving;
+            if (length_squared(velocity) > 0.0001F) {
+                const Vec2 direction = normalized(velocity);
+                desired_facing = facing_from_direction(direction);
+                state = MovementState::moving;
+            }
         }
 
         if (target_ids[index].has_value()) {
@@ -270,16 +275,24 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
     for (std::size_t index = 0; index < units.size(); ++index) {
         auto& unit = units[index];
         const auto& intent = intents[index];
-        const auto next_position =
+        const auto unconstrained_position =
             unit.position() + intent.velocity * static_cast<float>(fixed_delta_seconds);
-        unit.set_position(Vec2{
+        const auto next_position = constrain_to_frontline(
+            world_, unit.team(), unit.position(), unconstrained_position);
+        const Vec2 final_position{
             std::clamp(next_position.x, world_margin, World::width - world_margin),
             std::clamp(next_position.y, world_margin, World::height - world_margin),
-        });
+        };
+        const bool moved =
+            length_squared(final_position - unit.position()) > 0.0001F;
+        unit.set_position(final_position);
         unit.set_target_id(target_ids[index]);
         unit.set_desired_facing_angle(intent.desired_facing);
         unit.rotate_toward_desired(fixed_delta_seconds);
-        unit.set_movement_state(intent.state);
+        unit.set_movement_state(
+            intent.state == MovementState::moving && moved
+                ? MovementState::moving
+                : MovementState::idle);
         unit.set_combat_movement_state(intent.combat_state);
         unit.set_support_positioning(intent.support_screen_id,
                                      intent.support_steering);
@@ -308,6 +321,8 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
         world_.emit_fire_event(unit);
         unit.reset_weapon_cooldown();
     }
+
+    update_pending_deployments(world_, fixed_delta_seconds);
 
     ++tick_count_;
 }

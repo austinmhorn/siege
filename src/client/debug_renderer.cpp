@@ -1,5 +1,6 @@
 #include "client/debug_renderer.hpp"
 
+#include "client/capture_bar.hpp"
 #include "client/world_transform.hpp"
 #include "core/economy.hpp"
 #include "core/math.hpp"
@@ -94,20 +95,18 @@ bool draw_capture_meter(SDL_Renderer* renderer,
     const float right = bounds.x + bounds.width - capture_bar_inset;
     const float center = (left + right) * 0.5F;
 
-    set_color(renderer, 235, 92, 92, 210);
+    set_color(renderer, 92, 155, 255, 210);
     if (!draw_world_line(renderer, transform, {left, capture_bar_y},
                          {center, capture_bar_y})) {
         return false;
     }
-    set_color(renderer, 92, 155, 255, 210);
+    set_color(renderer, 235, 92, 92, 210);
     if (!draw_world_line(renderer, transform, {center, capture_bar_y},
                          {right, capture_bar_y})) {
         return false;
     }
 
-    const float capture_fraction =
-        (std::clamp(zone.capture_value(), -100.0F, 100.0F) + 100.0F) /
-        200.0F;
+    const float capture_fraction = capture_bar_fraction(zone.capture_value());
     const float marker_x = left + (right - left) * capture_fraction;
     set_color(renderer, 255, 255, 255, 245);
     return draw_world_line(renderer, transform,
@@ -128,8 +127,9 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
     set_color(renderer_, 245, 245, 245);
     if (!SDL_RenderDebugTextFormat(renderer_, transform.viewport().x + 8.0F,
                                    transform.viewport().y + 8.0F,
-                                   "F3 debug | sim %.0f Hz | render %.1f FPS | units %zu | projectiles %zu | corpses %zu | firing %zu | explosions %zu",
+                                   "F3 debug | sim %.0f Hz | render %.1f FPS | units %zu | pending %zu | projectiles %zu | corpses %zu | firing %zu | explosions %zu",
                                    simulation_hz, render_fps, world.units().size(),
+                                   world.pending_deployments().size(),
                                    world.projectiles().size(), corpse_count,
                                    firing_effect_count, explosion_effect_count)) {
         return false;
@@ -180,6 +180,22 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                 zone.secure_timer_seconds(), zone.secured() ? "Y" : "N",
                 deployable ? "Y" : "N") ||
             !draw_capture_meter(renderer_, transform, zone)) {
+            return false;
+        }
+    }
+
+    for (const auto& deployment : world.pending_deployments()) {
+        const auto marker = transform.world_to_drawable(
+            Point{deployment.position.x, deployment.position.y});
+        const auto troop = to_string(deployment.troop_type);
+        const auto team = to_string(deployment.team);
+        set_color(renderer_, 140, 255, 175, 245);
+        if (!SDL_RenderDebugTextFormat(
+                renderer_, marker.x + 10.0F, marker.y + 12.0F,
+                "pending #%u %.*s %.*s %.2fs", deployment.id,
+                static_cast<int>(troop.size()), troop.data(),
+                static_cast<int>(team.size()), team.data(),
+                deployment.remaining_seconds)) {
             return false;
         }
     }

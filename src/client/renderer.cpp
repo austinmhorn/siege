@@ -1,7 +1,11 @@
 #include "client/renderer.hpp"
 
+#include "client/capture_bar.hpp"
 #include "client/world_transform.hpp"
+#include "core/deployment.hpp"
 #include "core/math.hpp"
+#include "core/troop_definition.hpp"
+#include "core/zone_capture.hpp"
 #include "world/unit.hpp"
 #include "world/world.hpp"
 
@@ -39,6 +43,16 @@ constexpr float projectile_tracer_length = 18.0F;
 constexpr double corpse_fade_seconds = 10.0;
 constexpr double explosion_effect_seconds = 0.35;
 constexpr int explosion_segments = 32;
+constexpr float deployment_bar_height = 68.0F;
+constexpr float deployment_button_width = 180.0F;
+constexpr float deployment_button_height = 46.0F;
+constexpr float deployment_button_gap = 12.0F;
+constexpr float pending_marker_radius = 18.0F;
+constexpr float capture_bar_world_inset = 42.0F;
+constexpr float capture_bar_world_y = 18.0F;
+constexpr float capture_bar_world_height = 18.0F;
+constexpr int capture_bar_gradient_segments = 48;
+constexpr int capture_marker_segments = 20;
 
 struct SoldierVisualLayout {
     float source_pixel_world_size;
@@ -138,6 +152,31 @@ const TroopVisualDefinition* visual_for(const TroopType troop_type) noexcept {
     return nullptr;
 }
 
+constexpr std::array<TroopType, 3> purchasable_troops{
+    TroopType::rifle, TroopType::machine_gun, TroopType::bazooka};
+
+SDL_FRect deployment_button_rect(const std::size_t index,
+                                 const int output_width,
+                                 const int output_height) noexcept {
+    const float total_width =
+        deployment_button_width * static_cast<float>(purchasable_troops.size()) +
+        deployment_button_gap *
+            static_cast<float>(purchasable_troops.size() - 1);
+    return SDL_FRect{
+        (static_cast<float>(output_width) - total_width) * 0.5F +
+            static_cast<float>(index) *
+                (deployment_button_width + deployment_button_gap),
+        static_cast<float>(output_height) - deployment_bar_height + 11.0F,
+        deployment_button_width,
+        deployment_button_height,
+    };
+}
+
+bool contains(const SDL_FRect& rectangle, const Point point) noexcept {
+    return point.x >= rectangle.x && point.x < rectangle.x + rectangle.w &&
+           point.y >= rectangle.y && point.y < rectangle.y + rectangle.h;
+}
+
 void set_color(SDL_Renderer* renderer, const Color color) {
     SDL_SetRenderDrawColor(renderer, color.red, color.green, color.blue, color.alpha);
 }
@@ -207,6 +246,102 @@ bool render_world_circle(SDL_Renderer* renderer, const WorldTransform& transform
             return false;
         }
         previous = current;
+    }
+    return true;
+}
+
+Color blend_color(const Color from, const Color to, const float amount) noexcept {
+    const auto blend = [amount](const Uint8 left, const Uint8 right) {
+        return static_cast<Uint8>(static_cast<float>(left) +
+                                  (static_cast<float>(right) - left) * amount);
+    };
+    return Color{blend(from.red, to.red), blend(from.green, to.green),
+                 blend(from.blue, to.blue), blend(from.alpha, to.alpha)};
+}
+
+bool render_drawable_circle(SDL_Renderer* renderer, const Point center,
+                            const float radius) {
+    constexpr float tau = 6.2831853071795864769F;
+    Point previous{center.x + radius, center.y};
+    for (int segment = 1; segment <= capture_marker_segments; ++segment) {
+        const float angle = tau * static_cast<float>(segment) /
+                            static_cast<float>(capture_marker_segments);
+        const Point current{center.x + std::cos(angle) * radius,
+                            center.y + std::sin(angle) * radius};
+        if (!SDL_RenderLine(renderer, previous.x, previous.y,
+                            current.x, current.y)) {
+            return false;
+        }
+        previous = current;
+    }
+    return true;
+}
+
+bool render_capture_bars(SDL_Renderer* renderer, const World& world,
+                         const WorldTransform& transform) {
+    constexpr Color blue{60, 145, 245, 255};
+    constexpr Color midpoint{225, 229, 232, 255};
+    constexpr Color red{235, 82, 82, 255};
+    if (!SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND)) {
+        return false;
+    }
+    for (const auto& zone : world.zones()) {
+        if (zone.type() != ZoneType::objective) {
+            continue;
+        }
+
+        const Bounds& zone_bounds = zone.bounds();
+        const Bounds world_bar{
+            zone_bounds.x + capture_bar_world_inset, capture_bar_world_y,
+            zone_bounds.width - capture_bar_world_inset * 2.0F,
+            capture_bar_world_height};
+        const Bounds draw_bar = transform.world_to_drawable(world_bar);
+        const SDL_FRect panel{draw_bar.x - 4.0F, draw_bar.y - 3.0F,
+                              draw_bar.width + 8.0F, draw_bar.height + 6.0F};
+        set_color(renderer, Color{10, 14, 18, 225});
+        if (!SDL_RenderFillRect(renderer, &panel)) {
+            return false;
+        }
+
+        const float segment_width =
+            draw_bar.width / static_cast<float>(capture_bar_gradient_segments);
+        for (int segment = 0; segment < capture_bar_gradient_segments; ++segment) {
+            const float t = (static_cast<float>(segment) + 0.5F) /
+                            static_cast<float>(capture_bar_gradient_segments);
+            set_color(renderer, t <= 0.5F
+                                    ? blend_color(blue, midpoint, t * 2.0F)
+                                    : blend_color(midpoint, red,
+                                                  (t - 0.5F) * 2.0F));
+            const SDL_FRect stripe{
+                draw_bar.x + static_cast<float>(segment) * segment_width,
+                draw_bar.y, segment_width + 1.0F, draw_bar.height};
+            if (!SDL_RenderFillRect(renderer, &stripe)) {
+                return false;
+            }
+        }
+
+        set_color(renderer, Color{255, 255, 255, 245});
+        const float center_x = draw_bar.x + draw_bar.width * 0.5F;
+        if (!SDL_RenderLine(renderer, center_x, draw_bar.y - 2.0F,
+                            center_x, draw_bar.y + draw_bar.height + 2.0F) ||
+            !SDL_RenderRect(renderer, &panel)) {
+            return false;
+        }
+        const float marker_x =
+            draw_bar.x + draw_bar.width *
+                             capture_bar_fraction(zone.capture_value());
+        set_color(renderer, Color{18, 22, 26, 255});
+        if (!render_drawable_circle(
+                renderer,
+                Point{marker_x, draw_bar.y + draw_bar.height * 0.5F}, 6.0F)) {
+            return false;
+        }
+        set_color(renderer, Color{255, 255, 255, 255});
+        if (!render_drawable_circle(
+                renderer,
+                Point{marker_x, draw_bar.y + draw_bar.height * 0.5F}, 5.0F)) {
+            return false;
+        }
     }
     return true;
 }
@@ -294,6 +429,55 @@ void Renderer::toggle_debug_overlay() noexcept {
     debug_overlay_enabled_ = !debug_overlay_enabled_;
 }
 
+bool Renderer::cancel_placement() noexcept {
+    const bool was_active = selected_troop_.has_value();
+    selected_troop_.reset();
+    return was_active;
+}
+
+void Renderer::set_pointer_position(const float drawable_x,
+                                    const float drawable_y) noexcept {
+    pointer_drawable_ = Point{drawable_x, drawable_y};
+}
+
+void Renderer::handle_left_click(World& world, const float drawable_x,
+                                 const float drawable_y) {
+    int output_width = 0;
+    int output_height = 0;
+    if (!SDL_GetRenderOutputSize(renderer_, &output_width, &output_height)) {
+        return;
+    }
+
+    const Point click{drawable_x, drawable_y};
+    for (std::size_t index = 0; index < purchasable_troops.size(); ++index) {
+        if (contains(deployment_button_rect(index, output_width, output_height),
+                     click)) {
+            selected_troop_ = purchasable_troops[index];
+            return;
+        }
+    }
+
+    if (click.y >=
+        static_cast<float>(output_height) - deployment_bar_height) {
+        return;
+    }
+
+    if (!selected_troop_.has_value()) {
+        return;
+    }
+    const WorldTransform transform{World::width, World::height, output_width,
+                                   output_height};
+    const auto world_point = transform.drawable_to_world(click);
+    if (!world_point.has_value()) {
+        return;
+    }
+    if (request_deployment(world, Team::team_a, *selected_troop_,
+                           Vec2{world_point->x, world_point->y}) ==
+        DeploymentResult::accepted) {
+        selected_troop_.reset();
+    }
+}
+
 bool Renderer::render(const World& world, const double interpolation_alpha,
                       const double render_fps) const {
     int output_width = 0;
@@ -330,10 +514,38 @@ bool Renderer::render(const World& world, const double interpolation_alpha,
         }
     }
 
+    if (selected_troop_.has_value()) {
+        if (!SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND)) {
+            return false;
+        }
+        for (const auto& zone : world.zones()) {
+            const auto deployment = deployment_bounds(zone, Team::team_a);
+            if (!deployment.has_value()) {
+                continue;
+            }
+            const Bounds draw_bounds = transform.world_to_drawable(*deployment);
+            const SDL_FRect rectangle{draw_bounds.x, draw_bounds.y,
+                                      draw_bounds.width, draw_bounds.height};
+            set_color(renderer_, Color{76, 220, 126, 42});
+            if (!SDL_RenderFillRect(renderer_, &rectangle)) {
+                return false;
+            }
+            set_color(renderer_, Color{105, 255, 155, 210});
+            if (!SDL_RenderRect(renderer_, &rectangle)) {
+                return false;
+            }
+        }
+    }
+
+    if (!render_capture_bars(renderer_, world, transform)) {
+        return false;
+    }
+
     if (!render_corpses(transform) ||
         !render_projectiles(world, transform, interpolation_alpha) ||
         !render_explosions(transform) ||
-        !render_units(world, transform, interpolation_alpha)) {
+        !render_units(world, transform, interpolation_alpha) ||
+        !render_pending_deployments(world, transform)) {
         return false;
     }
 
@@ -344,7 +556,120 @@ bool Renderer::render(const World& world, const double interpolation_alpha,
         return false;
     }
 
+    if (!render_deployment_ui(world, transform, output_width, output_height)) {
+        return false;
+    }
+
     return SDL_RenderPresent(renderer_);
+}
+
+bool Renderer::render_pending_deployments(
+    const World& world, const WorldTransform& transform) const {
+    if (!SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND)) {
+        return false;
+    }
+    for (const auto& deployment : world.pending_deployments()) {
+        const float progress = deployment.total_seconds <= 0.0
+            ? 1.0F
+            : static_cast<float>(std::clamp(
+                  1.0 - deployment.remaining_seconds / deployment.total_seconds,
+                  0.0, 1.0));
+        set_color(renderer_, Color{116, 240, 162, 225});
+        if (!render_world_circle(renderer_, transform, deployment.position,
+                                 pending_marker_radius)) {
+            return false;
+        }
+        const auto marker = transform.world_to_drawable(
+            Point{deployment.position.x, deployment.position.y});
+        const float width = 42.0F * transform.scale();
+        const SDL_FRect background{marker.x - width * 0.5F,
+                                   marker.y + 22.0F * transform.scale(), width,
+                                   std::max(3.0F, 6.0F * transform.scale())};
+        set_color(renderer_, Color{22, 28, 32, 220});
+        if (!SDL_RenderFillRect(renderer_, &background)) {
+            return false;
+        }
+        SDL_FRect fill = background;
+        fill.w *= progress;
+        set_color(renderer_, Color{105, 255, 155, 240});
+        if (!SDL_RenderFillRect(renderer_, &fill)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool Renderer::render_deployment_ui(const World& world,
+                                    const WorldTransform& transform,
+                                    const int output_width,
+                                    const int output_height) const {
+    if (!SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND)) {
+        return false;
+    }
+
+    const SDL_FRect bar{0.0F,
+                        static_cast<float>(output_height) - deployment_bar_height,
+                        static_cast<float>(output_width), deployment_bar_height};
+    set_color(renderer_, Color{10, 14, 18, 225});
+    if (!SDL_RenderFillRect(renderer_, &bar)) {
+        return false;
+    }
+
+    const PlayerState* player = world.find_player(Team::team_a);
+    for (std::size_t index = 0; index < purchasable_troops.size(); ++index) {
+        const TroopType troop = purchasable_troops[index];
+        const TroopDefinition* definition = troop_definition_for(troop);
+        if (definition == nullptr) {
+            continue;
+        }
+        const SDL_FRect button =
+            deployment_button_rect(index, output_width, output_height);
+        const bool selected = selected_troop_ == troop;
+        const bool affordable =
+            player != nullptr && player->can_afford(definition->purchase_cost);
+        set_color(renderer_, selected
+                                 ? Color{58, 134, 88, 245}
+                                 : affordable ? Color{48, 57, 65, 245}
+                                              : Color{55, 42, 42, 245});
+        if (!SDL_RenderFillRect(renderer_, &button)) {
+            return false;
+        }
+        set_color(renderer_, selected ? Color{130, 255, 168, 255}
+                                      : Color{170, 180, 188, 255});
+        if (!SDL_RenderRect(renderer_, &button)) {
+            return false;
+        }
+        const auto name = to_string(troop);
+        set_color(renderer_, Color{245, 245, 245, 255});
+        if (!SDL_RenderDebugTextFormat(
+                renderer_, button.x + 10.0F, button.y + 9.0F, "%.*s  $%lld",
+                static_cast<int>(name.size()), name.data(),
+                static_cast<long long>(definition->purchase_cost)) ||
+            !SDL_RenderDebugTextFormat(
+                renderer_, button.x + 10.0F, button.y + 25.0F,
+                "deploy %.2fs", definition->deployment_seconds)) {
+            return false;
+        }
+    }
+
+    if (!selected_troop_.has_value()) {
+        return true;
+    }
+    const auto world_point = transform.drawable_to_world(pointer_drawable_);
+    if (!world_point.has_value()) {
+        return true;
+    }
+    const Vec2 position{world_point->x, world_point->y};
+    const bool valid =
+        is_valid_deployment_location(world, Team::team_a, position);
+    set_color(renderer_, valid ? Color{120, 255, 160, 235}
+                               : Color{255, 100, 100, 235});
+    const auto marker = transform.world_to_drawable(*world_point);
+    constexpr float cursor_size = 10.0F;
+    return SDL_RenderLine(renderer_, marker.x - cursor_size, marker.y,
+                          marker.x + cursor_size, marker.y) &&
+           SDL_RenderLine(renderer_, marker.x, marker.y - cursor_size,
+                          marker.x, marker.y + cursor_size);
 }
 
 bool Renderer::render_projectiles(const World& world,

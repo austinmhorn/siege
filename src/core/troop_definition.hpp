@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/weapon.hpp"
+#include "world/player_state.hpp"
 #include "world/unit.hpp"
 
 namespace siege {
@@ -23,6 +24,8 @@ struct TroopDefinition {
     float max_health;
     float hit_radius;
     float zone_control_weight;
+    Money purchase_cost;
+    double deployment_seconds;
     WeaponDefinition weapon;
 };
 
@@ -44,6 +47,8 @@ inline constexpr TroopDefinition rifle_definition{
     .max_health = 100.0F,
     .hit_radius = 20.0F,
     .zone_control_weight = 1.0F,
+    .purchase_cost = 2500,
+    .deployment_seconds = 0.75,
     .weapon = WeaponDefinition{
         .type = WeaponType::rifle,
         .projectile_speed = 960.0F,
@@ -74,6 +79,8 @@ inline constexpr TroopDefinition machine_gun_definition{
     .max_health = 100.0F,
     .hit_radius = 22.0F,
     .zone_control_weight = 1.0F,
+    .purchase_cost = 4000,
+    .deployment_seconds = 1.25,
     .weapon = WeaponDefinition{
         .type = WeaponType::machine_gun,
         .projectile_speed = 1100.0F,
@@ -104,6 +111,8 @@ inline constexpr TroopDefinition bazooka_definition{
     .max_health = 80.0F,
     .hit_radius = 20.0F,
     .zone_control_weight = 1.0F,
+    .purchase_cost = 6000,
+    .deployment_seconds = 1.75,
     .weapon = WeaponDefinition{
         .type = WeaponType::bazooka,
         .projectile_speed = 480.0F,
@@ -115,5 +124,18 @@ inline constexpr TroopDefinition bazooka_definition{
         .splash_radius = 115.0F,
     },
 };
+
+[[nodiscard]] constexpr const TroopDefinition* troop_definition_for(
+    const TroopType type) noexcept {
+    switch (type) {
+    case TroopType::rifle:
+        return &rifle_definition;
+    case TroopType::machine_gun:
+        return &machine_gun_definition;
+    case TroopType::bazooka:
+        return &bazooka_definition;
+    }
+    return nullptr;
+}
 
 } // namespace siege

@@ -14,6 +14,8 @@ public:
 
     [[nodiscard]] Team team() const noexcept;
     [[nodiscard]] Money cash() const noexcept;
+    [[nodiscard]] bool can_afford(Money amount) const noexcept;
+    [[nodiscard]] bool try_spend(Money amount) noexcept;
 
     void accrue_passive_income(Money cash_per_second,
                                std::uint32_t fixed_ticks_per_second,

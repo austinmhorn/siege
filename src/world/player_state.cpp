@@ -11,6 +11,18 @@ Team PlayerState::team() const noexcept { return team_; }
 
 Money PlayerState::cash() const noexcept { return cash_; }
 
+bool PlayerState::can_afford(const Money amount) const noexcept {
+    return amount >= 0 && cash_ >= amount;
+}
+
+bool PlayerState::try_spend(const Money amount) noexcept {
+    if (!can_afford(amount)) {
+        return false;
+    }
+    cash_ -= amount;
+    return true;
+}
+
 void PlayerState::accrue_passive_income(
     const Money cash_per_second, const std::uint32_t fixed_ticks_per_second,
     const std::uint64_t fixed_tick_count) noexcept {
