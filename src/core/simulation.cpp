@@ -5,6 +5,7 @@
 #include "core/support_positioning.hpp"
 #include "core/targeting.hpp"
 #include "core/weapon.hpp"
+#include "core/zone_capture.hpp"
 #include "world/world.hpp"
 
 #include <algorithm>
@@ -282,6 +283,8 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
         unit.set_support_positioning(intent.support_screen_id,
                                      intent.support_steering);
     }
+
+    update_zone_capture(world_, fixed_delta_seconds);
 
     for (auto& unit : units) {
         if (!unit.target_id().has_value()) {

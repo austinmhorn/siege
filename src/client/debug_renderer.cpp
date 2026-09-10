@@ -7,6 +7,7 @@
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <cmath>
 
 namespace siege {
@@ -16,6 +17,8 @@ constexpr float direction_length = 55.0F;
 constexpr float preferred_half_width = 65.0F;
 constexpr int circle_segments = 48;
 constexpr int cone_arc_segments = 24;
+constexpr float capture_bar_inset = 48.0F;
+constexpr float capture_bar_y = 58.0F;
 
 void set_color(SDL_Renderer* renderer, const Uint8 red, const Uint8 green,
                const Uint8 blue, const Uint8 alpha = 255) {
@@ -70,6 +73,34 @@ bool draw_vision_cone(SDL_Renderer* renderer, const WorldTransform& transform,
     return draw_world_line(renderer, transform, center, previous);
 }
 
+bool draw_capture_meter(SDL_Renderer* renderer,
+                        const WorldTransform& transform, const Zone& zone) {
+    const Bounds& bounds = zone.bounds();
+    const float left = bounds.x + capture_bar_inset;
+    const float right = bounds.x + bounds.width - capture_bar_inset;
+    const float center = (left + right) * 0.5F;
+
+    set_color(renderer, 235, 92, 92, 210);
+    if (!draw_world_line(renderer, transform, {left, capture_bar_y},
+                         {center, capture_bar_y})) {
+        return false;
+    }
+    set_color(renderer, 92, 155, 255, 210);
+    if (!draw_world_line(renderer, transform, {center, capture_bar_y},
+                         {right, capture_bar_y})) {
+        return false;
+    }
+
+    const float capture_fraction =
+        (std::clamp(zone.capture_value(), -100.0F, 100.0F) + 100.0F) /
+        200.0F;
+    const float marker_x = left + (right - left) * capture_fraction;
+    set_color(renderer, 255, 255, 255, 245);
+    return draw_world_line(renderer, transform,
+                           {marker_x, capture_bar_y - 8.0F},
+                           {marker_x, capture_bar_y + 8.0F});
+}
+
 } // namespace
 
 DebugRenderer::DebugRenderer(SDL_Renderer* renderer) noexcept : renderer_(renderer) {}
@@ -88,6 +119,24 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                                    world.projectiles().size(), corpse_count,
                                    firing_effect_count, explosion_effect_count)) {
         return false;
+    }
+
+    for (const auto& zone : world.zones()) {
+        if (zone.type() != ZoneType::objective) {
+            continue;
+        }
+        const Bounds& bounds = zone.bounds();
+        const auto label = transform.world_to_drawable(
+            Point{bounds.x + bounds.width * 0.5F, 34.0F});
+        set_color(renderer_, 245, 245, 245);
+        if (!SDL_RenderDebugTextFormat(
+                renderer_, label.x - 84.0F, label.y,
+                "Z%zu A%d B%d P%+d C%+.1f", zone.index(),
+                zone.team_a_count(), zone.team_b_count(), zone.pressure(),
+                zone.capture_value()) ||
+            !draw_capture_meter(renderer_, transform, zone)) {
+            return false;
+        }
     }
 
     for (const auto& unit : world.units()) {

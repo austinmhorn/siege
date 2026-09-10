@@ -29,6 +29,8 @@ const std::array<Zone, World::zone_count>& World::zones() const noexcept {
     return zones_;
 }
 
+std::array<Zone, World::zone_count>& World::zones() noexcept { return zones_; }
+
 const std::vector<Unit>& World::units() const noexcept {
     return units_;
 }

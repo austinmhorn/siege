@@ -6,6 +6,7 @@
 #include "core/support_positioning.hpp"
 #include "core/targeting.hpp"
 #include "core/troop_definition.hpp"
+#include "core/zone_capture.hpp"
 #include "world/unit.hpp"
 #include "world/world.hpp"
 
@@ -156,6 +157,103 @@ int main() {
                         near(bazooka_definition.max_health, 80.0F) &&
                         near(bazooka_definition.zone_control_weight, 1.0F),
                     "bazooka definition exposes its explosive long-range profile");
+
+    World presence_world;
+    presence_world.units().clear();
+    presence_world.units().push_back(
+        test_unit(1000, Team::team_a, {500.0F, 200.0F}, 0.0F));
+    presence_world.units().push_back(
+        test_unit(1001, Team::team_b, {500.0F, 300.0F}, 0.0F));
+    presence_world.units().back().apply_damage(100.0F);
+    update_zone_capture(presence_world, 1.0);
+    passed &= check(presence_world.zones()[1].team_a_count() == 1 &&
+                        presence_world.zones()[1].team_b_count() == 0,
+                    "living unit is counted in its objective and dead unit is ignored");
+
+    World boundary_world;
+    boundary_world.units().clear();
+    boundary_world.units().push_back(
+        test_unit(1002, Team::team_a, {768.0F, 200.0F}, 0.0F));
+    update_zone_capture(boundary_world, 0.0);
+    const auto boundary_zone = zone_index_for_position(
+        boundary_world, boundary_world.units().front().position());
+    int boundary_presence = 0;
+    for (const auto& zone : boundary_world.zones()) {
+        boundary_presence += zone.team_a_count() + zone.team_b_count();
+    }
+    passed &= check(boundary_zone == 2 && boundary_presence == 1 &&
+                        boundary_world.zones()[1].team_a_count() == 0 &&
+                        boundary_world.zones()[2].team_a_count() == 1,
+                    "shared boundary belongs only to the zone on its right");
+
+    World equal_world;
+    equal_world.units().clear();
+    equal_world.zones()[1].advance_capture(17.0F);
+    equal_world.units().push_back(
+        test_unit(1010, Team::team_a, {500.0F, 200.0F}, 0.0F));
+    equal_world.units().push_back(
+        test_unit(1011, Team::team_b, {500.0F, 300.0F}, 0.0F));
+    update_zone_capture(equal_world, 1.0);
+    passed &= check(equal_world.zones()[1].pressure() == 0 &&
+                        near(equal_world.zones()[1].capture_value(), 17.0F),
+                    "equal presence leaves capture unchanged");
+
+    World advantage_world;
+    advantage_world.units().clear();
+    advantage_world.units().push_back(
+        test_unit(1020, Team::team_a, {500.0F, 200.0F}, 0.0F));
+    update_zone_capture(advantage_world, 1.0);
+    passed &= check(advantage_world.zones()[1].pressure() == 1 &&
+                        near(advantage_world.zones()[1].capture_value(), 5.0F),
+                    "Team A numerical advantage moves capture toward +100");
+    advantage_world.units().clear();
+    advantage_world.units().push_back(
+        test_unit(1021, Team::team_b, {500.0F, 200.0F}, 0.0F));
+    advantage_world.units().push_back(
+        test_unit(1022, Team::team_b, {500.0F, 300.0F}, 0.0F));
+    update_zone_capture(advantage_world, 1.0);
+    passed &= check(advantage_world.zones()[1].pressure() == -2 &&
+                        near(advantage_world.zones()[1].capture_value(), -5.0F),
+                    "Team B numerical advantage moves capture toward -100");
+
+    World pressure_world;
+    pressure_world.units().clear();
+    for (Unit::Id id = 1030; id < 1036; ++id) {
+        pressure_world.units().push_back(test_unit(
+            id, Team::team_a,
+            {500.0F, 100.0F + static_cast<float>(id - 1030) * 40.0F}, 0.0F));
+    }
+    update_zone_capture(pressure_world, 1.0);
+    passed &= check(pressure_world.zones()[1].pressure() == 6 &&
+                        near(pressure_world.zones()[1].capture_value(), 15.0F),
+                    "larger advantage captures faster but maximum pressure clamps at three");
+
+    World clamp_world;
+    clamp_world.units().clear();
+    clamp_world.units().push_back(
+        test_unit(1040, Team::team_a, {500.0F, 200.0F}, 0.0F));
+    update_zone_capture(clamp_world, 100.0);
+    passed &= check(near(clamp_world.zones()[1].capture_value(), 100.0F),
+                    "capture meter clamps at positive 100");
+    clamp_world.units().front() =
+        test_unit(1041, Team::team_b, {500.0F, 200.0F}, 0.0F);
+    update_zone_capture(clamp_world, 100.0);
+    passed &= check(near(clamp_world.zones()[1].capture_value(), -100.0F),
+                    "capture meter clamps at negative 100");
+    clamp_world.units().clear();
+    update_zone_capture(clamp_world, 20.0);
+    passed &= check(near(clamp_world.zones()[1].capture_value(), -100.0F),
+                    "empty objective retains its capture progress");
+
+    World home_world;
+    home_world.units().clear();
+    home_world.units().push_back(
+        test_unit(1050, Team::team_a, {100.0F, 200.0F}, 0.0F));
+    home_world.zones()[0].advance_capture(50.0F);
+    update_zone_capture(home_world, 10.0);
+    passed &= check(near(home_world.zones()[0].capture_value(), 0.0F) &&
+                        home_world.zones()[0].team_a_count() == 0,
+                    "home zones do not track capture presence or capture progress");
 
     Unit machine_gun_rotation = unit_from_definition(
         99, Team::team_a, {}, 0.0F, machine_gun_definition);

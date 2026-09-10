@@ -89,6 +89,11 @@ Pass `-DSIEGE_FETCH_SDL3=OFF` while configuring to require a system SDL3 package
   active unit, projectile, corpse, firing-effect, explosion-effect, health, and
   weapon-cooldown state. It also labels behavior factors and the selected friendly
   screen, with a short green line for active support steering.
+- Objective zones 1-3 count living Team A and Team B troops at one control point
+  each. Their persistent `-100` (Team B) to `+100` (Team A) meters move at 5 points
+  per second for each net troop, with effective pressure capped at 3. Empty and
+  equally contested objectives retain their current progress; home zones do not
+  participate. F3 shows counts, raw pressure, capture value, and a directional bar.
 - The complete battlefield remains visible while the window is resized.
 - World resolution: 1920x1080.
 - Simulation rate: 60 fixed ticks per second, independent of rendering rate.

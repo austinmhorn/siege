@@ -19,6 +19,7 @@ public:
     World();
 
     [[nodiscard]] const std::array<Zone, zone_count>& zones() const noexcept;
+    [[nodiscard]] std::array<Zone, zone_count>& zones() noexcept;
     [[nodiscard]] const std::vector<Unit>& units() const noexcept;
     [[nodiscard]] std::vector<Unit>& units() noexcept;
     [[nodiscard]] const Unit* find_unit(Unit::Id id) const noexcept;
