@@ -335,6 +335,14 @@ int main() {
             bazooka_definition.purchase_cost == 6'000 &&
             std::abs(bazooka_definition.deployment_seconds - 1.75) < 1.0e-9,
         "each troop exposes its centralized purchase cost and deployment time");
+    passed &= check(
+        troop_display_name(TroopType::rifle) == "Rifleman" &&
+            troop_display_name(TroopType::machine_gun) == "Machine Gun" &&
+            troop_display_name(TroopType::bazooka) == "Bazooka" &&
+            to_string(TroopType::rifle) == "rifle" &&
+            to_string(TroopType::machine_gun) == "machine_gun" &&
+            to_string(TroopType::bazooka) == "bazooka",
+        "display names are user-facing while internal troop IDs stay unchanged");
 
     World frontline_world;
     frontline_world.units().clear();

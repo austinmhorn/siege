@@ -4,10 +4,13 @@
 #include "world/player_state.hpp"
 #include "world/unit.hpp"
 
+#include <string_view>
+
 namespace siege {
 
 struct TroopDefinition {
     TroopType type;
+    std::string_view display_name;
     float move_speed;
     float rotation_speed;
     float vision_range;
@@ -31,6 +34,7 @@ struct TroopDefinition {
 
 inline constexpr TroopDefinition rifle_definition{
     .type = TroopType::rifle,
+    .display_name = "Rifleman",
     .move_speed = 72.0F,
     .rotation_speed = 90.0F,
     .vision_range = 500.0F,
@@ -63,6 +67,7 @@ inline constexpr TroopDefinition rifle_definition{
 
 inline constexpr TroopDefinition machine_gun_definition{
     .type = TroopType::machine_gun,
+    .display_name = "Machine Gun",
     .move_speed = 54.0F,
     .rotation_speed = 60.0F,
     .vision_range = 600.0F,
@@ -95,6 +100,7 @@ inline constexpr TroopDefinition machine_gun_definition{
 
 inline constexpr TroopDefinition bazooka_definition{
     .type = TroopType::bazooka,
+    .display_name = "Bazooka",
     .move_speed = 60.0F,
     .rotation_speed = 50.0F,
     .vision_range = 760.0F,
@@ -136,6 +142,13 @@ inline constexpr TroopDefinition bazooka_definition{
         return &bazooka_definition;
     }
     return nullptr;
+}
+
+[[nodiscard]] constexpr std::string_view troop_display_name(
+    const TroopType type) noexcept {
+    const TroopDefinition* definition = troop_definition_for(type);
+    return definition == nullptr ? std::string_view{"Unknown"}
+                                 : definition->display_name;
 }
 
 } // namespace siege

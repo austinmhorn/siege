@@ -1,9 +1,11 @@
 #include "client/debug_renderer.hpp"
 
 #include "client/capture_bar.hpp"
+#include "client/ui_layout.hpp"
 #include "client/world_transform.hpp"
 #include "core/economy.hpp"
 #include "core/math.hpp"
+#include "core/troop_definition.hpp"
 #include "core/zone_capture.hpp"
 #include "world/unit.hpp"
 #include "world/world.hpp"
@@ -12,6 +14,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string_view>
+#include <utility>
 
 namespace siege {
 namespace {
@@ -23,10 +27,71 @@ constexpr int cone_arc_segments = 24;
 constexpr float capture_bar_inset = 48.0F;
 constexpr float capture_bar_y = 120.0F;
 constexpr FontColor debug_text{245, 245, 245, 255};
+constexpr FontColor debug_muted{190, 200, 208, 255};
+constexpr FontColor debug_heading{255, 221, 105, 255};
+constexpr float panel_margin = 8.0F;
+constexpr float panel_padding = 8.0F;
+constexpr float left_panel_width = 256.0F;
+constexpr float unit_column_preferred_width = 190.0F;
+constexpr float unit_column_minimum_width = 148.0F;
+constexpr float unit_block_gap = 6.0F;
+constexpr std::size_t unit_block_line_count = 12;
+
+struct TextCursor {
+    FontSystem& fonts;
+    float x;
+    float y;
+    bool succeeded{true};
+
+    template <typename... Args>
+    void format(const FontRole role, const FontColor color,
+                const char* format_string, Args&&... args) {
+        if (succeeded) {
+            succeeded = fonts.draw_format(x, y, role, color, format_string,
+                                          std::forward<Args>(args)...);
+        }
+        y += Typography::debug_line_height;
+    }
+
+    void line(const FontRole role, const FontColor color,
+              const std::string_view text) {
+        if (succeeded) {
+            succeeded = fonts.draw(x, y, text, role, color);
+        }
+        y += Typography::debug_line_height;
+    }
+
+    void blank() noexcept { y += Typography::debug_line_height; }
+};
+
+const char* short_team_name(const Team team) noexcept {
+    switch (team) {
+    case Team::team_a:
+        return "A";
+    case Team::team_b:
+        return "B";
+    case Team::none:
+        return "neutral";
+    }
+    return "?";
+}
+
+const char* yes_no(const bool value) noexcept {
+    return value ? "yes" : "no";
+}
 
 void set_color(SDL_Renderer* renderer, const Uint8 red, const Uint8 green,
                const Uint8 blue, const Uint8 alpha = 255) {
     SDL_SetRenderDrawColor(renderer, red, green, blue, alpha);
+}
+
+bool draw_panel(SDL_Renderer* renderer, const SDL_FRect rectangle) {
+    set_color(renderer, 7, 10, 14, 220);
+    if (!SDL_RenderFillRect(renderer, &rectangle)) {
+        return false;
+    }
+    set_color(renderer, 120, 135, 148, 190);
+    return SDL_RenderRect(renderer, &rectangle);
 }
 
 bool draw_world_line(SDL_Renderer* renderer, const WorldTransform& transform,
@@ -126,87 +191,17 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                            const std::size_t firing_effect_count,
                            const std::size_t explosion_effect_count) const {
     SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
-    set_color(renderer_, 245, 245, 245);
-    if (!fonts_.draw_format(
-            transform.viewport().x + 8.0F, transform.viewport().y + 8.0F,
-            FontRole::debug_bold, debug_text,
-            "F3 | sim %.0f Hz | render %.1f FPS | units %zu | pending %zu",
-            simulation_hz, render_fps, world.units().size(),
-            world.pending_deployments().size()) ||
-        !fonts_.draw_format(
-            transform.viewport().x + 8.0F,
-            transform.viewport().y + 8.0F + Typography::debug_line_height,
-            FontRole::debug, debug_text,
-            "projectiles %zu | corpses %zu | firing %zu | explosions %zu",
-            world.projectiles().size(), corpse_count, firing_effect_count,
-            explosion_effect_count)) {
-        return false;
-    }
-
-    const PlayerState* team_a_player = world.find_player(Team::team_a);
-    const PlayerState* team_b_player = world.find_player(Team::team_b);
-    if (team_a_player == nullptr || team_b_player == nullptr ||
-        !fonts_.draw_format(
-            transform.viewport().x + 8.0F,
-            transform.viewport().y + 8.0F + Typography::debug_line_height * 2.0F,
-            FontRole::debug, debug_text,
-            "economy | Team A $%lld | Team B $%lld | passive +$%lld/s",
-            static_cast<long long>(team_a_player->cash()),
-            static_cast<long long>(team_b_player->cash()),
-            static_cast<long long>(
-                default_economy_rules.passive_income_per_second))) {
-        return false;
-    }
-
     for (const auto& zone : world.zones()) {
         if (zone.type() != ZoneType::objective) {
             continue;
         }
-        const Bounds& bounds = zone.bounds();
-        const auto label_x = transform.world_to_drawable(
-            Point{bounds.x + bounds.width * 0.5F, 0.0F}).x;
-        const Point label{label_x, transform.viewport().y + 42.0F};
-        const bool deployable =
-            is_zone_deployable(zone, zone.owner());
         if (const auto deployment = deployment_bounds(zone, zone.owner())) {
             set_color(renderer_, 120, 255, 150, 190);
             if (!draw_world_bounds(renderer_, transform, *deployment)) {
                 return false;
             }
         }
-        set_color(renderer_, 245, 245, 245);
-        if (!fonts_.draw_format(
-                label.x - 84.0F, label.y, FontRole::debug_bold, debug_text,
-                "Z%zu %.*s A%d B%d P%+d C%+.1f", zone.index(),
-                static_cast<int>(to_string(zone.owner()).size()),
-                to_string(zone.owner()).data(),
-                zone.team_a_count(), zone.team_b_count(), zone.pressure(),
-                zone.capture_value()) ||
-            !fonts_.draw_format(
-                label.x - 84.0F, label.y + Typography::debug_line_height,
-                FontRole::debug, debug_text,
-                "%s %s T%.1f S%s D%s",
-                zone.occupied() ? "occupied" : "unoccupied",
-                zone.contested() ? "contested" : "clear",
-                zone.secure_timer_seconds(), zone.secured() ? "Y" : "N",
-                deployable ? "Y" : "N") ||
-            !draw_capture_meter(renderer_, transform, zone)) {
-            return false;
-        }
-    }
-
-    for (const auto& deployment : world.pending_deployments()) {
-        const auto marker = transform.world_to_drawable(
-            Point{deployment.position.x, deployment.position.y});
-        const auto troop = to_string(deployment.troop_type);
-        const auto team = to_string(deployment.team);
-        if (!fonts_.draw_format(
-                marker.x + 10.0F, marker.y + 12.0F, FontRole::debug_bold,
-                FontColor{140, 255, 175, 245},
-                "pending #%u %.*s %.*s %.2fs", deployment.id,
-                static_cast<int>(troop.size()), troop.data(),
-                static_cast<int>(team.size()), team.data(),
-                deployment.remaining_seconds)) {
+        if (!draw_capture_meter(renderer_, transform, zone)) {
             return false;
         }
     }
@@ -281,75 +276,185 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
             return false;
         }
 
-        const auto type = to_string(unit.troop_type());
-        const auto team = to_string(unit.team());
-        const auto state = to_string(unit.movement_state());
-        const auto combat_state = to_string(unit.combat_movement_state());
-        const bool target_text_rendered = unit.target_id().has_value()
-            ? fonts_.draw_format(
-                  marker.x + 10.0F, marker.y - 19.0F, FontRole::debug_bold,
-                  debug_text,
-                  "#%u %.*s %.*s %.*s/%.*s target #%u", unit.id(),
-                  static_cast<int>(type.size()), type.data(),
-                  static_cast<int>(team.size()), team.data(),
-                  static_cast<int>(state.size()), state.data(),
-                  static_cast<int>(combat_state.size()), combat_state.data(),
-                  *unit.target_id())
-            : fonts_.draw_format(
-                  marker.x + 10.0F, marker.y - 19.0F, FontRole::debug_bold,
-                  debug_text,
-                  "#%u %.*s %.*s %.*s/%.*s target none", unit.id(),
-                  static_cast<int>(type.size()), type.data(),
-                  static_cast<int>(team.size()), team.data(),
-                  static_cast<int>(state.size()), state.data(),
-                  static_cast<int>(combat_state.size()), combat_state.data());
-        if (!target_text_rendered ||
-            !fonts_.draw_format(
-                marker.x + 10.0F, marker.y - 9.0F, FontRole::debug,
-                debug_text, "p %.0f,%.0f py %.0f m%.0f r%.0f", position.x,
-                position.y, unit.preferred_y(), unit.move_speed(),
-                unit.rotation_speed()) ||
-            !fonts_.draw_format(
-                marker.x + 10.0F, marker.y + 1.0F, FontRole::debug,
-                debug_text,
-                "vision %.0f/%.0f aware %.0f combat %.0f+/-%.0f",
-                unit.vision_range(), unit.vision_angle(),
-                unit.awareness_radius(), unit.preferred_combat_range(),
-                unit.range_tolerance()) ||
-            !fonts_.draw_format(
-                marker.x + 10.0F, marker.y + 11.0F, FontRole::debug,
-                debug_text, "hp %.0f/%.0f weapon %.0f arc %.0f cd %.2f",
-                unit.health(), unit.max_health(), unit.weapon().range,
-                unit.weapon().firing_arc,
-                unit.weapon_cooldown_remaining()) ||
-            !fonts_.draw_format(
-                marker.x + 10.0F, marker.y + 21.0F, FontRole::debug,
-                debug_text, "projectile %.0f damage %.0f splash %.0f",
-                unit.weapon().projectile_speed,
-                unit.weapon().projectile_damage,
-                unit.weapon().splash_radius)) {
+    }
+
+    int output_width = 0;
+    int output_height = 0;
+    if (!SDL_GetRenderOutputSize(renderer_, &output_width, &output_height)) {
+        return false;
+    }
+    const float panel_top = panel_margin;
+    const float panel_bottom =
+        static_cast<float>(output_height) - ui_layout::deployment_bar_height -
+        panel_margin;
+    const float panel_height = std::max(1.0F, panel_bottom - panel_top);
+
+    const SDL_FRect left_panel{panel_margin, panel_top, left_panel_width,
+                               panel_height};
+    if (!draw_panel(renderer_, left_panel)) {
+        return false;
+    }
+
+    TextCursor global{fonts_, left_panel.x + panel_padding,
+                      left_panel.y + panel_padding};
+    global.line(FontRole::debug_bold, debug_heading, "SIEGE F3");
+    global.format(FontRole::debug, debug_text, "simulation: %.0f Hz",
+                  simulation_hz);
+    global.format(FontRole::debug, debug_text, "render: %.0f FPS", render_fps);
+    global.format(FontRole::debug, debug_text, "units: %zu", world.units().size());
+    global.format(FontRole::debug, debug_text, "projectiles: %zu",
+                  world.projectiles().size());
+    global.format(FontRole::debug, debug_text, "pending: %zu",
+                  world.pending_deployments().size());
+    global.format(FontRole::debug, debug_text, "corpses: %zu", corpse_count);
+    global.format(FontRole::debug, debug_text, "firing effects: %zu",
+                  firing_effect_count);
+    global.format(FontRole::debug, debug_text, "explosion effects: %zu",
+                  explosion_effect_count);
+    global.blank();
+
+    global.line(FontRole::debug_bold, debug_heading, "ECONOMY");
+    const PlayerState* team_a_player = world.find_player(Team::team_a);
+    const PlayerState* team_b_player = world.find_player(Team::team_b);
+    global.format(FontRole::debug, debug_text, "Team A cash: $%lld",
+                  static_cast<long long>(team_a_player == nullptr
+                                             ? 0
+                                             : team_a_player->cash()));
+    global.format(FontRole::debug, debug_text, "Team B cash: $%lld",
+                  static_cast<long long>(team_b_player == nullptr
+                                             ? 0
+                                             : team_b_player->cash()));
+    global.format(FontRole::debug, debug_text, "passive: $%lld/s",
+                  static_cast<long long>(
+                      default_economy_rules.passive_income_per_second));
+    global.blank();
+
+    global.line(FontRole::debug_bold, debug_heading, "OBJECTIVES");
+    for (const auto& zone : world.zones()) {
+        if (zone.type() != ZoneType::objective) {
+            continue;
+        }
+        global.format(FontRole::debug_bold, debug_text, "Zone %zu", zone.index());
+        global.format(FontRole::debug, debug_text, "owner: %s",
+                      short_team_name(zone.owner()));
+        global.format(FontRole::debug, debug_text, "presence: A%d / B%d",
+                      zone.team_a_count(), zone.team_b_count());
+        global.format(FontRole::debug, debug_text, "pressure: %+d",
+                      zone.pressure());
+        global.format(FontRole::debug, debug_text, "capture: %+.1f",
+                      zone.capture_value());
+        global.format(FontRole::debug, debug_text, "occupied: %s",
+                      yes_no(zone.occupied()));
+        global.format(FontRole::debug, debug_text, "contested: %s",
+                      yes_no(zone.contested()));
+        global.format(FontRole::debug, debug_text, "secure: %.1f / %.1fs",
+                      zone.secure_timer_seconds(),
+                      default_zone_security_rules.secure_duration_seconds);
+        global.format(FontRole::debug, debug_text, "secured: %s",
+                      yes_no(zone.secured()));
+        global.format(FontRole::debug, debug_text, "deploy A/B: %s / %s",
+                      yes_no(is_zone_deployable(zone, Team::team_a)),
+                      yes_no(is_zone_deployable(zone, Team::team_b)));
+    }
+    if (!global.succeeded) {
+        return false;
+    }
+
+    const float unit_block_height =
+        static_cast<float>(unit_block_line_count) * Typography::debug_line_height +
+        unit_block_gap;
+    const std::size_t blocks_per_column = std::max<std::size_t>(
+        1, static_cast<std::size_t>(panel_height / unit_block_height));
+    const float right_region_left = left_panel.x + left_panel.w + panel_margin;
+    const float right_region_width = std::max(
+        unit_column_minimum_width,
+        static_cast<float>(output_width) - right_region_left - panel_margin);
+    const std::size_t requested_columns = std::max<std::size_t>(
+        1, (world.units().size() + blocks_per_column - 1) / blocks_per_column);
+    const std::size_t maximum_columns = std::max<std::size_t>(
+        1, static_cast<std::size_t>(right_region_width /
+                                    unit_column_minimum_width));
+    const std::size_t column_count =
+        std::min(requested_columns, maximum_columns);
+    const float column_width = std::min(
+        unit_column_preferred_width,
+        right_region_width / static_cast<float>(column_count));
+    const float columns_left = static_cast<float>(output_width) - panel_margin -
+                               column_width * static_cast<float>(column_count);
+
+    for (std::size_t column = 0; column < column_count; ++column) {
+        const SDL_FRect panel{
+            columns_left + column_width * static_cast<float>(column), panel_top,
+            column_width, panel_height};
+        if (!draw_panel(renderer_, panel)) {
             return false;
         }
+    }
 
-        if (unit.support_positioning_bias() > 0.0F) {
-            const bool support_text_rendered = unit.support_screen_id().has_value()
-                ? fonts_.draw_format(
-                      marker.x + 10.0F, marker.y + 31.0F, FontRole::debug,
-                      debug_text,
-                      "ai pursue %.2f retreat %.2f support %.2f rear %.0f screen #%u",
-                      unit.aggression(), unit.retreat_bias(),
-                      unit.support_positioning_bias(),
-                      unit.support_rear_distance(), *unit.support_screen_id())
-                : fonts_.draw_format(
-                      marker.x + 10.0F, marker.y + 31.0F, FontRole::debug,
-                      debug_text,
-                      "ai pursue %.2f retreat %.2f support %.2f rear %.0f screen none",
-                      unit.aggression(), unit.retreat_bias(),
-                      unit.support_positioning_bias(),
-                      unit.support_rear_distance());
-            if (!support_text_rendered) {
-                return false;
-            }
+    const std::size_t capacity = blocks_per_column * column_count;
+    const bool has_overflow = world.units().size() > capacity;
+    const std::size_t displayed_units =
+        has_overflow && capacity > 0 ? capacity - 1
+                                     : std::min(world.units().size(), capacity);
+    for (std::size_t index = 0; index < displayed_units; ++index) {
+        const Unit& unit = world.units()[index];
+        const std::size_t column = index / blocks_per_column;
+        const std::size_t row = index % blocks_per_column;
+        TextCursor cursor{
+            fonts_,
+            columns_left + column_width * static_cast<float>(column) +
+                panel_padding,
+            panel_top + panel_padding +
+                static_cast<float>(row) * unit_block_height};
+        const auto name = troop_display_name(unit.troop_type());
+        cursor.format(FontRole::debug_bold, debug_heading, "#%u %.*s", unit.id(),
+                      static_cast<int>(name.size()), name.data());
+        cursor.format(FontRole::debug, debug_text, "team: %s",
+                      short_team_name(unit.team()));
+        const auto state = to_string(unit.combat_movement_state());
+        cursor.format(FontRole::debug, debug_text, "state: %.*s",
+                      static_cast<int>(state.size()), state.data());
+        cursor.format(FontRole::debug, debug_text, "hp: %.0f/%.0f", unit.health(),
+                      unit.max_health());
+        if (unit.target_id().has_value()) {
+            cursor.format(FontRole::debug, debug_text, "target: #%u",
+                          *unit.target_id());
+        } else {
+            cursor.line(FontRole::debug, debug_muted, "target: none");
+        }
+        cursor.format(FontRole::debug, debug_text, "pos: %.0f, %.0f",
+                      unit.position().x, unit.position().y);
+        cursor.format(FontRole::debug, debug_text, "preferred y: %.0f",
+                      unit.preferred_y());
+        cursor.format(FontRole::debug, debug_text, "move: %.0f",
+                      unit.move_speed());
+        cursor.format(FontRole::debug, debug_text, "rotation: %.0f",
+                      unit.rotation_speed());
+        cursor.format(FontRole::debug, debug_text, "vision: %.0f / %.0fdeg",
+                      unit.vision_range(), unit.vision_angle());
+        cursor.format(FontRole::debug, debug_text, "range: %.0f +/-%.0f",
+                      unit.preferred_combat_range(), unit.range_tolerance());
+        cursor.format(FontRole::debug, debug_text, "cooldown: %.2f",
+                      unit.weapon_cooldown_remaining());
+        if (!cursor.succeeded) {
+            return false;
+        }
+    }
+
+    if (has_overflow) {
+        const std::size_t overflow_slot = capacity - 1;
+        const std::size_t column = overflow_slot / blocks_per_column;
+        const std::size_t row = overflow_slot % blocks_per_column;
+        TextCursor overflow{
+            fonts_,
+            columns_left + column_width * static_cast<float>(column) +
+                panel_padding,
+            panel_top + panel_padding +
+                static_cast<float>(row) * unit_block_height};
+        overflow.format(FontRole::debug_bold, debug_heading, "+%zu more units",
+                        world.units().size() - displayed_units);
+        if (!overflow.succeeded) {
+            return false;
         }
     }
 

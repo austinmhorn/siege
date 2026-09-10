@@ -1,6 +1,7 @@
 #include "client/renderer.hpp"
 
 #include "client/capture_bar.hpp"
+#include "client/ui_layout.hpp"
 #include "client/world_transform.hpp"
 #include "core/deployment.hpp"
 #include "core/math.hpp"
@@ -43,10 +44,6 @@ constexpr float projectile_tracer_length = 18.0F;
 constexpr double corpse_fade_seconds = 10.0;
 constexpr double explosion_effect_seconds = 0.35;
 constexpr int explosion_segments = 32;
-constexpr float deployment_bar_height = 68.0F;
-constexpr float deployment_button_width = 180.0F;
-constexpr float deployment_button_height = 46.0F;
-constexpr float deployment_button_gap = 12.0F;
 constexpr float pending_marker_radius = 18.0F;
 constexpr double deployment_feedback_duration_seconds = 1.5;
 constexpr float capture_bar_world_inset = 42.0F;
@@ -160,16 +157,19 @@ SDL_FRect deployment_button_rect(const std::size_t index,
                                  const int output_width,
                                  const int output_height) noexcept {
     const float total_width =
-        deployment_button_width * static_cast<float>(purchasable_troops.size()) +
-        deployment_button_gap *
+        ui_layout::deployment_button_width *
+            static_cast<float>(purchasable_troops.size()) +
+        ui_layout::deployment_button_gap *
             static_cast<float>(purchasable_troops.size() - 1);
     return SDL_FRect{
         (static_cast<float>(output_width) - total_width) * 0.5F +
             static_cast<float>(index) *
-                (deployment_button_width + deployment_button_gap),
-        static_cast<float>(output_height) - deployment_bar_height + 11.0F,
-        deployment_button_width,
-        deployment_button_height,
+                (ui_layout::deployment_button_width +
+                 ui_layout::deployment_button_gap),
+        static_cast<float>(output_height) - ui_layout::deployment_bar_height +
+            ui_layout::deployment_button_top_inset,
+        ui_layout::deployment_button_width,
+        ui_layout::deployment_button_height,
     };
 }
 
@@ -469,7 +469,7 @@ void Renderer::handle_left_click(World& world, const float drawable_x,
     }
 
     if (click.y >=
-        static_cast<float>(output_height) - deployment_bar_height) {
+        static_cast<float>(output_height) - ui_layout::deployment_bar_height) {
         return;
     }
 
@@ -618,7 +618,7 @@ bool Renderer::render_pending_deployments(
         if (!SDL_RenderFillRect(renderer_, &fill)) {
             return false;
         }
-        const auto troop = to_string(deployment.troop_type);
+        const auto troop = troop_display_name(deployment.troop_type);
         if (!fonts_.draw_format(
                 marker.x - 30.0F, marker.y - 30.0F * transform.scale(),
                 FontRole::debug_bold, FontColor{245, 250, 247, 255},
@@ -640,8 +640,10 @@ bool Renderer::render_deployment_ui(const World& world,
     }
 
     const SDL_FRect bar{0.0F,
-                        static_cast<float>(output_height) - deployment_bar_height,
-                        static_cast<float>(output_width), deployment_bar_height};
+                        static_cast<float>(output_height) -
+                            ui_layout::deployment_bar_height,
+                        static_cast<float>(output_width),
+                        ui_layout::deployment_bar_height};
     set_color(renderer_, Color{10, 14, 18, 225});
     if (!SDL_RenderFillRect(renderer_, &bar)) {
         return false;
@@ -671,18 +673,29 @@ bool Renderer::render_deployment_ui(const World& world,
         if (!SDL_RenderRect(renderer_, &button)) {
             return false;
         }
-        const auto name = to_string(troop);
+        const auto name = troop_display_name(troop);
         if (!fonts_.draw_format(
-                button.x + 10.0F, button.y + 7.0F, FontRole::body_bold,
-                FontColor{245, 245, 245, 255}, "%.*s  $%lld",
-                static_cast<int>(name.size()), name.data(),
+                button.x + 12.0F, button.y + 7.0F, FontRole::body_bold,
+                FontColor{245, 245, 245, 255}, "%.*s",
+                static_cast<int>(name.size()), name.data()) ||
+            !fonts_.draw_format(
+                button.x + 12.0F, button.y + 25.0F, FontRole::debug,
+                FontColor{245, 245, 245, 255}, "$%lld",
                 static_cast<long long>(definition->purchase_cost)) ||
             !fonts_.draw_format(
-                button.x + 10.0F, button.y + 25.0F, FontRole::debug,
+                button.x + 12.0F, button.y + 41.0F, FontRole::debug,
                 FontColor{232, 236, 238, 255},
-                selected ? "SELECTED | %.2fs" : "deploy %.2fs",
+                "deploy %.2fs",
                 definition->deployment_seconds)) {
             return false;
+        }
+        if (selected) {
+            const SDL_FRect inner{button.x + 2.0F, button.y + 2.0F,
+                                  button.w - 4.0F, button.h - 4.0F};
+            set_color(renderer_, Color{130, 255, 168, 255});
+            if (!SDL_RenderRect(renderer_, &inner)) {
+                return false;
+            }
         }
     }
 
@@ -694,7 +707,8 @@ bool Renderer::render_deployment_ui(const World& world,
                          : FontColor{255, 112, 112, 255};
         if (!fonts_.draw(
                 14.0F,
-                static_cast<float>(output_height) - deployment_bar_height -
+                static_cast<float>(output_height) -
+                    ui_layout::deployment_bar_height -
                     18.0F,
                 insufficient ? "Insufficient cash"
                              : "Invalid deployment location",
