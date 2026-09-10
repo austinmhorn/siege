@@ -26,7 +26,8 @@ public:
     [[nodiscard]] std::vector<Projectile>& projectiles() noexcept;
     Projectile& spawn_projectile(WeaponType weapon_type, Team team,
                                  Unit::Id source_unit_id, Vec2 position,
-                                 Vec2 velocity, float maximum_distance);
+                                 Vec2 velocity, float maximum_distance,
+                                 float damage);
 
 private:
     void spawn_test_units();

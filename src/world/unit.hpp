@@ -22,6 +22,7 @@ enum class MovementState {
 };
 
 enum class CombatMovementState {
+    inactive,
     advancing,
     closing,
     engaging,
@@ -41,7 +42,8 @@ public:
          float move_speed, float rotation_speed, float vision_range,
          float vision_angle, float awareness_radius, float preferred_combat_range,
          float range_tolerance, float aggression, float retreat_bias,
-         WeaponDefinition weapon, float initial_facing_angle) noexcept;
+         float max_health, float hit_radius, WeaponDefinition weapon,
+         float initial_facing_angle) noexcept;
 
     void begin_simulation_step() noexcept;
     void set_position(Vec2 position) noexcept;
@@ -53,6 +55,7 @@ public:
     void set_combat_movement_state(CombatMovementState state) noexcept;
     void tick_weapon_cooldown(double delta_seconds) noexcept;
     void reset_weapon_cooldown() noexcept;
+    void apply_damage(float damage) noexcept;
 
     [[nodiscard]] Id id() const noexcept;
     [[nodiscard]] TroopType troop_type() const noexcept;
@@ -75,6 +78,10 @@ public:
     [[nodiscard]] float retreat_bias() const noexcept;
     [[nodiscard]] const WeaponDefinition& weapon() const noexcept;
     [[nodiscard]] float weapon_cooldown_remaining() const noexcept;
+    [[nodiscard]] float health() const noexcept;
+    [[nodiscard]] float max_health() const noexcept;
+    [[nodiscard]] float hit_radius() const noexcept;
+    [[nodiscard]] bool is_alive() const noexcept;
     [[nodiscard]] MovementState movement_state() const noexcept;
     [[nodiscard]] CombatMovementState combat_movement_state() const noexcept;
 
@@ -100,6 +107,9 @@ private:
     float retreat_bias_{};
     WeaponDefinition weapon_{};
     float weapon_cooldown_remaining_{};
+    float health_{};
+    float max_health_{};
+    float hit_radius_{};
     MovementState movement_state_{MovementState::idle};
     CombatMovementState combat_movement_state_{CombatMovementState::advancing};
 };

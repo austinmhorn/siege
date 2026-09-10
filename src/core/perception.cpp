@@ -13,7 +13,8 @@ constexpr float angular_boundary_epsilon = 0.0001F;
 constexpr float coincident_distance_epsilon = 0.0001F;
 
 bool are_enemies(const Unit& observer, const Unit& target) noexcept {
-    return observer.id() != target.id() && observer.team() != Team::none &&
+    return observer.is_alive() && target.is_alive() &&
+           observer.id() != target.id() && observer.team() != Team::none &&
            target.team() != Team::none && observer.team() != target.team();
 }
 

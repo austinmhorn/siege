@@ -33,6 +33,7 @@ add_executable(siege
     src/core/game.cpp
     src/core/combat_behavior.cpp
     src/core/perception.cpp
+    src/core/projectile_collision.cpp
     src/core/weapon.cpp
     src/core/targeting.cpp
     src/core/simulation.cpp
@@ -70,6 +71,7 @@ if(BUILD_TESTING)
         tests/core_tests.cpp
         src/core/combat_behavior.cpp
         src/core/perception.cpp
+        src/core/projectile_collision.cpp
         src/core/weapon.cpp
         src/core/targeting.cpp
         src/core/simulation.cpp

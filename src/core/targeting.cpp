@@ -21,6 +21,10 @@ const Unit* find_unit(const std::span<const Unit> units,
 
 std::optional<Unit::Id> select_target(const Unit& observer,
                                       const std::span<const Unit> units) noexcept {
+    if (!observer.is_alive()) {
+        return std::nullopt;
+    }
+
     if (observer.target_id().has_value()) {
         const Unit* current = find_unit(units, *observer.target_id());
         if (current != nullptr && can_perceive(observer, *current)) {

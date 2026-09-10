@@ -1,6 +1,7 @@
 #include "core/combat_behavior.hpp"
 #include "core/math.hpp"
 #include "core/perception.hpp"
+#include "core/projectile_collision.hpp"
 #include "core/simulation.hpp"
 #include "core/targeting.hpp"
 #include "world/unit.hpp"
@@ -29,6 +30,7 @@ siege::Unit test_unit(const siege::Unit::Id id, const siege::Team team,
     return siege::Unit{id, siege::TroopType::rifle, team, position,
                        72.0F, 90.0F, 500.0F, 90.0F, 110.0F,
                        280.0F, 35.0F, 0.9F, 0.75F,
+                       100.0F, 20.0F,
                        siege::WeaponDefinition{
                            .type = siege::WeaponType::rifle,
                            .projectile_speed = 960.0F,
@@ -36,6 +38,7 @@ siege::Unit test_unit(const siege::Unit::Id id, const siege::Team team,
                            .range = 360.0F,
                            .firing_arc = 12.0F,
                            .projectile_max_distance = 520.0F,
+                           .projectile_damage = 25.0F,
                        },
                        facing};
 }
@@ -52,6 +55,18 @@ void arrange_combat_scenario(siege::World& world,
     units[5].set_position({1760.0F, 120.0F});
     units[6].set_position({1800.0F, 900.0F});
     units[7].set_position({1700.0F, 1020.0F});
+}
+
+void isolate_collision_units(siege::World& world) {
+    auto& units = world.units();
+    units[0].set_position({1000.0F, 1000.0F});
+    units[1].set_position({1100.0F, 1000.0F});
+    units[2].set_position({1200.0F, 1000.0F});
+    units[3].set_position({1300.0F, 1000.0F});
+    units[4].set_position({1600.0F, 1000.0F});
+    units[5].set_position({1700.0F, 1000.0F});
+    units[6].set_position({1800.0F, 1000.0F});
+    units[7].set_position({1900.0F, 1000.0F});
 }
 
 } // namespace
@@ -330,7 +345,7 @@ int main() {
     expired_projectile_world.spawn_projectile(
         WeaponType::rifle, Team::team_a,
         expired_projectile_world.units()[0].id(), {100.0F, 100.0F},
-        {100.0F, 0.0F}, 1.0F);
+        {100.0F, 0.0F}, 1.0F, 25.0F);
     Simulation expired_projectile_simulation{expired_projectile_world};
     expired_projectile_simulation.update(1.0 / 60.0);
     passed &= check(expired_projectile_world.projectiles().empty(),
@@ -340,11 +355,117 @@ int main() {
     out_of_bounds_projectile_world.spawn_projectile(
         WeaponType::rifle, Team::team_b,
         out_of_bounds_projectile_world.units()[4].id(), {1919.0F, 100.0F},
-        {120.0F, 0.0F}, 100.0F);
+        {120.0F, 0.0F}, 100.0F, 25.0F);
     Simulation out_of_bounds_projectile_simulation{out_of_bounds_projectile_world};
     out_of_bounds_projectile_simulation.update(1.0 / 60.0);
     passed &= check(out_of_bounds_projectile_world.projectiles().empty(),
                     "out-of-bounds projectile is removed");
+
+    const auto direct_sweep = swept_circle_hit_fraction(
+        {100.0F, 100.0F}, {300.0F, 100.0F}, {200.0F, 100.0F}, 20.0F);
+    passed &= check(direct_sweep.has_value() && near(*direct_sweep, 0.4F),
+                    "swept collision returns the first segment hit fraction");
+
+    World hostile_hit_world;
+    isolate_collision_units(hostile_hit_world);
+    hostile_hit_world.units()[4].set_position({200.0F, 100.0F});
+    hostile_hit_world.spawn_projectile(
+        WeaponType::rifle, Team::team_a, hostile_hit_world.units()[0].id(),
+        {100.0F, 100.0F}, {12000.0F, 0.0F}, 1000.0F, 25.0F);
+    Simulation hostile_hit_simulation{hostile_hit_world};
+    hostile_hit_simulation.update(1.0 / 60.0);
+    passed &= check(near(hostile_hit_world.units()[4].health(), 75.0F),
+                    "hostile projectile hit reduces health");
+    passed &= check(hostile_hit_world.projectiles().empty(),
+                    "projectile disappears after its first hit");
+
+    World friendly_hit_world;
+    isolate_collision_units(friendly_hit_world);
+    friendly_hit_world.units()[1].set_position({200.0F, 100.0F});
+    friendly_hit_world.spawn_projectile(
+        WeaponType::rifle, Team::team_a, friendly_hit_world.units()[0].id(),
+        {100.0F, 100.0F}, {12000.0F, 0.0F}, 1000.0F, 25.0F);
+    Simulation friendly_hit_simulation{friendly_hit_world};
+    friendly_hit_simulation.update(1.0 / 60.0);
+    passed &= check(near(friendly_hit_world.units()[1].health(), 100.0F),
+                    "friendly projectile cannot damage a friendly unit");
+
+    World self_hit_world;
+    isolate_collision_units(self_hit_world);
+    self_hit_world.units()[0].set_position({200.0F, 100.0F});
+    self_hit_world.spawn_projectile(
+        WeaponType::rifle, Team::team_a, self_hit_world.units()[0].id(),
+        {100.0F, 100.0F}, {12000.0F, 0.0F}, 1000.0F, 25.0F);
+    Simulation self_hit_simulation{self_hit_world};
+    self_hit_simulation.update(1.0 / 60.0);
+    passed &= check(near(self_hit_world.units()[0].health(), 100.0F),
+                    "projectile cannot damage its source unit");
+
+    World swept_hit_world;
+    isolate_collision_units(swept_hit_world);
+    swept_hit_world.units()[4].set_position({200.0F, 100.0F});
+    swept_hit_world.spawn_projectile(
+        WeaponType::rifle, Team::team_a, swept_hit_world.units()[0].id(),
+        {100.0F, 100.0F}, {12000.0F, 0.0F}, 1000.0F, 25.0F);
+    Simulation swept_hit_simulation{swept_hit_world};
+    swept_hit_simulation.update(1.0 / 60.0);
+    passed &= check(near(swept_hit_world.units()[4].health(), 75.0F),
+                    "swept collision catches a projectile crossing between ticks");
+
+    World nearest_hit_world;
+    isolate_collision_units(nearest_hit_world);
+    nearest_hit_world.units()[4].set_position({180.0F, 100.0F});
+    nearest_hit_world.units()[5].set_position({240.0F, 100.0F});
+    nearest_hit_world.spawn_projectile(
+        WeaponType::rifle, Team::team_a, nearest_hit_world.units()[0].id(),
+        {100.0F, 100.0F}, {12000.0F, 0.0F}, 1000.0F, 25.0F);
+    Simulation nearest_hit_simulation{nearest_hit_world};
+    nearest_hit_simulation.update(1.0 / 60.0);
+    passed &= check(near(nearest_hit_world.units()[4].health(), 75.0F) &&
+                        near(nearest_hit_world.units()[5].health(), 100.0F),
+                    "projectile damages only the nearest intersected enemy");
+
+    Unit defeated = test_unit(400, Team::team_b, {200.0F, 100.0F}, 90.0F);
+    defeated.apply_damage(125.0F);
+    passed &= check(near(defeated.health(), 0.0F),
+                    "damage clamps health at zero");
+    passed &= check(!defeated.is_alive(),
+                    "zero-health unit becomes non-alive");
+
+    World dead_unit_world;
+    arrange_combat_scenario(dead_unit_world, {500.0F, 200.0F},
+                            {500.0F, 480.0F});
+    auto& dead_unit = dead_unit_world.units()[0];
+    const Vec2 dead_position = dead_unit.position();
+    dead_unit.set_target_id(dead_unit_world.units()[4].id());
+    dead_unit.apply_damage(dead_unit.max_health());
+    Simulation dead_unit_simulation{dead_unit_world};
+    dead_unit_simulation.update(1.0 / 60.0);
+    passed &= check(length(dead_unit.position() - dead_position) < 0.001F &&
+                        dead_unit.movement_state() == MovementState::idle &&
+                        dead_unit.combat_movement_state() ==
+                            CombatMovementState::inactive,
+                    "dead unit cannot move and reports inactive");
+    passed &= check(!dead_unit.target_id().has_value() &&
+                        !select_target(dead_unit, dead_unit_world.units()).has_value(),
+                    "dead unit cannot retain or acquire a target");
+    bool dead_unit_fired = false;
+    for (const auto& projectile : dead_unit_world.projectiles()) {
+        dead_unit_fired |= projectile.source_unit_id() == dead_unit.id();
+    }
+    passed &= check(!dead_unit_fired, "dead unit cannot fire");
+
+    std::vector<Unit> dead_target_units{
+        test_unit(410, Team::team_a, {100.0F, 100.0F}, 270.0F),
+        test_unit(411, Team::team_b, {200.0F, 100.0F}, 90.0F),
+        test_unit(412, Team::team_b, {300.0F, 100.0F}, 90.0F),
+    };
+    dead_target_units[0].set_target_id(411);
+    dead_target_units[1].apply_damage(dead_target_units[1].max_health());
+    passed &= check(select_target(dead_target_units[0], dead_target_units) == 412,
+                    "dead target is cleared and another valid target is acquired");
+    passed &= check(!can_perceive(dead_target_units[0], dead_target_units[1]),
+                    "dead unit cannot be targeted through perception");
 
     World world;
     Simulation simulation{world};

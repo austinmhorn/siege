@@ -13,7 +13,8 @@ public:
     using Id = std::uint64_t;
 
     Projectile(Id id, WeaponType weapon_type, Team team, Unit::Id source_unit_id,
-               Vec2 position, Vec2 velocity, float maximum_distance) noexcept;
+               Vec2 position, Vec2 velocity, float maximum_distance,
+               float damage) noexcept;
 
     void begin_simulation_step() noexcept;
     void advance(double delta_seconds) noexcept;
@@ -26,6 +27,7 @@ public:
     [[nodiscard]] Vec2 previous_position() const noexcept;
     [[nodiscard]] Vec2 velocity() const noexcept;
     [[nodiscard]] float remaining_distance() const noexcept;
+    [[nodiscard]] float damage() const noexcept;
     [[nodiscard]] bool expired() const noexcept;
 
 private:
@@ -37,6 +39,7 @@ private:
     Vec2 previous_position_{};
     Vec2 velocity_{};
     float remaining_distance_{};
+    float damage_{};
 };
 
 } // namespace siege

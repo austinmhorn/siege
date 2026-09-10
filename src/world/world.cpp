@@ -64,10 +64,11 @@ std::vector<Projectile>& World::projectiles() noexcept {
 Projectile& World::spawn_projectile(const WeaponType weapon_type, const Team team,
                                     const Unit::Id source_unit_id,
                                     const Vec2 position, const Vec2 velocity,
-                                    const float maximum_distance) {
+                                    const float maximum_distance,
+                                    const float damage) {
     return projectiles_.emplace_back(next_projectile_id_++, weapon_type, team,
                                      source_unit_id, position, velocity,
-                                     maximum_distance);
+                                     maximum_distance, damage);
 }
 
 void World::spawn_test_units() {
@@ -83,6 +84,8 @@ void World::spawn_test_units() {
                             rifle_definition.range_tolerance,
                             rifle_definition.aggression,
                             rifle_definition.retreat_bias,
+                            rifle_definition.max_health,
+                            rifle_definition.hit_radius,
                             rifle_definition.weapon, initial_facing);
     };
 

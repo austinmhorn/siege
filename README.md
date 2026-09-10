@@ -55,7 +55,10 @@ Pass `-DSIEGE_FETCH_SDL3=OFF` while configuring to require a system SDL3 package
   while inside it, and retreat when too close; separation remains active.
 - The F3 overlay reports combat movement state and draws preferred combat range.
 - Aligned rifle units fire 960-unit/second tracers every 0.60 seconds while their
-  target is inside the 360-unit weapon range and 12-degree firing arc.
+  target is inside the 360-unit weapon range and 12-degree firing arc. Rifle
+  projectiles deal 25 damage on the first swept-circle hit against a hostile
+  unit; rifles have 100 health and a 20-unit hit radius. Units at zero health
+  remain rendered for diagnostics but no longer perceive, target, move, or fire.
 - Projectiles travel independently for up to 520 world units without collision or
   damage. F3 reports projectile count and per-unit weapon cooldown.
 - The complete battlefield remains visible while the window is resized.

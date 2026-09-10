@@ -14,7 +14,8 @@ constexpr float angular_boundary_epsilon = 0.0001F;
 } // namespace
 
 bool can_fire_at(const Unit& observer, const Unit& target) noexcept {
-    if (!observer.target_id().has_value() || *observer.target_id() != target.id() ||
+    if (!observer.is_alive() || !target.is_alive() ||
+        !observer.target_id().has_value() || *observer.target_id() != target.id() ||
         observer.id() == target.id() || observer.team() == Team::none ||
         target.team() == Team::none || observer.team() == target.team() ||
         observer.weapon_cooldown_remaining() > 0.0F) {

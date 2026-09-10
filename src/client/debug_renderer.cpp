@@ -126,6 +126,19 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                             marker.x, marker.y + marker_size)) {
             return false;
         }
+        if (!unit.is_alive()) {
+            set_color(renderer_, 255, 72, 72);
+            if (!SDL_RenderLine(renderer_, marker.x - marker_size,
+                                marker.y - marker_size,
+                                marker.x + marker_size,
+                                marker.y + marker_size) ||
+                !SDL_RenderLine(renderer_, marker.x - marker_size,
+                                marker.y + marker_size,
+                                marker.x + marker_size,
+                                marker.y - marker_size)) {
+                return false;
+            }
+        }
 
         set_color(renderer_, 255, 215, 40);
         const Vec2 facing_end =
@@ -181,7 +194,8 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                                        unit.preferred_combat_range(),
                                        unit.range_tolerance()) ||
             !SDL_RenderDebugTextFormat(renderer_, marker.x + 10.0F, marker.y + 11.0F,
-                                       "weapon %.0f arc %.0f cd %.2f",
+                                       "hp %.0f/%.0f weapon %.0f arc %.0f cd %.2f",
+                                       unit.health(), unit.max_health(),
                                        unit.weapon().range,
                                        unit.weapon().firing_arc,
                                        unit.weapon_cooldown_remaining())) {

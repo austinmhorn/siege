@@ -41,6 +41,8 @@ std::string_view to_string(const MovementState state) noexcept {
 
 std::string_view to_string(const CombatMovementState state) noexcept {
     switch (state) {
+    case CombatMovementState::inactive:
+        return "inactive";
     case CombatMovementState::advancing:
         return "advancing";
     case CombatMovementState::closing:
@@ -59,6 +61,7 @@ Unit::Unit(const Id id, const TroopType troop_type, const Team team,
            const float vision_angle, const float awareness_radius,
            const float preferred_combat_range, const float range_tolerance,
            const float aggression, const float retreat_bias,
+           const float max_health, const float hit_radius,
            const WeaponDefinition weapon, const float initial_facing_angle) noexcept
     : id_(id), troop_type_(troop_type), team_(team), position_(spawn_position),
       previous_position_(spawn_position),
@@ -69,7 +72,10 @@ Unit::Unit(const Id id, const TroopType troop_type, const Team team,
       vision_angle_(vision_angle), awareness_radius_(awareness_radius),
       preferred_combat_range_(preferred_combat_range),
       range_tolerance_(range_tolerance), aggression_(aggression),
-      retreat_bias_(retreat_bias), weapon_(weapon) {}
+      retreat_bias_(retreat_bias), weapon_(weapon),
+      health_(std::max(max_health, 0.0F)),
+      max_health_(std::max(max_health, 0.0F)),
+      hit_radius_(std::max(hit_radius, 0.0F)) {}
 
 void Unit::begin_simulation_step() noexcept {
     previous_position_ = position_;
@@ -120,6 +126,18 @@ void Unit::reset_weapon_cooldown() noexcept {
     weapon_cooldown_remaining_ = std::max(weapon_.fire_interval, 0.0F);
 }
 
+void Unit::apply_damage(const float damage) noexcept {
+    if (!is_alive() || damage <= 0.0F) {
+        return;
+    }
+    health_ = std::max(0.0F, health_ - damage);
+    if (!is_alive()) {
+        clear_target();
+        movement_state_ = MovementState::idle;
+        combat_movement_state_ = CombatMovementState::inactive;
+    }
+}
+
 Unit::Id Unit::id() const noexcept { return id_; }
 TroopType Unit::troop_type() const noexcept { return troop_type_; }
 Team Unit::team() const noexcept { return team_; }
@@ -145,6 +163,10 @@ const WeaponDefinition& Unit::weapon() const noexcept { return weapon_; }
 float Unit::weapon_cooldown_remaining() const noexcept {
     return weapon_cooldown_remaining_;
 }
+float Unit::health() const noexcept { return health_; }
+float Unit::max_health() const noexcept { return max_health_; }
+float Unit::hit_radius() const noexcept { return hit_radius_; }
+bool Unit::is_alive() const noexcept { return health_ > 0.0F; }
 MovementState Unit::movement_state() const noexcept { return movement_state_; }
 CombatMovementState Unit::combat_movement_state() const noexcept {
     return combat_movement_state_;

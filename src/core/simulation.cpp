@@ -1,6 +1,7 @@
 #include "core/simulation.hpp"
 
 #include "core/combat_behavior.hpp"
+#include "core/projectile_collision.hpp"
 #include "core/targeting.hpp"
 #include "core/weapon.hpp"
 #include "world/world.hpp"
@@ -41,7 +42,8 @@ Vec2 soft_separation_velocity(const Vec2 separation,
 Vec2 separation_for(const Unit& unit, const std::vector<Unit>& units) noexcept {
     Vec2 separation{};
     for (const auto& other : units) {
-        if (other.id() == unit.id() || other.team() != unit.team()) {
+        if (!other.is_alive() || other.id() == unit.id() ||
+            other.team() != unit.team()) {
             continue;
         }
 
@@ -64,6 +66,38 @@ Vec2 separation_for(const Unit& unit, const std::vector<Unit>& units) noexcept {
     return separation * separation_weight;
 }
 
+Unit* nearest_projectile_hit(const Projectile& projectile,
+                             std::vector<Unit>& units) noexcept {
+    Unit* nearest = nullptr;
+    float nearest_fraction = 2.0F;
+    for (auto& candidate : units) {
+        if (!candidate.is_alive() || candidate.id() == projectile.source_unit_id() ||
+            candidate.team() == Team::none || candidate.team() == projectile.team()) {
+            continue;
+        }
+
+        const auto hit_fraction = swept_circle_hit_fraction(
+            projectile.previous_position(), projectile.position(),
+            candidate.position(), candidate.hit_radius());
+        if (!hit_fraction.has_value()) {
+            continue;
+        }
+
+        if (*hit_fraction < nearest_fraction ||
+            (*hit_fraction == nearest_fraction && nearest != nullptr &&
+             candidate.id() < nearest->id())) {
+            nearest = &candidate;
+            nearest_fraction = *hit_fraction;
+        }
+    }
+    return nearest;
+}
+
+bool outside_world(const Vec2 position) noexcept {
+    return position.x < 0.0F || position.x > World::width ||
+           position.y < 0.0F || position.y > World::height;
+}
+
 } // namespace
 
 Simulation::Simulation(World& world) noexcept : world_(world) {}
@@ -80,12 +114,17 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
         projectile.begin_simulation_step();
         projectile.advance(fixed_delta_seconds);
     }
-    std::erase_if(projectiles, [](const Projectile& projectile) {
-        const Vec2 position = projectile.position();
-        return projectile.expired() || position.x < 0.0F ||
-               position.x > World::width || position.y < 0.0F ||
-               position.y > World::height;
-    });
+    for (auto projectile = projectiles.begin(); projectile != projectiles.end();) {
+        if (Unit* hit = nearest_projectile_hit(*projectile, units)) {
+            hit->apply_damage(projectile->damage());
+            projectile = projectiles.erase(projectile);
+        } else if (projectile->expired() ||
+                   outside_world(projectile->position())) {
+            projectile = projectiles.erase(projectile);
+        } else {
+            ++projectile;
+        }
+    }
 
     std::vector<std::optional<Unit::Id>> target_ids;
     target_ids.reserve(units.size());
@@ -97,6 +136,13 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
     intents.reserve(units.size());
     for (std::size_t index = 0; index < units.size(); ++index) {
         const auto& unit = units[index];
+        if (!unit.is_alive()) {
+            intents.push_back(MotionIntent{{}, unit.facing_angle(),
+                                           MovementState::idle,
+                                           CombatMovementState::inactive});
+            continue;
+        }
+
         const float advance_x = unit.team() == Team::team_a ? 1.0F : -1.0F;
         const bool reached_edge =
             (unit.team() == Team::team_a && unit.position().x >= World::width - world_margin) ||
@@ -128,6 +174,8 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
                 const Vec2 toward_target = normalized(target_direction);
                 desired_facing = facing_from_direction(target_direction);
                 switch (combat_state) {
+                case CombatMovementState::inactive:
+                    break;
                 case CombatMovementState::closing:
                     velocity = velocity_from_steering(
                         toward_target + separation,
@@ -188,7 +236,8 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
         world_.spawn_projectile(unit.weapon().type, unit.team(), unit.id(),
                                 unit.position(),
                                 direction * unit.weapon().projectile_speed,
-                                unit.weapon().projectile_max_distance);
+                                unit.weapon().projectile_max_distance,
+                                unit.weapon().projectile_damage);
         unit.reset_weapon_cooldown();
     }
 
