@@ -2,11 +2,11 @@
 
 set -euo pipefail
 
-source_root="${1:-/Users/austinhorn/Downloads/top-down-soldier-sprites-pixel-art/}"
+project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source_root="${1:-$project_root/.local_assets/soldiers}"
 pack_root="${source_root%/}/PNG"
 soldier_source="$pack_root/soldiers_color1/soldier1"
 shadow_source="$pack_root/Shadows"
-project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 destination="$project_root/assets/soldiers/color1/soldier1"
 
 required_files=()

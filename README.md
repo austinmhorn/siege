@@ -25,11 +25,12 @@ optional (`brew install sdl3`). Before building, sync the locally purchased art:
 ./scripts/sync_assets.sh
 ```
 
-The script defaults to the original CraftPix pack at
-`/Users/austinhorn/Downloads/top-down-soldier-sprites-pixel-art/`. Pass a different
-pack root as its first argument when needed. It copies only the required
-`soldiers_color1/soldier1` leg, rifle, machine-gun, bazooka, and `death1` layers
-plus matching shadows.
+The script defaults to `.local_assets/soldiers/` at the repository root. This
+directory contains the developer's private purchased CraftPix source pack. Pass
+a different pack root as the first argument when needed. The script copies only
+the required `soldiers_color1/soldier1` leg, rifle, machine-gun, bazooka, and
+`death1` layers plus matching shadows into the generated runtime directory at
+`assets/soldiers/`.
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
@@ -41,8 +42,8 @@ Pass `-DSIEGE_FETCH_SDL3=OFF` while configuring to require a system SDL3 package
 
 GitHub Actions configures, builds, and runs CTest on `macos-latest` and
 `windows-latest` for pushes and pull requests involving `dev` or `main`. CI does
-not sync the proprietary runtime artwork; asset copying is enabled automatically
-for local builds when the ignored `assets/` directory exists.
+not require or sync proprietary artwork; asset copying is enabled automatically
+for local builds when the generated `assets/` directory exists.
 
 ## Current behavior
 
@@ -115,7 +116,8 @@ for local builds when the ignored `assets/` directory exists.
 - World resolution: 1920x1080.
 - Simulation rate: 60 fixed ticks per second, independent of rendering rate.
 
-Purchased artwork under `assets/` is intentionally ignored by Git and is copied
-beside the executable during builds. The source pack remains outside this
-repository and untouched. Development happens on `dev`; reviewed stable work is
-promoted to `main` by the repository owner.
+The private purchased source pack under `.local_assets/soldiers/` and generated
+runtime content under `assets/soldiers/` are both intentionally excluded from
+Git. The sync script only reads the source pack, and local builds copy the runtime
+subset beside the executable. Development happens on `dev`; reviewed stable work
+is promoted to `main` by the repository owner.
