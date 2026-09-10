@@ -355,6 +355,102 @@ int main() {
                         home_world.zones()[4].owner() == Team::team_b,
                     "home-zone ownership remains permanent");
 
+    World occupation_world;
+    occupation_world.units().clear();
+    occupation_world.zones()[1].advance_capture(100.0F);
+    occupation_world.units().push_back(
+        test_unit(1100, Team::team_a, {500.0F, 200.0F}, 0.0F));
+    update_zone_capture(occupation_world, 0.0);
+    passed &= check(occupation_world.zones()[1].owner() == Team::team_a &&
+                        occupation_world.zones()[1].occupied(),
+                    "owned objective with owner presence is occupied");
+
+    occupation_world.units().clear();
+    update_zone_capture(occupation_world, 0.5);
+    passed &= check(occupation_world.zones()[1].owner() == Team::team_a &&
+                        !occupation_world.zones()[1].occupied(),
+                    "empty owned objective is unoccupied without losing ownership");
+
+    World neutral_security_world;
+    neutral_security_world.units().clear();
+    update_zone_capture(neutral_security_world, 10.0);
+    passed &= check(!neutral_security_world.zones()[2].secured() &&
+                        near(static_cast<float>(neutral_security_world.zones()[2]
+                                                    .secure_timer_seconds()),
+                             0.0F),
+                    "neutral objective never becomes secured");
+
+    occupation_world.units().push_back(
+        test_unit(1101, Team::team_b, {500.0F, 300.0F}, 0.0F));
+    update_zone_capture(occupation_world, 0.0);
+    passed &= check(occupation_world.zones()[1].contested() &&
+                        !occupation_world.zones()[1].secured() &&
+                        near(static_cast<float>(occupation_world.zones()[1]
+                                                    .secure_timer_seconds()),
+                             0.0F),
+                    "enemy presence contests an owned objective and resets securing");
+
+    occupation_world.units().clear();
+    update_zone_capture(occupation_world, 1.0);
+    passed &= check(!occupation_world.zones()[1].secured() &&
+                        near(static_cast<float>(occupation_world.zones()[1]
+                                                    .secure_timer_seconds()),
+                             1.0F),
+                    "objective remains unsecured before two uncontested seconds");
+    update_zone_capture(occupation_world, 1.0);
+    passed &= check(occupation_world.zones()[1].secured() &&
+                        near(static_cast<float>(occupation_world.zones()[1]
+                                                    .secure_timer_seconds()),
+                             2.0F),
+                    "two continuous uncontested seconds secure an objective");
+
+    occupation_world.units().push_back(
+        test_unit(1102, Team::team_b, {500.0F, 400.0F}, 0.0F));
+    update_zone_capture(occupation_world, 0.0);
+    passed &= check(!occupation_world.zones()[1].secured() &&
+                        !is_zone_deployable(occupation_world.zones()[1],
+                                            Team::team_a),
+                    "enemy entry immediately removes security and deployment");
+    occupation_world.units().clear();
+    update_zone_capture(occupation_world, 1.0);
+    passed &= check(!occupation_world.zones()[1].secured(),
+                    "clearing an enemy does not restore security early");
+    update_zone_capture(occupation_world, 1.0);
+    passed &= check(occupation_world.zones()[1].secured(),
+                    "cleared objective requires another full two-second timer");
+
+    passed &= check(is_zone_deployable(home_world.zones()[0], Team::team_a) &&
+                        is_zone_deployable(home_world.zones()[4], Team::team_b) &&
+                        !is_zone_deployable(home_world.zones()[0], Team::team_b) &&
+                        home_world.zones()[0].secured() &&
+                        home_world.zones()[4].secured(),
+                    "home zones are permanently secured and owner-deployable");
+    passed &= check(
+        is_zone_deployable(occupation_world.zones()[1], Team::team_a) &&
+            !is_zone_deployable(occupation_world.zones()[1], Team::team_b),
+        "secured objective is deployable only by its owner");
+
+    const auto team_a_deployment =
+        deployment_bounds(occupation_world.zones()[1], Team::team_a);
+    passed &= check(team_a_deployment.has_value() &&
+                        near(team_a_deployment->x, 384.0F) &&
+                        near(team_a_deployment->width, 288.0F) &&
+                        near(team_a_deployment->height, World::height),
+                    "Team A deployment uses the left/rear 75 percent");
+
+    World team_b_deployment_world;
+    team_b_deployment_world.units().clear();
+    team_b_deployment_world.zones()[3].advance_capture(-100.0F);
+    update_zone_capture(team_b_deployment_world, 0.0);
+    update_zone_capture(team_b_deployment_world, 2.0);
+    const auto team_b_deployment = deployment_bounds(
+        team_b_deployment_world.zones()[3], Team::team_b);
+    passed &= check(team_b_deployment.has_value() &&
+                        near(team_b_deployment->x, 1248.0F) &&
+                        near(team_b_deployment->width, 288.0F) &&
+                        near(team_b_deployment->height, World::height),
+                    "Team B deployment mirrors into the right/rear 75 percent");
+
     Unit machine_gun_rotation = unit_from_definition(
         99, Team::team_a, {}, 0.0F, machine_gun_definition);
     machine_gun_rotation.set_desired_facing_angle(90.0F);

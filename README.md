@@ -104,6 +104,13 @@ for local builds when the ignored `assets/` directory exists.
   capture. Transient neutralization and capture events report every actual owner
   transition once. F3 shows owner, counts, raw pressure, capture value, and a
   directional bar; owned objectives use subtle team tints outside debug mode.
+- An owned objective reports occupied when its owner has living troops inside and
+  contested whenever enemy troops are present. It becomes secured after two
+  continuous enemy-free seconds; enemy entry immediately resets that state and
+  timer. Home zones are permanently secured. A secured objective is deployable
+  only by its owner, within the team-relative rear 75 percent of its bounds. F3
+  reports these states and outlines the valid deployment region; actual deployment,
+  economy, and scoring are not implemented yet.
 - The complete battlefield remains visible while the window is resized.
 - World resolution: 1920x1080.
 - Simulation rate: 60 fixed ticks per second, independent of rendering rate.

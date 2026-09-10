@@ -2,6 +2,7 @@
 
 #include "client/world_transform.hpp"
 #include "core/math.hpp"
+#include "core/zone_capture.hpp"
 #include "world/unit.hpp"
 #include "world/world.hpp"
 
@@ -45,6 +46,18 @@ bool draw_world_circle(SDL_Renderer* renderer, const WorldTransform& transform,
         previous = current;
     }
     return true;
+}
+
+bool draw_world_bounds(SDL_Renderer* renderer,
+                       const WorldTransform& transform, const Bounds bounds) {
+    const Vec2 top_left{bounds.x, bounds.y};
+    const Vec2 top_right{bounds.x + bounds.width, bounds.y};
+    const Vec2 bottom_right{bounds.x + bounds.width, bounds.y + bounds.height};
+    const Vec2 bottom_left{bounds.x, bounds.y + bounds.height};
+    return draw_world_line(renderer, transform, top_left, top_right) &&
+           draw_world_line(renderer, transform, top_right, bottom_right) &&
+           draw_world_line(renderer, transform, bottom_right, bottom_left) &&
+           draw_world_line(renderer, transform, bottom_left, top_left);
 }
 
 bool draw_vision_cone(SDL_Renderer* renderer, const WorldTransform& transform,
@@ -128,6 +141,14 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
         const Bounds& bounds = zone.bounds();
         const auto label = transform.world_to_drawable(
             Point{bounds.x + bounds.width * 0.5F, 34.0F});
+        const bool deployable =
+            is_zone_deployable(zone, zone.owner());
+        if (const auto deployment = deployment_bounds(zone, zone.owner())) {
+            set_color(renderer_, 120, 255, 150, 190);
+            if (!draw_world_bounds(renderer_, transform, *deployment)) {
+                return false;
+            }
+        }
         set_color(renderer_, 245, 245, 245);
         if (!SDL_RenderDebugTextFormat(
                 renderer_, label.x - 84.0F, label.y,
@@ -136,6 +157,13 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                 to_string(zone.owner()).data(),
                 zone.team_a_count(), zone.team_b_count(), zone.pressure(),
                 zone.capture_value()) ||
+            !SDL_RenderDebugTextFormat(
+                renderer_, label.x - 84.0F, label.y + 10.0F,
+                "%s %s T%.1f S%s D%s",
+                zone.occupied() ? "occupied" : "unoccupied",
+                zone.contested() ? "contested" : "clear",
+                zone.secure_timer_seconds(), zone.secured() ? "Y" : "N",
+                deployable ? "Y" : "N") ||
             !draw_capture_meter(renderer_, transform, zone)) {
             return false;
         }
