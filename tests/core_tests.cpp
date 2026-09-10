@@ -1,3 +1,4 @@
+#include "core/combat_behavior.hpp"
 #include "core/math.hpp"
 #include "core/perception.hpp"
 #include "core/simulation.hpp"
@@ -26,7 +27,22 @@ bool near(const float left, const float right, const float tolerance = 0.01F) {
 siege::Unit test_unit(const siege::Unit::Id id, const siege::Team team,
                       const siege::Vec2 position, const float facing) {
     return siege::Unit{id, siege::TroopType::rifle, team, position,
-                       72.0F, 90.0F, 500.0F, 90.0F, 110.0F, facing};
+                       72.0F, 90.0F, 500.0F, 90.0F, 110.0F,
+                       280.0F, 35.0F, 0.9F, 0.75F, facing};
+}
+
+void arrange_combat_scenario(siege::World& world,
+                             const siege::Vec2 observer_position,
+                             const siege::Vec2 target_position) {
+    auto& units = world.units();
+    units[0].set_position(observer_position);
+    units[1].set_position({80.0F, 880.0F});
+    units[2].set_position({160.0F, 960.0F});
+    units[3].set_position({240.0F, 1040.0F});
+    units[4].set_position(target_position);
+    units[5].set_position({1760.0F, 120.0F});
+    units[6].set_position({1800.0F, 900.0F});
+    units[7].set_position({1700.0F, 1020.0F});
 }
 
 } // namespace
@@ -159,6 +175,92 @@ int main() {
                     "simulation stores the acquired target ID");
     passed &= check(near(facing_world.units()[0].desired_facing_angle(), 0.0F),
                     "desired facing points toward the acquired target");
+
+    World no_target_world;
+    const Vec2 no_target_start = no_target_world.units()[0].position();
+    Simulation no_target_simulation{no_target_world};
+    no_target_simulation.update(1.0 / 60.0);
+    passed &= check(no_target_world.units()[0].position().x > no_target_start.x,
+                    "unit without target continues normal advance");
+    passed &= check(no_target_world.units()[0].combat_movement_state() ==
+                        CombatMovementState::advancing,
+                    "unit without target reports advancing");
+
+    World closing_world;
+    arrange_combat_scenario(closing_world, {500.0F, 200.0F},
+                            {500.0F, 600.0F});
+    const float closing_start_y = closing_world.units()[0].position().y;
+    Simulation closing_simulation{closing_world};
+    closing_simulation.update(1.0 / 60.0);
+    passed &= check(closing_world.units()[0].position().y > closing_start_y,
+                    "target beyond range makes observer close distance");
+    passed &= check(closing_world.units()[0].combat_movement_state() ==
+                        CombatMovementState::closing,
+                    "target beyond range reports closing");
+
+    World engaging_world;
+    arrange_combat_scenario(engaging_world, {500.0F, 200.0F},
+                            {500.0F, 480.0F});
+    const Vec2 engaging_start = engaging_world.units()[0].position();
+    Simulation engaging_simulation{engaging_world};
+    engaging_simulation.update(1.0 / 60.0);
+    passed &= check(length(engaging_world.units()[0].position() - engaging_start) <
+                        0.001F,
+                    "target inside range band makes observer hold position");
+    passed &= check(engaging_world.units()[0].combat_movement_state() ==
+                        CombatMovementState::engaging,
+                    "target inside range band reports engaging");
+
+    World retreating_world;
+    arrange_combat_scenario(retreating_world, {500.0F, 200.0F},
+                            {500.0F, 300.0F});
+    const float retreat_start_y = retreating_world.units()[0].position().y;
+    Simulation retreating_simulation{retreating_world};
+    retreating_simulation.update(1.0 / 60.0);
+    passed &= check(retreating_world.units()[0].position().y < retreat_start_y,
+                    "target too close makes observer retreat");
+    passed &= check(retreating_world.units()[0].combat_movement_state() ==
+                        CombatMovementState::retreating,
+                    "target too close reports retreating");
+
+    World target_loss_world;
+    arrange_combat_scenario(target_loss_world, {500.0F, 400.0F},
+                            {500.0F, 1000.0F});
+    target_loss_world.units()[0].set_target_id(target_loss_world.units()[4].id());
+    const Vec2 target_loss_start = target_loss_world.units()[0].position();
+    Simulation target_loss_simulation{target_loss_world};
+    target_loss_simulation.update(1.0 / 60.0);
+    passed &= check(!target_loss_world.units()[0].target_id().has_value(),
+                    "lost target is cleared before positioning");
+    passed &= check(target_loss_world.units()[0].position().x > target_loss_start.x &&
+                        target_loss_world.units()[0].position().y < target_loss_start.y,
+                    "target loss resumes advance and preferred_y return");
+
+    const Unit boundary_observer =
+        test_unit(340, Team::team_a, {100.0F, 100.0F}, 0.0F);
+    const Unit upper_boundary_target =
+        test_unit(341, Team::team_b, {100.0F, 415.0F}, 180.0F);
+    const Unit lower_boundary_target =
+        test_unit(342, Team::team_b, {100.0F, 345.0F}, 180.0F);
+    for (int repeat = 0; repeat < 10; ++repeat) {
+        passed &= check(combat_movement_for(boundary_observer,
+                                            upper_boundary_target) ==
+                            CombatMovementState::engaging &&
+                            combat_movement_for(boundary_observer,
+                                                lower_boundary_target) ==
+                            CombatMovementState::engaging,
+                        "range-band boundaries remain deterministically engaging");
+    }
+
+    World separation_world;
+    arrange_combat_scenario(separation_world, {500.0F, 200.0F},
+                            {500.0F, 480.0F});
+    separation_world.units()[1].set_position({520.0F, 200.0F});
+    const float separated_start_x = separation_world.units()[0].position().x;
+    Simulation separation_simulation{separation_world};
+    separation_simulation.update(1.0 / 60.0);
+    passed &= check(separation_world.units()[0].position().x < separated_start_x,
+                    "separation still moves an engaging unit away from a nearby friendly");
 
     World world;
     Simulation simulation{world};

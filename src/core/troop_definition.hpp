@@ -11,6 +11,10 @@ struct TroopDefinition {
     float vision_range;
     float vision_angle;
     float awareness_radius;
+    float preferred_combat_range;
+    float range_tolerance;
+    float aggression;
+    float retreat_bias;
 };
 
 inline constexpr TroopDefinition rifle_definition{
@@ -20,6 +24,10 @@ inline constexpr TroopDefinition rifle_definition{
     .vision_range = 500.0F,
     .vision_angle = 90.0F,
     .awareness_radius = 110.0F,
+    .preferred_combat_range = 280.0F,
+    .range_tolerance = 35.0F,
+    .aggression = 0.9F,
+    .retreat_bias = 0.75F,
 };
 
 } // namespace siege

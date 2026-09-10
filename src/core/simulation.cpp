@@ -1,5 +1,6 @@
 #include "core/simulation.hpp"
 
+#include "core/combat_behavior.hpp"
 #include "core/targeting.hpp"
 #include "world/world.hpp"
 
@@ -20,7 +21,21 @@ struct MotionIntent {
     Vec2 velocity;
     float desired_facing;
     MovementState state;
+    CombatMovementState combat_state;
 };
+
+Vec2 velocity_from_steering(const Vec2 steering, const float speed) noexcept {
+    if (length_squared(steering) <= 0.0001F || speed <= 0.0F) {
+        return {};
+    }
+    return normalized(steering) * speed;
+}
+
+Vec2 soft_separation_velocity(const Vec2 separation,
+                              const float move_speed) noexcept {
+    const float influence = std::min(length(separation), 1.0F);
+    return velocity_from_steering(separation, move_speed * influence);
+}
 
 Vec2 separation_for(const Unit& unit, const std::vector<Unit>& units) noexcept {
     Vec2 separation{};
@@ -75,6 +90,8 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
         Vec2 velocity{};
         float desired_facing = unit.facing_angle();
         MovementState state = MovementState::idle;
+        CombatMovementState combat_state = CombatMovementState::advancing;
+        const Vec2 separation = separation_for(unit, units);
         if (unit.team() != Team::none && !reached_edge) {
             const float y_error = unit.preferred_y() - unit.position().y;
             Vec2 steering{
@@ -82,7 +99,7 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
                 std::clamp(y_error / preferred_y_scale, -maximum_y_correction,
                            maximum_y_correction),
             };
-            steering = steering + separation_for(unit, units);
+            steering = steering + separation;
             const Vec2 direction = normalized(steering);
             velocity = direction * unit.move_speed();
             desired_facing = facing_from_direction(direction);
@@ -92,11 +109,39 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
         if (target_ids[index].has_value()) {
             const Unit* target = world_.find_unit(*target_ids[index]);
             const Vec2 target_direction = target->position() - unit.position();
+            combat_state = combat_movement_for(unit, *target);
             if (length_squared(target_direction) > 0.0001F) {
+                const Vec2 toward_target = normalized(target_direction);
                 desired_facing = facing_from_direction(target_direction);
+                switch (combat_state) {
+                case CombatMovementState::closing:
+                    velocity = velocity_from_steering(
+                        toward_target + separation,
+                        unit.move_speed() * std::clamp(unit.aggression(), 0.0F, 1.0F));
+                    break;
+                case CombatMovementState::engaging:
+                    velocity = soft_separation_velocity(separation, unit.move_speed());
+                    break;
+                case CombatMovementState::retreating:
+                    velocity = velocity_from_steering(
+                        toward_target * -1.0F + separation,
+                        unit.move_speed() * std::clamp(unit.retreat_bias(), 0.0F, 1.0F));
+                    break;
+                case CombatMovementState::advancing:
+                    break;
+                }
+                state = length_squared(velocity) > 0.0001F
+                            ? MovementState::moving
+                            : MovementState::idle;
+            } else {
+                velocity = soft_separation_velocity(separation, unit.move_speed());
+                state = length_squared(velocity) > 0.0001F
+                            ? MovementState::moving
+                            : MovementState::idle;
             }
         }
-        intents.push_back(MotionIntent{velocity, desired_facing, state});
+        intents.push_back(MotionIntent{velocity, desired_facing, state,
+                                       combat_state});
     }
 
     for (std::size_t index = 0; index < units.size(); ++index) {
@@ -112,6 +157,7 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
         unit.set_desired_facing_angle(intent.desired_facing);
         unit.rotate_toward_desired(fixed_delta_seconds);
         unit.set_movement_state(intent.state);
+        unit.set_combat_movement_state(intent.combat_state);
     }
 
     ++tick_count_;

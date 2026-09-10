@@ -61,7 +61,11 @@ void World::spawn_test_units() {
                             rifle_definition.rotation_speed,
                             rifle_definition.vision_range,
                             rifle_definition.vision_angle,
-                            rifle_definition.awareness_radius, initial_facing);
+                            rifle_definition.awareness_radius,
+                            rifle_definition.preferred_combat_range,
+                            rifle_definition.range_tolerance,
+                            rifle_definition.aggression,
+                            rifle_definition.retreat_bias, initial_facing);
     };
 
     spawn(Team::team_a, {150.0F, 250.0F}, 0.0F);

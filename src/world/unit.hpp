@@ -20,9 +20,17 @@ enum class MovementState {
     moving,
 };
 
+enum class CombatMovementState {
+    advancing,
+    closing,
+    engaging,
+    retreating,
+};
+
 [[nodiscard]] std::string_view to_string(TroopType type) noexcept;
 [[nodiscard]] std::string_view to_string(Team team) noexcept;
 [[nodiscard]] std::string_view to_string(MovementState state) noexcept;
+[[nodiscard]] std::string_view to_string(CombatMovementState state) noexcept;
 
 class Unit {
 public:
@@ -30,7 +38,8 @@ public:
 
     Unit(Id id, TroopType troop_type, Team team, Vec2 spawn_position,
          float move_speed, float rotation_speed, float vision_range,
-         float vision_angle, float awareness_radius,
+         float vision_angle, float awareness_radius, float preferred_combat_range,
+         float range_tolerance, float aggression, float retreat_bias,
          float initial_facing_angle) noexcept;
 
     void begin_simulation_step() noexcept;
@@ -40,6 +49,7 @@ public:
     void clear_target() noexcept;
     void rotate_toward_desired(double delta_seconds) noexcept;
     void set_movement_state(MovementState state) noexcept;
+    void set_combat_movement_state(CombatMovementState state) noexcept;
 
     [[nodiscard]] Id id() const noexcept;
     [[nodiscard]] TroopType troop_type() const noexcept;
@@ -56,7 +66,12 @@ public:
     [[nodiscard]] float vision_range() const noexcept;
     [[nodiscard]] float vision_angle() const noexcept;
     [[nodiscard]] float awareness_radius() const noexcept;
+    [[nodiscard]] float preferred_combat_range() const noexcept;
+    [[nodiscard]] float range_tolerance() const noexcept;
+    [[nodiscard]] float aggression() const noexcept;
+    [[nodiscard]] float retreat_bias() const noexcept;
     [[nodiscard]] MovementState movement_state() const noexcept;
+    [[nodiscard]] CombatMovementState combat_movement_state() const noexcept;
 
 private:
     Id id_{};
@@ -74,7 +89,12 @@ private:
     float vision_range_{};
     float vision_angle_{};
     float awareness_radius_{};
+    float preferred_combat_range_{};
+    float range_tolerance_{};
+    float aggression_{};
+    float retreat_bias_{};
     MovementState movement_state_{MovementState::idle};
+    CombatMovementState combat_movement_state_{CombatMovementState::advancing};
 };
 
 } // namespace siege
