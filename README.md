@@ -39,6 +39,11 @@ cmake --build build --parallel
 
 Pass `-DSIEGE_FETCH_SDL3=OFF` while configuring to require a system SDL3 package.
 
+GitHub Actions configures, builds, and runs CTest on `macos-latest` and
+`windows-latest` for pushes and pull requests involving `dev` or `main`. CI does
+not sync the proprietary runtime artwork; asset copying is enabled automatically
+for local builds when the ignored `assets/` directory exists.
+
 ## Current behavior
 
 - Close the window or press Escape to quit.

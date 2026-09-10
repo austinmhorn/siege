@@ -53,13 +53,15 @@ add_executable(siege
 target_include_directories(siege PRIVATE src)
 target_link_libraries(siege PRIVATE SDL3::SDL3)
 
-add_custom_command(
-    TARGET siege POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${CMAKE_SOURCE_DIR}/assets"
-            "$<TARGET_FILE_DIR:siege>/assets"
-    COMMENT "Copying local runtime assets"
-)
+if(EXISTS "${CMAKE_SOURCE_DIR}/assets")
+    add_custom_command(
+        TARGET siege POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_SOURCE_DIR}/assets"
+                "$<TARGET_FILE_DIR:siege>/assets"
+        COMMENT "Copying local runtime assets"
+    )
+endif()
 
 if(MSVC)
     target_compile_options(siege PRIVATE /W4 /permissive-)
