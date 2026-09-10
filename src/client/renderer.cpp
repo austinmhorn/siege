@@ -31,6 +31,7 @@ constexpr Color divider{196, 203, 207, 255};
 
 struct SoldierVisualLayout {
     float source_pixel_world_size;
+    float render_scale;
     float legs_canvas_size;
     float upper_canvas_size;
     std::size_t non_firing_rifle_frame;
@@ -38,6 +39,7 @@ struct SoldierVisualLayout {
 
 constexpr SoldierVisualLayout soldier_layout{
     .source_pixel_world_size = 2.0F,
+    .render_scale = 0.5F,
     .legs_canvas_size = 32.0F,
     .upper_canvas_size = 64.0F,
     .non_firing_rifle_frame = 1,
@@ -161,7 +163,8 @@ bool Renderer::render_units(const World& world, const WorldTransform& transform,
                 return false;
             }
 
-            const float world_size = canvas_size * soldier_layout.source_pixel_world_size;
+            const float world_size = canvas_size * soldier_layout.source_pixel_world_size *
+                                     soldier_layout.render_scale;
             const Bounds world_bounds{
                 position.x - world_size * 0.5F,
                 position.y - world_size * 0.5F,
