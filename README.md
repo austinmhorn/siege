@@ -9,6 +9,9 @@ targeting, projectile, damage, death-lifecycle, and client-effects systems.
 - C++23
 - SDL 3.4.10 (including its built-in PNG decoder; found locally when available,
   otherwise fetched by CMake)
+- SDL3_ttf 3.2.2 for client-side TrueType rendering (found locally when
+  available, otherwise fetched by CMake)
+- Dogica Pixel by Roberto Mocci for in-game typography
 - CMake 3.24 or newer
 
 The source is written to remain portable between macOS and Windows. SDL is pinned
@@ -25,12 +28,14 @@ optional (`brew install sdl3`). Before building, sync the locally purchased art:
 ./scripts/sync_assets.sh
 ```
 
-The script defaults to `.local_assets/soldiers/` at the repository root. This
-directory contains the developer's private purchased CraftPix source pack. Pass
-a different pack root as the first argument when needed. The script copies only
-the required `soldiers_color1/soldier1` leg, rifle, machine-gun, bazooka, and
-`death1` layers plus matching shadows into the generated runtime directory at
-`assets/soldiers/`.
+The script defaults to `.local_assets/soldiers/` and
+`.local_assets/fonts/dogica/` at the repository root. The first directory
+contains the developer's private purchased CraftPix source pack; the second
+contains the local Dogica Pixel distribution. Pass alternate soldier and font
+roots as the first and second arguments when needed. The script copies only the
+required `soldiers_color1/soldier1` layers and shadows into `assets/soldiers/`,
+plus `dogicapixel.ttf`, `dogicapixelbold.ttf`, and the SIL Open Font License into
+`assets/fonts/dogica/`.
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
@@ -38,12 +43,23 @@ cmake --build build --parallel
 ./build/siege
 ```
 
-Pass `-DSIEGE_FETCH_SDL3=OFF` while configuring to require a system SDL3 package.
+Pass `-DSIEGE_FETCH_SDL3=OFF` or `-DSIEGE_FETCH_SDL3_TTF=OFF` while configuring
+to require the corresponding system package.
 
 GitHub Actions configures, builds, and runs CTest on `macos-latest` and
 `windows-latest` for pushes and pull requests involving `dev` or `main`. CI does
 not require or sync proprietary artwork; asset copying is enabled automatically
 for local builds when the generated `assets/` directory exists.
+
+All current game and F3 text uses the client-side Dogica Pixel renderer. Regular
+and bold faces are opened at centralized 8, 10, and 12 pixel roles, rendered as
+solid glyph surfaces, cached as SDL textures, and drawn at integer coordinates
+with nearest-neighbor scaling. If the runtime font files are absent, the game
+logs the missing path and falls back to SDL's built-in debug font instead of
+failing startup. Dogica Pixel is Copyright (c) 2020 Roberto Mocci and is used
+under the SIL Open Font License 1.1; the sync step places that license beside the
+runtime fonts. Tracked copies of the attribution and exact license text are in
+`THIRD_PARTY_NOTICES.md` and `LICENSES/Dogica-Pixel-OFL-1.1.txt`.
 
 ## Current behavior
 
@@ -120,8 +136,8 @@ for local builds when the generated `assets/` directory exists.
   remainder, so simulation time—not rendering rate—controls cash. F3 displays
   both balances and the passive rate; purchasing and rewards are not implemented.
 
-The private purchased source pack under `.local_assets/soldiers/` and generated
-runtime content under `assets/soldiers/` are both intentionally excluded from
-Git. The sync script only reads the source pack, and local builds copy the runtime
+The private source inputs under `.local_assets/` and generated runtime content
+under `assets/soldiers/` and `assets/fonts/` are intentionally excluded from
+Git. The sync script only reads source inputs, and local builds copy the runtime
 subset beside the executable. Development happens on `dev`; reviewed stable work
 is promoted to `main` by the repository owner.

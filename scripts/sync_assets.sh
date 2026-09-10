@@ -4,10 +4,12 @@ set -euo pipefail
 
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source_root="${1:-$project_root/.local_assets/soldiers}"
+font_source_root="${2:-$project_root/.local_assets/fonts/dogica}"
 pack_root="${source_root%/}/PNG"
 soldier_source="$pack_root/soldiers_color1/soldier1"
 shadow_source="$pack_root/Shadows"
 destination="$project_root/assets/soldiers/color1/soldier1"
+font_destination="$project_root/assets/fonts/dogica"
 
 required_files=()
 for index in 1 2 3 4 5 6 7; do
@@ -16,6 +18,11 @@ for index in 1 2 3 4 5 6 7; do
         "$shadow_source/legs${index}.png"
     )
 done
+required_font_files=(
+    "$font_source_root/TTF/dogicapixel.ttf"
+    "$font_source_root/TTF/dogicapixelbold.ttf"
+    "$font_source_root/dogica_pixel_license.txt"
+)
 for index in 1 2 3 4 5 6 7 8 9; do
     required_files+=(
         "$soldier_source/rifle/rifle${index}.png"
@@ -52,6 +59,12 @@ for file in "${required_files[@]}"; do
         exit 1
     fi
 done
+for file in "${required_font_files[@]}"; do
+    if [[ ! -f "$file" ]]; then
+        echo "error: required Dogica Pixel asset not found: $file" >&2
+        exit 1
+    fi
+done
 
 mkdir -p \
     "$destination/legs" \
@@ -64,6 +77,7 @@ mkdir -p \
     "$destination/shadows/machine_gun" \
     "$destination/shadows/bazooka" \
     "$destination/shadows/death1"
+mkdir -p "$font_destination"
 
 for index in 1 2 3 4 5 6 7; do
     cp "$soldier_source/legs/legs${index}.png" "$destination/legs/legs${index}.png"
@@ -92,4 +106,12 @@ for index in 1 2 3 4 5 6 7 8 9 10 11 12 13; do
         "$destination/shadows/bazooka/bazooka${index}.png"
 done
 
+cp "$font_source_root/TTF/dogicapixel.ttf" \
+    "$font_destination/dogicapixel.ttf"
+cp "$font_source_root/TTF/dogicapixelbold.ttf" \
+    "$font_destination/dogicapixelbold.ttf"
+cp "$font_source_root/dogica_pixel_license.txt" \
+    "$font_destination/LICENSE.txt"
+
 echo "Synced 98 rifle, machine-gun, and bazooka soldier PNG files to: $destination"
+echo "Synced Dogica Pixel regular, bold, and license files to: $font_destination"

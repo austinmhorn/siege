@@ -21,7 +21,8 @@ constexpr float preferred_half_width = 65.0F;
 constexpr int circle_segments = 48;
 constexpr int cone_arc_segments = 24;
 constexpr float capture_bar_inset = 48.0F;
-constexpr float capture_bar_y = 58.0F;
+constexpr float capture_bar_y = 120.0F;
+constexpr FontColor debug_text{245, 245, 245, 255};
 
 void set_color(SDL_Renderer* renderer, const Uint8 red, const Uint8 green,
                const Uint8 blue, const Uint8 alpha = 255) {
@@ -116,7 +117,8 @@ bool draw_capture_meter(SDL_Renderer* renderer,
 
 } // namespace
 
-DebugRenderer::DebugRenderer(SDL_Renderer* renderer) noexcept : renderer_(renderer) {}
+DebugRenderer::DebugRenderer(SDL_Renderer* renderer, FontSystem& fonts) noexcept
+    : renderer_(renderer), fonts_(fonts) {}
 
 bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                            const double render_fps, const double simulation_hz,
@@ -125,22 +127,29 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                            const std::size_t explosion_effect_count) const {
     SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
     set_color(renderer_, 245, 245, 245);
-    if (!SDL_RenderDebugTextFormat(renderer_, transform.viewport().x + 8.0F,
-                                   transform.viewport().y + 8.0F,
-                                   "F3 debug | sim %.0f Hz | render %.1f FPS | units %zu | pending %zu | projectiles %zu | corpses %zu | firing %zu | explosions %zu",
-                                   simulation_hz, render_fps, world.units().size(),
-                                   world.pending_deployments().size(),
-                                   world.projectiles().size(), corpse_count,
-                                   firing_effect_count, explosion_effect_count)) {
+    if (!fonts_.draw_format(
+            transform.viewport().x + 8.0F, transform.viewport().y + 8.0F,
+            FontRole::debug_bold, debug_text,
+            "F3 | sim %.0f Hz | render %.1f FPS | units %zu | pending %zu",
+            simulation_hz, render_fps, world.units().size(),
+            world.pending_deployments().size()) ||
+        !fonts_.draw_format(
+            transform.viewport().x + 8.0F,
+            transform.viewport().y + 8.0F + Typography::debug_line_height,
+            FontRole::debug, debug_text,
+            "projectiles %zu | corpses %zu | firing %zu | explosions %zu",
+            world.projectiles().size(), corpse_count, firing_effect_count,
+            explosion_effect_count)) {
         return false;
     }
 
     const PlayerState* team_a_player = world.find_player(Team::team_a);
     const PlayerState* team_b_player = world.find_player(Team::team_b);
     if (team_a_player == nullptr || team_b_player == nullptr ||
-        !SDL_RenderDebugTextFormat(
-            renderer_, transform.viewport().x + 8.0F,
-            transform.viewport().y + 18.0F,
+        !fonts_.draw_format(
+            transform.viewport().x + 8.0F,
+            transform.viewport().y + 8.0F + Typography::debug_line_height * 2.0F,
+            FontRole::debug, debug_text,
             "economy | Team A $%lld | Team B $%lld | passive +$%lld/s",
             static_cast<long long>(team_a_player->cash()),
             static_cast<long long>(team_b_player->cash()),
@@ -154,8 +163,9 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
             continue;
         }
         const Bounds& bounds = zone.bounds();
-        const auto label = transform.world_to_drawable(
-            Point{bounds.x + bounds.width * 0.5F, 34.0F});
+        const auto label_x = transform.world_to_drawable(
+            Point{bounds.x + bounds.width * 0.5F, 0.0F}).x;
+        const Point label{label_x, transform.viewport().y + 42.0F};
         const bool deployable =
             is_zone_deployable(zone, zone.owner());
         if (const auto deployment = deployment_bounds(zone, zone.owner())) {
@@ -165,15 +175,16 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
             }
         }
         set_color(renderer_, 245, 245, 245);
-        if (!SDL_RenderDebugTextFormat(
-                renderer_, label.x - 84.0F, label.y,
+        if (!fonts_.draw_format(
+                label.x - 84.0F, label.y, FontRole::debug_bold, debug_text,
                 "Z%zu %.*s A%d B%d P%+d C%+.1f", zone.index(),
                 static_cast<int>(to_string(zone.owner()).size()),
                 to_string(zone.owner()).data(),
                 zone.team_a_count(), zone.team_b_count(), zone.pressure(),
                 zone.capture_value()) ||
-            !SDL_RenderDebugTextFormat(
-                renderer_, label.x - 84.0F, label.y + 10.0F,
+            !fonts_.draw_format(
+                label.x - 84.0F, label.y + Typography::debug_line_height,
+                FontRole::debug, debug_text,
                 "%s %s T%.1f S%s D%s",
                 zone.occupied() ? "occupied" : "unoccupied",
                 zone.contested() ? "contested" : "clear",
@@ -189,9 +200,9 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
             Point{deployment.position.x, deployment.position.y});
         const auto troop = to_string(deployment.troop_type);
         const auto team = to_string(deployment.team);
-        set_color(renderer_, 140, 255, 175, 245);
-        if (!SDL_RenderDebugTextFormat(
-                renderer_, marker.x + 10.0F, marker.y + 12.0F,
+        if (!fonts_.draw_format(
+                marker.x + 10.0F, marker.y + 12.0F, FontRole::debug_bold,
+                FontColor{140, 255, 175, 245},
                 "pending #%u %.*s %.*s %.2fs", deployment.id,
                 static_cast<int>(troop.size()), troop.data(),
                 static_cast<int>(team.size()), team.data(),
@@ -270,62 +281,68 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
             return false;
         }
 
-        set_color(renderer_, 255, 255, 255);
         const auto type = to_string(unit.troop_type());
         const auto team = to_string(unit.team());
         const auto state = to_string(unit.movement_state());
         const auto combat_state = to_string(unit.combat_movement_state());
         const bool target_text_rendered = unit.target_id().has_value()
-            ? SDL_RenderDebugTextFormat(
-                  renderer_, marker.x + 10.0F, marker.y - 19.0F,
+            ? fonts_.draw_format(
+                  marker.x + 10.0F, marker.y - 19.0F, FontRole::debug_bold,
+                  debug_text,
                   "#%u %.*s %.*s %.*s/%.*s target #%u", unit.id(),
                   static_cast<int>(type.size()), type.data(),
                   static_cast<int>(team.size()), team.data(),
                   static_cast<int>(state.size()), state.data(),
                   static_cast<int>(combat_state.size()), combat_state.data(),
                   *unit.target_id())
-            : SDL_RenderDebugTextFormat(
-                  renderer_, marker.x + 10.0F, marker.y - 19.0F,
+            : fonts_.draw_format(
+                  marker.x + 10.0F, marker.y - 19.0F, FontRole::debug_bold,
+                  debug_text,
                   "#%u %.*s %.*s %.*s/%.*s target none", unit.id(),
                   static_cast<int>(type.size()), type.data(),
                   static_cast<int>(team.size()), team.data(),
                   static_cast<int>(state.size()), state.data(),
                   static_cast<int>(combat_state.size()), combat_state.data());
         if (!target_text_rendered ||
-            !SDL_RenderDebugTextFormat(renderer_, marker.x + 10.0F, marker.y - 9.0F,
-                                       "p %.0f,%.0f py %.0f m%.0f r%.0f", position.x,
-                                       position.y, unit.preferred_y(), unit.move_speed(),
-                                       unit.rotation_speed()) ||
-            !SDL_RenderDebugTextFormat(renderer_, marker.x + 10.0F, marker.y + 1.0F,
-                                       "vision %.0f/%.0f aware %.0f combat %.0f+/-%.0f",
-                                       unit.vision_range(), unit.vision_angle(),
-                                       unit.awareness_radius(),
-                                       unit.preferred_combat_range(),
-                                       unit.range_tolerance()) ||
-            !SDL_RenderDebugTextFormat(renderer_, marker.x + 10.0F, marker.y + 11.0F,
-                                       "hp %.0f/%.0f weapon %.0f arc %.0f cd %.2f",
-                                       unit.health(), unit.max_health(),
-                                       unit.weapon().range,
-                                       unit.weapon().firing_arc,
-                                       unit.weapon_cooldown_remaining()) ||
-            !SDL_RenderDebugTextFormat(renderer_, marker.x + 10.0F, marker.y + 21.0F,
-                                       "projectile %.0f damage %.0f splash %.0f",
-                                       unit.weapon().projectile_speed,
-                                       unit.weapon().projectile_damage,
-                                       unit.weapon().splash_radius)) {
+            !fonts_.draw_format(
+                marker.x + 10.0F, marker.y - 9.0F, FontRole::debug,
+                debug_text, "p %.0f,%.0f py %.0f m%.0f r%.0f", position.x,
+                position.y, unit.preferred_y(), unit.move_speed(),
+                unit.rotation_speed()) ||
+            !fonts_.draw_format(
+                marker.x + 10.0F, marker.y + 1.0F, FontRole::debug,
+                debug_text,
+                "vision %.0f/%.0f aware %.0f combat %.0f+/-%.0f",
+                unit.vision_range(), unit.vision_angle(),
+                unit.awareness_radius(), unit.preferred_combat_range(),
+                unit.range_tolerance()) ||
+            !fonts_.draw_format(
+                marker.x + 10.0F, marker.y + 11.0F, FontRole::debug,
+                debug_text, "hp %.0f/%.0f weapon %.0f arc %.0f cd %.2f",
+                unit.health(), unit.max_health(), unit.weapon().range,
+                unit.weapon().firing_arc,
+                unit.weapon_cooldown_remaining()) ||
+            !fonts_.draw_format(
+                marker.x + 10.0F, marker.y + 21.0F, FontRole::debug,
+                debug_text, "projectile %.0f damage %.0f splash %.0f",
+                unit.weapon().projectile_speed,
+                unit.weapon().projectile_damage,
+                unit.weapon().splash_radius)) {
             return false;
         }
 
         if (unit.support_positioning_bias() > 0.0F) {
             const bool support_text_rendered = unit.support_screen_id().has_value()
-                ? SDL_RenderDebugTextFormat(
-                      renderer_, marker.x + 10.0F, marker.y + 31.0F,
+                ? fonts_.draw_format(
+                      marker.x + 10.0F, marker.y + 31.0F, FontRole::debug,
+                      debug_text,
                       "ai pursue %.2f retreat %.2f support %.2f rear %.0f screen #%u",
                       unit.aggression(), unit.retreat_bias(),
                       unit.support_positioning_bias(),
                       unit.support_rear_distance(), *unit.support_screen_id())
-                : SDL_RenderDebugTextFormat(
-                      renderer_, marker.x + 10.0F, marker.y + 31.0F,
+                : fonts_.draw_format(
+                      marker.x + 10.0F, marker.y + 31.0F, FontRole::debug,
+                      debug_text,
                       "ai pursue %.2f retreat %.2f support %.2f rear %.0f screen none",
                       unit.aggression(), unit.retreat_bias(),
                       unit.support_positioning_bias(),

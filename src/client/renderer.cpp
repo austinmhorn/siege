@@ -361,7 +361,7 @@ bool render_soldier_layer(SDL_Renderer* renderer, TextureCache& textures,
 
 Renderer::Renderer(SDL_Renderer* renderer, std::filesystem::path asset_root)
     : renderer_(renderer), textures_(renderer, std::move(asset_root)),
-      debug_renderer_(renderer) {}
+      fonts_(renderer, textures_.asset_root()), debug_renderer_(renderer, fonts_) {}
 
 void Renderer::update(const World& world, const double fixed_delta_seconds) {
     deployment_feedback_seconds_ =
@@ -502,6 +502,7 @@ void Renderer::handle_left_click(World& world, const float drawable_x,
 
 bool Renderer::render(const World& world, const double interpolation_alpha,
                       const double render_fps) const {
+    fonts_.begin_frame();
     int output_width = 0;
     int output_height = 0;
     if (!SDL_GetRenderOutputSize(renderer_, &output_width, &output_height)) {
@@ -618,10 +619,10 @@ bool Renderer::render_pending_deployments(
             return false;
         }
         const auto troop = to_string(deployment.troop_type);
-        set_color(renderer_, Color{245, 250, 247, 255});
-        if (!SDL_RenderDebugTextFormat(
-                renderer_, marker.x - 30.0F,
-                marker.y - 30.0F * transform.scale(), "%.*s %.1fs",
+        if (!fonts_.draw_format(
+                marker.x - 30.0F, marker.y - 30.0F * transform.scale(),
+                FontRole::debug_bold, FontColor{245, 250, 247, 255},
+                "%.*s %.1fs",
                 static_cast<int>(troop.size()), troop.data(),
                 deployment.remaining_seconds)) {
             return false;
@@ -671,13 +672,14 @@ bool Renderer::render_deployment_ui(const World& world,
             return false;
         }
         const auto name = to_string(troop);
-        set_color(renderer_, Color{245, 245, 245, 255});
-        if (!SDL_RenderDebugTextFormat(
-                renderer_, button.x + 10.0F, button.y + 9.0F, "%.*s  $%lld",
+        if (!fonts_.draw_format(
+                button.x + 10.0F, button.y + 7.0F, FontRole::body_bold,
+                FontColor{245, 245, 245, 255}, "%.*s  $%lld",
                 static_cast<int>(name.size()), name.data(),
                 static_cast<long long>(definition->purchase_cost)) ||
-            !SDL_RenderDebugTextFormat(
-                renderer_, button.x + 10.0F, button.y + 25.0F,
+            !fonts_.draw_format(
+                button.x + 10.0F, button.y + 25.0F, FontRole::debug,
+                FontColor{232, 236, 238, 255},
                 selected ? "SELECTED | %.2fs" : "deploy %.2fs",
                 definition->deployment_seconds)) {
             return false;
@@ -687,14 +689,16 @@ bool Renderer::render_deployment_ui(const World& world,
     if (deployment_feedback_ != DeploymentFeedback::none) {
         const bool insufficient =
             deployment_feedback_ == DeploymentFeedback::insufficient_cash;
-        set_color(renderer_, insufficient ? Color{255, 204, 92, 255}
-                                          : Color{255, 112, 112, 255});
-        if (!SDL_RenderDebugText(
-                renderer_, 14.0F,
+        const FontColor feedback_color =
+            insufficient ? FontColor{255, 204, 92, 255}
+                         : FontColor{255, 112, 112, 255};
+        if (!fonts_.draw(
+                14.0F,
                 static_cast<float>(output_height) - deployment_bar_height -
                     18.0F,
                 insufficient ? "Insufficient cash"
-                             : "Invalid deployment location")) {
+                             : "Invalid deployment location",
+                FontRole::heading_bold, feedback_color)) {
             return false;
         }
     }

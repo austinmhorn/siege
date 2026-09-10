@@ -1,5 +1,7 @@
 #pragma once
 
+#include "client/font_system.hpp"
+
 #include <cstddef>
 
 struct SDL_Renderer;
@@ -11,7 +13,7 @@ class WorldTransform;
 
 class DebugRenderer {
 public:
-    explicit DebugRenderer(SDL_Renderer* renderer) noexcept;
+    DebugRenderer(SDL_Renderer* renderer, FontSystem& fonts) noexcept;
 
     [[nodiscard]] bool render(const World& world, const WorldTransform& transform,
                               double render_fps, double simulation_hz,
@@ -21,6 +23,7 @@ public:
 
 private:
     SDL_Renderer* renderer_{};
+    FontSystem& fonts_;
 };
 
 } // namespace siege

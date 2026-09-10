@@ -1,4 +1,5 @@
 /build*/
 /.local_assets/
 /assets/soldiers/
+/assets/fonts/
 .DS_Store

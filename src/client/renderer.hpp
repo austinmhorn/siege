@@ -1,6 +1,7 @@
 #pragma once
 
 #include "client/frame_animation.hpp"
+#include "client/font_system.hpp"
 #include "client/texture_cache.hpp"
 #include "client/debug_renderer.hpp"
 #include "client/world_transform.hpp"
@@ -65,6 +66,7 @@ private:
 
     SDL_Renderer* renderer_{};
     mutable TextureCache textures_;
+    mutable FontSystem fonts_;
     DebugRenderer debug_renderer_;
     std::unordered_map<unsigned int, FrameAnimation> leg_animations_;
     std::unordered_map<unsigned int, FrameAnimation> firing_animations_;

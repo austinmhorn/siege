@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(SIEGE_FETCH_SDL3 "Download SDL3 when a suitable installation is not found" ON)
+option(SIEGE_FETCH_SDL3_TTF "Download SDL3_ttf when a suitable installation is not found" ON)
 
 find_package(SDL3 3.2 CONFIG QUIET)
 
@@ -28,6 +29,27 @@ if(NOT SDL3_FOUND)
     FetchContent_MakeAvailable(SDL3)
 endif()
 
+find_package(SDL3_ttf 3.2 CONFIG QUIET)
+
+if(NOT SDL3_ttf_FOUND)
+    if(NOT SIEGE_FETCH_SDL3_TTF)
+        message(FATAL_ERROR "SDL3_ttf was not found and SIEGE_FETCH_SDL3_TTF is OFF")
+    endif()
+
+    include(FetchContent)
+    set(SDLTTF_VENDORED ON CACHE BOOL "" FORCE)
+    set(SDLTTF_SAMPLES OFF CACHE BOOL "" FORCE)
+    set(SDLTTF_TESTS OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(
+        SDL3_ttf
+        GIT_REPOSITORY https://github.com/libsdl-org/SDL_ttf.git
+        GIT_TAG release-3.2.2
+        GIT_SHALLOW TRUE
+        GIT_SUBMODULES_RECURSE TRUE
+    )
+    FetchContent_MakeAvailable(SDL3_ttf)
+endif()
+
 add_executable(siege
     src/main.cpp
     src/core/game.cpp
@@ -43,6 +65,7 @@ add_executable(siege
     src/core/support_positioning.cpp
     src/core/zone_capture.cpp
     src/client/frame_animation.cpp
+    src/client/font_system.cpp
     src/world/world.cpp
     src/world/unit.cpp
     src/world/projectile.cpp
@@ -55,7 +78,7 @@ add_executable(siege
 )
 
 target_include_directories(siege PRIVATE src)
-target_link_libraries(siege PRIVATE SDL3::SDL3)
+target_link_libraries(siege PRIVATE SDL3::SDL3 SDL3_ttf::SDL3_ttf)
 
 if(EXISTS "${CMAKE_SOURCE_DIR}/assets")
     add_custom_command(
