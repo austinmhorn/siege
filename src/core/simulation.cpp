@@ -2,6 +2,7 @@
 
 #include "core/combat_behavior.hpp"
 #include "core/projectile_collision.hpp"
+#include "core/support_positioning.hpp"
 #include "core/targeting.hpp"
 #include "core/weapon.hpp"
 #include "world/world.hpp"
@@ -25,6 +26,8 @@ struct MotionIntent {
     float desired_facing;
     MovementState state;
     CombatMovementState combat_state;
+    std::optional<Unit::Id> support_screen_id;
+    Vec2 support_steering;
 };
 
 Vec2 velocity_from_steering(const Vec2 steering, const float speed) noexcept {
@@ -38,6 +41,12 @@ Vec2 soft_separation_velocity(const Vec2 separation,
                               const float move_speed) noexcept {
     const float influence = std::min(length(separation), 1.0F);
     return velocity_from_steering(separation, move_speed * influence);
+}
+
+Vec2 weighted_steering_velocity(const Vec2 steering,
+                                const float move_speed) noexcept {
+    return velocity_from_steering(
+        steering, move_speed * std::clamp(length(steering), 0.0F, 1.0F));
 }
 
 Vec2 separation_for(const Unit& unit, const std::vector<Unit>& units) noexcept {
@@ -173,9 +182,9 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
     for (std::size_t index = 0; index < units.size(); ++index) {
         const auto& unit = units[index];
         if (!unit.is_alive()) {
-            intents.push_back(MotionIntent{{}, unit.facing_angle(),
-                                           MovementState::idle,
-                                           CombatMovementState::inactive});
+            intents.push_back(MotionIntent{
+                {}, unit.facing_angle(), MovementState::idle,
+                CombatMovementState::inactive, std::nullopt, {}});
             continue;
         }
 
@@ -188,6 +197,7 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
         MovementState state = MovementState::idle;
         CombatMovementState combat_state = CombatMovementState::advancing;
         const Vec2 separation = separation_for(unit, units);
+        SupportPositioning support = support_positioning_for(unit, units);
         if (unit.team() != Team::none && !reached_edge) {
             const float y_error = unit.preferred_y() - unit.position().y;
             Vec2 steering{
@@ -195,9 +205,13 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
                 std::clamp(y_error / preferred_y_scale, -maximum_y_correction,
                            maximum_y_correction),
             };
-            steering = steering + separation;
-            const Vec2 direction = normalized(steering);
-            velocity = direction * unit.move_speed();
+            steering = steering + separation + support.steering;
+            velocity = length_squared(support.steering) > 0.0001F
+                           ? weighted_steering_velocity(steering,
+                                                        unit.move_speed())
+                           : velocity_from_steering(steering,
+                                                    unit.move_speed());
+            const Vec2 direction = normalized(velocity);
             desired_facing = facing_from_direction(direction);
             state = MovementState::moving;
         }
@@ -213,14 +227,22 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
                 case CombatMovementState::inactive:
                     break;
                 case CombatMovementState::closing:
-                    velocity = velocity_from_steering(
-                        toward_target + separation,
-                        unit.move_speed() * std::clamp(unit.aggression(), 0.0F, 1.0F));
+                    velocity = length_squared(support.steering) > 0.0001F
+                        ? weighted_steering_velocity(
+                              toward_target + separation + support.steering,
+                              unit.move_speed() *
+                                  std::clamp(unit.aggression(), 0.0F, 1.0F))
+                        : velocity_from_steering(
+                              toward_target + separation,
+                              unit.move_speed() *
+                                  std::clamp(unit.aggression(), 0.0F, 1.0F));
                     break;
                 case CombatMovementState::engaging:
-                    velocity = soft_separation_velocity(separation, unit.move_speed());
+                    velocity = soft_separation_velocity(
+                        separation + support.steering, unit.move_speed());
                     break;
                 case CombatMovementState::retreating:
+                    support = {};
                     velocity = velocity_from_steering(
                         toward_target * -1.0F + separation,
                         unit.move_speed() * std::clamp(unit.retreat_bias(), 0.0F, 1.0F));
@@ -239,7 +261,8 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
             }
         }
         intents.push_back(MotionIntent{velocity, desired_facing, state,
-                                       combat_state});
+                                       combat_state, support.screen_id,
+                                       support.steering});
     }
 
     for (std::size_t index = 0; index < units.size(); ++index) {
@@ -256,6 +279,8 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
         unit.rotate_toward_desired(fixed_delta_seconds);
         unit.set_movement_state(intent.state);
         unit.set_combat_movement_state(intent.combat_state);
+        unit.set_support_positioning(intent.support_screen_id,
+                                     intent.support_steering);
     }
 
     for (auto& unit : units) {

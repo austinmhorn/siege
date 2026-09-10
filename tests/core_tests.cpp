@@ -3,6 +3,7 @@
 #include "core/perception.hpp"
 #include "core/projectile_collision.hpp"
 #include "core/simulation.hpp"
+#include "core/support_positioning.hpp"
 #include "core/targeting.hpp"
 #include "core/troop_definition.hpp"
 #include "world/unit.hpp"
@@ -32,6 +33,7 @@ siege::Unit test_unit(const siege::Unit::Id id, const siege::Team team,
     return siege::Unit{id, siege::TroopType::rifle, team, position,
                        72.0F, 90.0F, 500.0F, 90.0F, 110.0F,
                        280.0F, 35.0F, 0.9F, 0.75F,
+                       1.0F, 0.0F, 0.0F, 0.0F,
                        100.0F, 20.0F,
                        siege::WeaponDefinition{
                            .type = siege::WeaponType::rifle,
@@ -57,7 +59,12 @@ siege::Unit unit_from_definition(const siege::Unit::Id id,
                        definition.awareness_radius,
                        definition.preferred_combat_range,
                        definition.range_tolerance, definition.aggression,
-                       definition.retreat_bias, definition.max_health,
+                       definition.retreat_bias,
+                       definition.frontline_screen_weight,
+                       definition.support_positioning_bias,
+                       definition.support_rear_distance,
+                       definition.support_search_radius,
+                       definition.max_health,
                        definition.hit_radius, definition.weapon, facing};
 }
 
@@ -107,6 +114,10 @@ int main() {
                         near(rifle_definition.preferred_combat_range, 280.0F) &&
                         near(rifle_definition.weapon.fire_interval, 0.60F) &&
                         near(rifle_definition.weapon.projectile_damage, 25.0F) &&
+                        near(rifle_definition.aggression, 0.9F) &&
+                        near(rifle_definition.retreat_bias, 0.75F) &&
+                        near(rifle_definition.frontline_screen_weight, 1.0F) &&
+                        near(rifle_definition.support_positioning_bias, 0.0F) &&
                         near(rifle_definition.zone_control_weight, 1.0F),
                     "rifle definition remains unchanged");
     passed &= check(machine_gun_definition.type == TroopType::machine_gun &&
@@ -117,6 +128,11 @@ int main() {
                         near(machine_gun_definition.vision_range, 600.0F) &&
                         near(machine_gun_definition.preferred_combat_range, 390.0F) &&
                         near(machine_gun_definition.range_tolerance, 45.0F) &&
+                        near(machine_gun_definition.aggression, 0.62F) &&
+                        near(machine_gun_definition.retreat_bias, 0.85F) &&
+                        near(machine_gun_definition.support_positioning_bias, 0.85F) &&
+                        near(machine_gun_definition.support_rear_distance, 120.0F) &&
+                        near(machine_gun_definition.support_search_radius, 420.0F) &&
                         near(machine_gun_definition.weapon.fire_interval, 0.18F) &&
                         near(machine_gun_definition.weapon.range, 480.0F) &&
                         near(machine_gun_definition.weapon.projectile_damage, 10.0F) &&
@@ -127,6 +143,11 @@ int main() {
                         near(bazooka_definition.move_speed, 60.0F) &&
                         near(bazooka_definition.rotation_speed, 50.0F) &&
                         near(bazooka_definition.preferred_combat_range, 520.0F) &&
+                        near(bazooka_definition.aggression, 0.50F) &&
+                        near(bazooka_definition.retreat_bias, 1.0F) &&
+                        near(bazooka_definition.support_positioning_bias, 1.10F) &&
+                        near(bazooka_definition.support_rear_distance, 180.0F) &&
+                        near(bazooka_definition.support_search_radius, 500.0F) &&
                         near(bazooka_definition.weapon.fire_interval, 2.60F) &&
                         near(bazooka_definition.weapon.range, 650.0F) &&
                         near(bazooka_definition.weapon.projectile_speed, 480.0F) &&
@@ -172,6 +193,82 @@ int main() {
             near(length(mixed_world.units()[8].position() - bazooka_move_start),
                  bazooka_definition.move_speed / 60.0F),
         "all troops use their troop-specific movement speeds");
+
+    const Unit support_screen = unit_from_definition(
+        400, Team::team_a, {400.0F, 300.0F}, 270.0F, rifle_definition);
+    const Unit supported_machine_gun = unit_from_definition(
+        401, Team::team_a, {400.0F, 300.0F}, 270.0F,
+        machine_gun_definition);
+    const Unit supported_bazooka = unit_from_definition(
+        402, Team::team_a, {400.0F, 300.0F}, 270.0F,
+        bazooka_definition);
+    const std::vector<Unit> support_formation{
+        support_screen, supported_machine_gun, supported_bazooka};
+    const SupportPositioning rifle_support =
+        support_positioning_for(support_formation[0], support_formation);
+    const SupportPositioning machine_gun_support =
+        support_positioning_for(support_formation[1], support_formation);
+    const SupportPositioning bazooka_support =
+        support_positioning_for(support_formation[2], support_formation);
+    passed &= check(!rifle_support.screen_id.has_value() &&
+                        length_squared(rifle_support.steering) <= 0.0001F,
+                    "rifle retains frontline behavior without support bias");
+    passed &= check(machine_gun_support.screen_id == support_screen.id() &&
+                        machine_gun_support.steering.x < 0.0F,
+                    "machine_gun biases toward a safer position behind a rifle");
+    passed &= check(bazooka_support.screen_id == support_screen.id() &&
+                        bazooka_support.steering.x < 0.0F &&
+                        length(bazooka_support.steering) >
+                            length(machine_gun_support.steering),
+                    "bazooka uses the stronger and deeper rear-positioning bias");
+
+    World unsupported_advance_world;
+    isolate_collision_units(unsupported_advance_world);
+    unsupported_advance_world.units()[2].set_position({500.0F, 500.0F});
+    const float unsupported_start_x =
+        unsupported_advance_world.units()[2].position().x;
+    Simulation unsupported_advance_simulation{unsupported_advance_world};
+    unsupported_advance_simulation.update(1.0 / 60.0);
+    passed &= check(
+        unsupported_advance_world.units()[2].position().x >
+            unsupported_start_x &&
+            !unsupported_advance_world.units()[2].support_screen_id().has_value(),
+        "support troop advances normally when no useful friendly screen exists");
+
+    World supported_retreat_world;
+    isolate_collision_units(supported_retreat_world);
+    supported_retreat_world.units()[2].set_position({500.0F, 400.0F});
+    supported_retreat_world.units()[0].set_position({520.0F, 400.0F});
+    supported_retreat_world.units()[4].set_position({500.0F, 300.0F});
+    const float supported_retreat_start_y =
+        supported_retreat_world.units()[2].position().y;
+    Simulation supported_retreat_simulation{supported_retreat_world};
+    supported_retreat_simulation.update(1.0 / 60.0);
+    passed &= check(
+        supported_retreat_world.units()[2].combat_movement_state() ==
+                CombatMovementState::retreating &&
+            supported_retreat_world.units()[2].position().y >
+                supported_retreat_start_y &&
+            !supported_retreat_world.units()[2].support_screen_id().has_value(),
+        "retreat overrides support positioning when an enemy rushes close");
+
+    const Unit deterministic_support = unit_from_definition(
+        410, Team::team_a, {300.0F, 300.0F}, 270.0F,
+        machine_gun_definition);
+    const Unit higher_id_screen = unit_from_definition(
+        412, Team::team_a, {200.0F, 200.0F}, 270.0F,
+        rifle_definition);
+    const Unit lower_id_screen = unit_from_definition(
+        411, Team::team_a, {400.0F, 400.0F}, 270.0F,
+        rifle_definition);
+    const std::vector<Unit> tied_screens{
+        deterministic_support, higher_id_screen, lower_id_screen};
+    for (int repeat = 0; repeat < 10; ++repeat) {
+        passed &= check(
+            support_positioning_for(tied_screens[0], tied_screens).screen_id ==
+                lower_id_screen.id(),
+            "equal-distance support screens resolve by lowest unit ID");
+    }
 
     Unit clockwise_wrap = test_unit(100, Team::team_a, {}, 350.0F);
     clockwise_wrap.set_desired_facing_angle(10.0F);
@@ -286,6 +383,7 @@ int main() {
                     "equal-distance target tie selects the lowest unit ID");
 
     World facing_world;
+    facing_world.units()[0].set_position({150.0F, 250.0F});
     facing_world.units()[4].set_position({150.0F, 350.0F});
     facing_world.units()[5].set_position({1800.0F, 500.0F});
     facing_world.units()[6].set_position({1800.0F, 700.0F});

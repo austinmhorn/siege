@@ -144,6 +144,15 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
             return false;
         }
 
+        if (length_squared(unit.support_steering()) > 0.0001F) {
+            set_color(renderer_, 120, 255, 150, 220);
+            const Vec2 support_end =
+                position + unit.support_steering() * 80.0F;
+            if (!draw_world_line(renderer_, transform, position, support_end)) {
+                return false;
+            }
+        }
+
         set_color(renderer_, 80, 235, 255, 190);
         if (!draw_world_line(renderer_, transform,
                              {position.x - preferred_half_width, unit.preferred_y()},
@@ -195,6 +204,25 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                                        unit.weapon().projectile_damage,
                                        unit.weapon().splash_radius)) {
             return false;
+        }
+
+        if (unit.support_positioning_bias() > 0.0F) {
+            const bool support_text_rendered = unit.support_screen_id().has_value()
+                ? SDL_RenderDebugTextFormat(
+                      renderer_, marker.x + 10.0F, marker.y + 31.0F,
+                      "ai pursue %.2f retreat %.2f support %.2f rear %.0f screen #%u",
+                      unit.aggression(), unit.retreat_bias(),
+                      unit.support_positioning_bias(),
+                      unit.support_rear_distance(), *unit.support_screen_id())
+                : SDL_RenderDebugTextFormat(
+                      renderer_, marker.x + 10.0F, marker.y + 31.0F,
+                      "ai pursue %.2f retreat %.2f support %.2f rear %.0f screen none",
+                      unit.aggression(), unit.retreat_bias(),
+                      unit.support_positioning_bias(),
+                      unit.support_rear_distance());
+            if (!support_text_rendered) {
+                return false;
+            }
         }
     }
 

@@ -61,6 +61,10 @@ Unit::Unit(const Id id, const TroopType troop_type, const Team team,
            const float vision_angle, const float awareness_radius,
            const float preferred_combat_range, const float range_tolerance,
            const float aggression, const float retreat_bias,
+           const float frontline_screen_weight,
+           const float support_positioning_bias,
+           const float support_rear_distance,
+           const float support_search_radius,
            const float max_health, const float hit_radius,
            const WeaponDefinition weapon, const float initial_facing_angle) noexcept
     : id_(id), troop_type_(troop_type), team_(team), position_(spawn_position),
@@ -72,7 +76,12 @@ Unit::Unit(const Id id, const TroopType troop_type, const Team team,
       vision_angle_(vision_angle), awareness_radius_(awareness_radius),
       preferred_combat_range_(preferred_combat_range),
       range_tolerance_(range_tolerance), aggression_(aggression),
-      retreat_bias_(retreat_bias), weapon_(weapon),
+      retreat_bias_(retreat_bias),
+      frontline_screen_weight_(std::max(frontline_screen_weight, 0.0F)),
+      support_positioning_bias_(std::max(support_positioning_bias, 0.0F)),
+      support_rear_distance_(std::max(support_rear_distance, 0.0F)),
+      support_search_radius_(std::max(support_search_radius, 0.0F)),
+      weapon_(weapon),
       health_(std::max(max_health, 0.0F)),
       max_health_(std::max(max_health, 0.0F)),
       hit_radius_(std::max(hit_radius, 0.0F)) {}
@@ -113,6 +122,12 @@ void Unit::set_combat_movement_state(const CombatMovementState state) noexcept {
     combat_movement_state_ = state;
 }
 
+void Unit::set_support_positioning(const std::optional<Id> screen_id,
+                                   const Vec2 steering) noexcept {
+    support_screen_id_ = screen_id;
+    support_steering_ = steering;
+}
+
 void Unit::tick_weapon_cooldown(const double delta_seconds) noexcept {
     weapon_cooldown_remaining_ =
         std::max(0.0F, weapon_cooldown_remaining_ -
@@ -135,6 +150,7 @@ void Unit::apply_damage(const float damage) noexcept {
         clear_target();
         movement_state_ = MovementState::idle;
         combat_movement_state_ = CombatMovementState::inactive;
+        set_support_positioning(std::nullopt, {});
     }
 }
 
@@ -159,6 +175,22 @@ float Unit::preferred_combat_range() const noexcept {
 float Unit::range_tolerance() const noexcept { return range_tolerance_; }
 float Unit::aggression() const noexcept { return aggression_; }
 float Unit::retreat_bias() const noexcept { return retreat_bias_; }
+float Unit::frontline_screen_weight() const noexcept {
+    return frontline_screen_weight_;
+}
+float Unit::support_positioning_bias() const noexcept {
+    return support_positioning_bias_;
+}
+float Unit::support_rear_distance() const noexcept {
+    return support_rear_distance_;
+}
+float Unit::support_search_radius() const noexcept {
+    return support_search_radius_;
+}
+std::optional<Unit::Id> Unit::support_screen_id() const noexcept {
+    return support_screen_id_;
+}
+Vec2 Unit::support_steering() const noexcept { return support_steering_; }
 const WeaponDefinition& Unit::weapon() const noexcept { return weapon_; }
 float Unit::weapon_cooldown_remaining() const noexcept {
     return weapon_cooldown_remaining_;

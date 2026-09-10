@@ -55,8 +55,14 @@ Pass `-DSIEGE_FETCH_SDL3=OFF` while configuring to require a system SDL3 package
   after losing it, and gradually turn toward the selected target.
 - The F3 overlay labels each unit's target and draws a red observer-to-target line.
 - Targeted rifle units close when farther than their `280 +/- 35` range band, hold
-  while inside it, and retreat when too close; separation remains active.
+  while inside it, and retreat when too close; separation remains active. Their
+  balanced baseline uses a 0.90 pursuit factor, 0.75 retreat factor, and no
+  support-positioning bias.
 - The F3 overlay reports combat movement state and draws preferred combat range.
+- Data-driven behavior profiles control pursuit, retreat, frontline eligibility,
+  and support positioning. Nearby rifle screens pull support troops toward a
+  troop-specific rear offset; no formal squad state is created, and close-range
+  retreat takes priority over that influence.
 - Aligned rifle units fire 960-unit/second tracers every 0.60 seconds while their
   target is inside the 360-unit weapon range and 12-degree firing arc. Rifle
   projectiles deal 25 damage on the first swept-circle hit against a hostile
@@ -65,19 +71,24 @@ Pass `-DSIEGE_FETCH_SDL3=OFF` while configuring to require a system SDL3 package
 - Machine guns move at 54 units/second, rotate at 60 degrees/second, and prefer a
   `390 +/- 45` engagement band. They fire 1100-unit/second projectiles every 0.18
   seconds within a 480-unit range and 14-degree arc, dealing 10 damage per hit.
-  Their longer 600-unit vision and sustained cadence distinguish them from rifles;
-  both troop definitions retain a future zone-control weight of 1.
+  Their pursuit factor is 0.62 and retreat factor is 0.85. A 0.85 support bias
+  seeks a position 120 units behind a rifle within 420 units. Their longer
+  600-unit vision and sustained cadence distinguish them from rifles; both troop
+  definitions retain a future zone-control weight of 1.
 - Bazookas move at 60 units/second, rotate at 50 degrees/second, and prefer a
   `520 +/- 55` engagement band. Their 480-unit/second rockets fire every 2.60
   seconds within a 650-unit range and 10-degree arc. A hostile impact deals 70
   damage once to every hostile unit whose center is within the 115-unit splash
-  radius; the source and all friendlies remain immune. Bazookas have 80 health,
-  and retain a future zone-control weight of 1.
+  radius; the source and all friendlies remain immune. Their pursuit factor is
+  0.50 and retreat factor is 1.0. A 1.10 support bias seeks a position 180 units
+  behind a rifle within 500 units. Bazookas have 80 health and retain a future
+  zone-control weight of 1.
 - Death events create a client-only, non-looping `death1` animation. Its final
   corpse frame then fades smoothly for 10 seconds before being destroyed.
 - Projectiles travel independently according to their weapon profile. F3 reports
   active unit, projectile, corpse, firing-effect, explosion-effect, health, and
-  weapon-cooldown state.
+  weapon-cooldown state. It also labels behavior factors and the selected friendly
+  screen, with a short green line for active support steering.
 - The complete battlefield remains visible while the window is resized.
 - World resolution: 1920x1080.
 - Simulation rate: 60 fixed ticks per second, independent of rendering rate.

@@ -42,6 +42,8 @@ public:
          float move_speed, float rotation_speed, float vision_range,
          float vision_angle, float awareness_radius, float preferred_combat_range,
          float range_tolerance, float aggression, float retreat_bias,
+         float frontline_screen_weight, float support_positioning_bias,
+         float support_rear_distance, float support_search_radius,
          float max_health, float hit_radius, WeaponDefinition weapon,
          float initial_facing_angle) noexcept;
 
@@ -53,6 +55,8 @@ public:
     void rotate_toward_desired(double delta_seconds) noexcept;
     void set_movement_state(MovementState state) noexcept;
     void set_combat_movement_state(CombatMovementState state) noexcept;
+    void set_support_positioning(std::optional<Id> screen_id,
+                                 Vec2 steering) noexcept;
     void tick_weapon_cooldown(double delta_seconds) noexcept;
     void reset_weapon_cooldown() noexcept;
     void apply_damage(float damage) noexcept;
@@ -76,6 +80,12 @@ public:
     [[nodiscard]] float range_tolerance() const noexcept;
     [[nodiscard]] float aggression() const noexcept;
     [[nodiscard]] float retreat_bias() const noexcept;
+    [[nodiscard]] float frontline_screen_weight() const noexcept;
+    [[nodiscard]] float support_positioning_bias() const noexcept;
+    [[nodiscard]] float support_rear_distance() const noexcept;
+    [[nodiscard]] float support_search_radius() const noexcept;
+    [[nodiscard]] std::optional<Id> support_screen_id() const noexcept;
+    [[nodiscard]] Vec2 support_steering() const noexcept;
     [[nodiscard]] const WeaponDefinition& weapon() const noexcept;
     [[nodiscard]] float weapon_cooldown_remaining() const noexcept;
     [[nodiscard]] float health() const noexcept;
@@ -105,6 +115,12 @@ private:
     float range_tolerance_{};
     float aggression_{};
     float retreat_bias_{};
+    float frontline_screen_weight_{};
+    float support_positioning_bias_{};
+    float support_rear_distance_{};
+    float support_search_radius_{};
+    std::optional<Id> support_screen_id_{};
+    Vec2 support_steering_{};
     WeaponDefinition weapon_{};
     float weapon_cooldown_remaining_{};
     float health_{};

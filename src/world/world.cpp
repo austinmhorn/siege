@@ -126,25 +126,30 @@ void World::spawn_test_units() {
                             definition.awareness_radius,
                             definition.preferred_combat_range,
                             definition.range_tolerance, definition.aggression,
-                            definition.retreat_bias, definition.max_health,
+                            definition.retreat_bias,
+                            definition.frontline_screen_weight,
+                            definition.support_positioning_bias,
+                            definition.support_rear_distance,
+                            definition.support_search_radius,
+                            definition.max_health,
                             definition.hit_radius, definition.weapon,
                             initial_facing);
     };
 
-    spawn(rifle_definition, Team::team_a, {150.0F, 250.0F}, 0.0F);
-    spawn(rifle_definition, Team::team_a, {150.0F, 250.0F}, 180.0F);
-    spawn(machine_gun_definition, Team::team_a, {180.0F, 520.0F}, 20.0F);
-    spawn(machine_gun_definition, Team::team_a, {150.0F, 790.0F}, 160.0F);
+    spawn(rifle_definition, Team::team_a, {260.0F, 300.0F}, 0.0F);
+    spawn(rifle_definition, Team::team_a, {260.0F, 780.0F}, 180.0F);
+    spawn(machine_gun_definition, Team::team_a, {140.0F, 300.0F}, 20.0F);
+    spawn(machine_gun_definition, Team::team_a, {140.0F, 780.0F}, 160.0F);
 
-    spawn(rifle_definition, Team::team_b, {1770.0F, 290.0F}, 0.0F);
-    spawn(rifle_definition, Team::team_b, {1770.0F, 290.0F}, 180.0F);
-    spawn(machine_gun_definition, Team::team_b, {1740.0F, 560.0F}, 340.0F);
-    spawn(machine_gun_definition, Team::team_b, {1770.0F, 830.0F}, 200.0F);
+    spawn(rifle_definition, Team::team_b, {1660.0F, 300.0F}, 0.0F);
+    spawn(rifle_definition, Team::team_b, {1660.0F, 780.0F}, 180.0F);
+    spawn(machine_gun_definition, Team::team_b, {1780.0F, 300.0F}, 340.0F);
+    spawn(machine_gun_definition, Team::team_b, {1780.0F, 780.0F}, 200.0F);
 
-    spawn(bazooka_definition, Team::team_a, {170.0F, 660.0F}, 35.0F);
-    spawn(bazooka_definition, Team::team_a, {150.0F, 970.0F}, 145.0F);
-    spawn(bazooka_definition, Team::team_b, {1750.0F, 700.0F}, 325.0F);
-    spawn(bazooka_definition, Team::team_b, {1770.0F, 1010.0F}, 215.0F);
+    spawn(bazooka_definition, Team::team_a, {80.0F, 300.0F}, 35.0F);
+    spawn(bazooka_definition, Team::team_a, {80.0F, 780.0F}, 145.0F);
+    spawn(bazooka_definition, Team::team_b, {1840.0F, 300.0F}, 325.0F);
+    spawn(bazooka_definition, Team::team_b, {1840.0F, 780.0F}, 215.0F);
 }
 
 } // namespace siege

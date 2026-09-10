@@ -37,6 +37,7 @@ add_executable(siege
     src/core/weapon.cpp
     src/core/targeting.cpp
     src/core/simulation.cpp
+    src/core/support_positioning.cpp
     src/client/frame_animation.cpp
     src/world/world.cpp
     src/world/unit.cpp
@@ -75,6 +76,7 @@ if(BUILD_TESTING)
         src/core/weapon.cpp
         src/core/targeting.cpp
         src/core/simulation.cpp
+        src/core/support_positioning.cpp
         src/world/unit.cpp
         src/world/projectile.cpp
         src/world/world.cpp

@@ -16,6 +16,10 @@ struct TroopDefinition {
     float range_tolerance;
     float aggression;
     float retreat_bias;
+    float frontline_screen_weight;
+    float support_positioning_bias;
+    float support_rear_distance;
+    float support_search_radius;
     float max_health;
     float hit_radius;
     float zone_control_weight;
@@ -33,6 +37,10 @@ inline constexpr TroopDefinition rifle_definition{
     .range_tolerance = 35.0F,
     .aggression = 0.9F,
     .retreat_bias = 0.75F,
+    .frontline_screen_weight = 1.0F,
+    .support_positioning_bias = 0.0F,
+    .support_rear_distance = 0.0F,
+    .support_search_radius = 0.0F,
     .max_health = 100.0F,
     .hit_radius = 20.0F,
     .zone_control_weight = 1.0F,
@@ -57,8 +65,12 @@ inline constexpr TroopDefinition machine_gun_definition{
     .awareness_radius = 110.0F,
     .preferred_combat_range = 390.0F,
     .range_tolerance = 45.0F,
-    .aggression = 0.72F,
-    .retreat_bias = 0.65F,
+    .aggression = 0.62F,
+    .retreat_bias = 0.85F,
+    .frontline_screen_weight = 0.0F,
+    .support_positioning_bias = 0.85F,
+    .support_rear_distance = 120.0F,
+    .support_search_radius = 420.0F,
     .max_health = 100.0F,
     .hit_radius = 22.0F,
     .zone_control_weight = 1.0F,
@@ -83,8 +95,12 @@ inline constexpr TroopDefinition bazooka_definition{
     .awareness_radius = 110.0F,
     .preferred_combat_range = 520.0F,
     .range_tolerance = 55.0F,
-    .aggression = 0.68F,
-    .retreat_bias = 0.70F,
+    .aggression = 0.50F,
+    .retreat_bias = 1.0F,
+    .frontline_screen_weight = 0.0F,
+    .support_positioning_bias = 1.10F,
+    .support_rear_distance = 180.0F,
+    .support_search_radius = 500.0F,
     .max_health = 80.0F,
     .hit_radius = 20.0F,
     .zone_control_weight = 1.0F,
