@@ -7,12 +7,13 @@ namespace siege {
 Projectile::Projectile(const Id id, const WeaponType weapon_type, const Team team,
                        const Unit::Id source_unit_id, const Vec2 position,
                        const Vec2 velocity, const float maximum_distance,
-                       const float damage) noexcept
+                       const float damage, const float splash_radius) noexcept
     : id_(id), weapon_type_(weapon_type), team_(team),
       source_unit_id_(source_unit_id), position_(position),
       previous_position_(position), velocity_(velocity),
       remaining_distance_(std::max(maximum_distance, 0.0F)),
-      damage_(std::max(damage, 0.0F)) {}
+      damage_(std::max(damage, 0.0F)),
+      splash_radius_(std::max(splash_radius, 0.0F)) {}
 
 void Projectile::begin_simulation_step() noexcept {
     previous_position_ = position_;
@@ -39,6 +40,7 @@ Vec2 Projectile::previous_position() const noexcept { return previous_position_;
 Vec2 Projectile::velocity() const noexcept { return velocity_; }
 float Projectile::remaining_distance() const noexcept { return remaining_distance_; }
 float Projectile::damage() const noexcept { return damage_; }
+float Projectile::splash_radius() const noexcept { return splash_radius_; }
 bool Projectile::expired() const noexcept { return remaining_distance_ <= 0.0F; }
 
 } // namespace siege

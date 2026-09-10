@@ -71,9 +71,14 @@ const std::vector<FireEvent>& World::fire_events() const noexcept {
     return fire_events_;
 }
 
+const std::vector<ExplosionEvent>& World::explosion_events() const noexcept {
+    return explosion_events_;
+}
+
 void World::clear_transient_events() noexcept {
     death_events_.clear();
     fire_events_.clear();
+    explosion_events_.clear();
 }
 
 void World::remove_dead_units() {
@@ -97,10 +102,19 @@ Projectile& World::spawn_projectile(const WeaponType weapon_type, const Team tea
                                     const Unit::Id source_unit_id,
                                     const Vec2 position, const Vec2 velocity,
                                     const float maximum_distance,
-                                    const float damage) {
+                                    const float damage,
+                                    const float splash_radius) {
     return projectiles_.emplace_back(next_projectile_id_++, weapon_type, team,
                                      source_unit_id, position, velocity,
-                                     maximum_distance, damage);
+                                     maximum_distance, damage, splash_radius);
+}
+
+void World::emit_explosion_event(const Projectile& projectile,
+                                 const Vec2 position) {
+    explosion_events_.push_back(ExplosionEvent{
+        projectile.id(), projectile.weapon_type(), projectile.team(), position,
+        projectile.splash_radius(),
+    });
 }
 
 void World::spawn_test_units() {
@@ -126,6 +140,11 @@ void World::spawn_test_units() {
     spawn(rifle_definition, Team::team_b, {1770.0F, 290.0F}, 180.0F);
     spawn(machine_gun_definition, Team::team_b, {1740.0F, 560.0F}, 340.0F);
     spawn(machine_gun_definition, Team::team_b, {1770.0F, 830.0F}, 200.0F);
+
+    spawn(bazooka_definition, Team::team_a, {170.0F, 660.0F}, 35.0F);
+    spawn(bazooka_definition, Team::team_a, {150.0F, 970.0F}, 145.0F);
+    spawn(bazooka_definition, Team::team_b, {1750.0F, 700.0F}, 325.0F);
+    spawn(bazooka_definition, Team::team_b, {1770.0F, 1010.0F}, 215.0F);
 }
 
 } // namespace siege

@@ -44,6 +44,7 @@ inline constexpr TroopDefinition rifle_definition{
         .firing_arc = 12.0F,
         .projectile_max_distance = 520.0F,
         .projectile_damage = 25.0F,
+        .splash_radius = 0.0F,
     },
 };
 
@@ -69,6 +70,33 @@ inline constexpr TroopDefinition machine_gun_definition{
         .firing_arc = 14.0F,
         .projectile_max_distance = 650.0F,
         .projectile_damage = 10.0F,
+        .splash_radius = 0.0F,
+    },
+};
+
+inline constexpr TroopDefinition bazooka_definition{
+    .type = TroopType::bazooka,
+    .move_speed = 60.0F,
+    .rotation_speed = 50.0F,
+    .vision_range = 760.0F,
+    .vision_angle = 75.0F,
+    .awareness_radius = 110.0F,
+    .preferred_combat_range = 520.0F,
+    .range_tolerance = 55.0F,
+    .aggression = 0.68F,
+    .retreat_bias = 0.70F,
+    .max_health = 80.0F,
+    .hit_radius = 20.0F,
+    .zone_control_weight = 1.0F,
+    .weapon = WeaponDefinition{
+        .type = WeaponType::bazooka,
+        .projectile_speed = 480.0F,
+        .fire_interval = 2.60F,
+        .range = 650.0F,
+        .firing_arc = 10.0F,
+        .projectile_max_distance = 760.0F,
+        .projectile_damage = 70.0F,
+        .splash_radius = 115.0F,
     },
 };
 

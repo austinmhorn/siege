@@ -1,8 +1,8 @@
 # siege
 
 `siege` is a native top-down C++ strategy game in early development. Milestone 4
-now includes mixed rifle and machine-gun combat built on shared fixed-step targeting,
-projectile, damage, death-lifecycle, and client-effects systems.
+now includes mixed rifle, machine-gun, and bazooka combat built on shared fixed-step
+targeting, projectile, damage, death-lifecycle, and client-effects systems.
 
 ## Technology
 
@@ -28,8 +28,8 @@ optional (`brew install sdl3`). Before building, sync the locally purchased art:
 The script defaults to the original CraftPix pack at
 `/Users/austinhorn/Downloads/top-down-soldier-sprites-pixel-art/`. Pass a different
 pack root as its first argument when needed. It copies only the required
-`soldiers_color1/soldier1` leg, rifle, machine-gun, and `death1` layers plus
-matching shadows.
+`soldiers_color1/soldier1` leg, rifle, machine-gun, bazooka, and `death1` layers
+plus matching shadows.
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
@@ -44,8 +44,8 @@ Pass `-DSIEGE_FETCH_SDL3=OFF` while configuring to require a system SDL3 package
 - Close the window or press Escape to quit.
 - Press F3 to toggle per-unit simulation diagnostics. D is a temporary fallback
   for macOS keyboards that reserve F3 for Mission Control.
-- Each team fields two rifles and two machine guns. Team A advances right; Team B
-  advances left.
+- Each team fields two rifles, two machine guns, and two bazookas. Team A advances
+  right; Team B advances left.
 - Moving units animate their legs independently. Actual shots briefly play the
   troop's matching upper-body firing sequence, then return to its non-firing frame.
 - Rifle perception uses a 500-unit, 90-degree forward cone and a 110-unit
@@ -67,10 +67,17 @@ Pass `-DSIEGE_FETCH_SDL3=OFF` while configuring to require a system SDL3 package
   seconds within a 480-unit range and 14-degree arc, dealing 10 damage per hit.
   Their longer 600-unit vision and sustained cadence distinguish them from rifles;
   both troop definitions retain a future zone-control weight of 1.
+- Bazookas move at 60 units/second, rotate at 50 degrees/second, and prefer a
+  `520 +/- 55` engagement band. Their 480-unit/second rockets fire every 2.60
+  seconds within a 650-unit range and 10-degree arc. A hostile impact deals 70
+  damage once to every hostile unit whose center is within the 115-unit splash
+  radius; the source and all friendlies remain immune. Bazookas have 80 health,
+  and retain a future zone-control weight of 1.
 - Death events create a client-only, non-looping `death1` animation. Its final
   corpse frame then fades smoothly for 10 seconds before being destroyed.
-- Projectiles travel independently for up to 520 world units. F3 reports active
-  unit, projectile, corpse, firing-effect, health, and weapon-cooldown state.
+- Projectiles travel independently according to their weapon profile. F3 reports
+  active unit, projectile, corpse, firing-effect, explosion-effect, health, and
+  weapon-cooldown state.
 - The complete battlefield remains visible while the window is resized.
 - World resolution: 1920x1080.
 - Simulation rate: 60 fixed ticks per second, independent of rendering rate.

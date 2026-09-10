@@ -27,13 +27,15 @@ public:
     [[nodiscard]] std::vector<Projectile>& projectiles() noexcept;
     [[nodiscard]] const std::vector<DeathEvent>& death_events() const noexcept;
     [[nodiscard]] const std::vector<FireEvent>& fire_events() const noexcept;
+    [[nodiscard]] const std::vector<ExplosionEvent>& explosion_events() const noexcept;
     void clear_transient_events() noexcept;
     void remove_dead_units();
     void emit_fire_event(const Unit& unit);
     Projectile& spawn_projectile(WeaponType weapon_type, Team team,
                                  Unit::Id source_unit_id, Vec2 position,
                                  Vec2 velocity, float maximum_distance,
-                                 float damage);
+                                 float damage, float splash_radius = 0.0F);
+    void emit_explosion_event(const Projectile& projectile, Vec2 position);
 
 private:
     void spawn_test_units();
@@ -43,6 +45,7 @@ private:
     std::vector<Projectile> projectiles_;
     std::vector<DeathEvent> death_events_;
     std::vector<FireEvent> fire_events_;
+    std::vector<ExplosionEvent> explosion_events_;
     Unit::Id next_unit_id_{1};
     Projectile::Id next_projectile_id_{1};
 };

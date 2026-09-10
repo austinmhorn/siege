@@ -16,7 +16,8 @@ public:
     [[nodiscard]] bool render(const World& world, const WorldTransform& transform,
                               double render_fps, double simulation_hz,
                               std::size_t corpse_count,
-                              std::size_t firing_effect_count) const;
+                              std::size_t firing_effect_count,
+                              std::size_t explosion_effect_count) const;
 
 private:
     SDL_Renderer* renderer_{};

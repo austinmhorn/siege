@@ -31,6 +31,11 @@ private:
         double fade_elapsed{};
     };
 
+    struct ExplosionVisual {
+        ExplosionEvent explosion;
+        double elapsed{};
+    };
+
     [[nodiscard]] bool render_units(const World& world,
                                     const class WorldTransform& transform,
                                     double interpolation_alpha) const;
@@ -39,6 +44,8 @@ private:
                                           double interpolation_alpha) const;
     [[nodiscard]] bool render_corpses(
         const class WorldTransform& transform) const;
+    [[nodiscard]] bool render_explosions(
+        const class WorldTransform& transform) const;
 
     SDL_Renderer* renderer_{};
     mutable TextureCache textures_;
@@ -46,6 +53,7 @@ private:
     std::unordered_map<unsigned int, FrameAnimation> leg_animations_;
     std::unordered_map<unsigned int, FrameAnimation> firing_animations_;
     std::vector<CorpseVisual> corpses_;
+    std::vector<ExplosionVisual> explosions_;
     bool debug_overlay_enabled_{};
 };
 

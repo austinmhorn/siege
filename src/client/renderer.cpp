@@ -32,8 +32,11 @@ constexpr Color team_b{132, 55, 50, 255};
 constexpr Color divider{196, 203, 207, 255};
 constexpr Color team_a_projectile{126, 218, 255, 255};
 constexpr Color team_b_projectile{255, 174, 102, 255};
+constexpr Color rocket_core{255, 244, 132, 255};
 constexpr float projectile_tracer_length = 18.0F;
 constexpr double corpse_fade_seconds = 10.0;
+constexpr double explosion_effect_seconds = 0.35;
+constexpr int explosion_segments = 32;
 
 struct SoldierVisualLayout {
     float source_pixel_world_size;
@@ -72,6 +75,9 @@ constexpr std::array<std::size_t, 9> rifle_firing_frames{9, 8, 7, 6, 5,
                                                          4, 3, 2, 1};
 constexpr std::array<std::size_t, 6> machine_gun_firing_frames{11, 12, 13,
                                                                14, 15, 16};
+constexpr std::array<std::size_t, 13> bazooka_firing_frames{
+    13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1,
+};
 
 constexpr TroopVisualDefinition rifle_visual{
     .troop_type = TroopType::rifle,
@@ -103,6 +109,21 @@ constexpr TroopVisualDefinition machine_gun_visual{
     .firing_seconds_per_frame = 0.025,
 };
 
+constexpr TroopVisualDefinition bazooka_visual{
+    .troop_type = TroopType::bazooka,
+    .weapon_type = WeaponType::bazooka,
+    .layer = "bazooka",
+    .frame_prefix = "bazooka",
+    .upper_canvas_size = 64.0F,
+    .non_firing_frame = 1,
+    .body_anchor = {30.0F, 26.0F},
+    .body_shadow_anchor = {30.0F, 26.0F},
+    .firing_body_anchor = {30.0F, 26.0F},
+    .firing_body_shadow_anchor = {30.0F, 26.0F},
+    .firing_frames = bazooka_firing_frames,
+    .firing_seconds_per_frame = 0.06,
+};
+
 const TroopVisualDefinition* visual_for(const TroopType troop_type) noexcept {
     switch (troop_type) {
     case TroopType::rifle:
@@ -110,7 +131,7 @@ const TroopVisualDefinition* visual_for(const TroopType troop_type) noexcept {
     case TroopType::machine_gun:
         return &machine_gun_visual;
     case TroopType::bazooka:
-        return nullptr;
+        return &bazooka_visual;
     }
     return nullptr;
 }
@@ -168,6 +189,24 @@ bool render_soldier_layer(SDL_Renderer* renderer, TextureCache& textures,
         renderer, texture, nullptr, &destination, facing, &pivot, SDL_FLIP_NONE);
     const bool restored = SDL_SetTextureAlphaModFloat(texture, 1.0F);
     return rendered && restored;
+}
+
+bool render_world_circle(SDL_Renderer* renderer, const WorldTransform& transform,
+                         const Vec2 center, const float radius) {
+    Vec2 previous = center + direction_from_facing(0.0F) * radius;
+    for (int segment = 1; segment <= explosion_segments; ++segment) {
+        const float angle = 360.0F * static_cast<float>(segment) /
+                            static_cast<float>(explosion_segments);
+        const Vec2 current = center + direction_from_facing(angle) * radius;
+        const auto from =
+            transform.world_to_drawable(Point{previous.x, previous.y});
+        const auto to = transform.world_to_drawable(Point{current.x, current.y});
+        if (!SDL_RenderLine(renderer, from.x, from.y, to.x, to.y)) {
+            return false;
+        }
+        previous = current;
+    }
+    return true;
 }
 
 bool render_soldier_layer(SDL_Renderer* renderer, TextureCache& textures,
@@ -237,6 +276,16 @@ void Renderer::update(const World& world, const double fixed_delta_seconds) {
     std::erase_if(corpses_, [](const CorpseVisual& corpse) {
         return corpse.fade_elapsed >= corpse_fade_seconds;
     });
+
+    for (const auto& event : world.explosion_events()) {
+        explosions_.push_back(ExplosionVisual{event});
+    }
+    for (auto& explosion : explosions_) {
+        explosion.elapsed += fixed_delta_seconds;
+    }
+    std::erase_if(explosions_, [](const ExplosionVisual& explosion) {
+        return explosion.elapsed >= explosion_effect_seconds;
+    });
 }
 
 void Renderer::toggle_debug_overlay() noexcept {
@@ -281,13 +330,15 @@ bool Renderer::render(const World& world, const double interpolation_alpha,
 
     if (!render_corpses(transform) ||
         !render_projectiles(world, transform, interpolation_alpha) ||
+        !render_explosions(transform) ||
         !render_units(world, transform, interpolation_alpha)) {
         return false;
     }
 
     if (debug_overlay_enabled_ &&
         !debug_renderer_.render(world, transform, render_fps, 60.0,
-                                corpses_.size(), firing_animations_.size())) {
+                                corpses_.size(), firing_animations_.size(),
+                                explosions_.size())) {
         return false;
     }
 
@@ -307,12 +358,42 @@ bool Renderer::render_projectiles(const World& world,
             transform.world_to_drawable(Point{position.x, position.y});
         const auto draw_trail = transform.world_to_drawable(Point{trail.x, trail.y});
 
-        set_color(renderer_, projectile.team() == Team::team_a
-                                 ? team_a_projectile
-                                 : team_b_projectile);
+        const Color trail_color = projectile.team() == Team::team_a
+                                      ? team_a_projectile
+                                      : team_b_projectile;
+        set_color(renderer_, trail_color);
         if (!SDL_RenderLine(renderer_, draw_trail.x, draw_trail.y,
-                            draw_position.x, draw_position.y) ||
-            !SDL_RenderPoint(renderer_, draw_position.x, draw_position.y)) {
+                            draw_position.x, draw_position.y)) {
+            return false;
+        }
+        if (projectile.weapon_type() == WeaponType::bazooka) {
+            set_color(renderer_, rocket_core);
+            if (!SDL_RenderPoint(renderer_, draw_position.x, draw_position.y) ||
+                !SDL_RenderPoint(renderer_, draw_position.x - 1.0F, draw_position.y) ||
+                !SDL_RenderPoint(renderer_, draw_position.x + 1.0F, draw_position.y) ||
+                !SDL_RenderPoint(renderer_, draw_position.x, draw_position.y - 1.0F) ||
+                !SDL_RenderPoint(renderer_, draw_position.x, draw_position.y + 1.0F)) {
+                return false;
+            }
+        } else if (!SDL_RenderPoint(renderer_, draw_position.x, draw_position.y)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool Renderer::render_explosions(const WorldTransform& transform) const {
+    if (!SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND)) {
+        return false;
+    }
+    for (const auto& effect : explosions_) {
+        const float progress = static_cast<float>(std::clamp(
+            effect.elapsed / explosion_effect_seconds, 0.0, 1.0));
+        const float radius = effect.explosion.radius * (0.25F + 0.75F * progress);
+        set_color(renderer_, Color{255, 194, 74,
+                                   static_cast<Uint8>(220.0F * (1.0F - progress))});
+        if (!render_world_circle(renderer_, transform, effect.explosion.position,
+                                 radius)) {
             return false;
         }
     }

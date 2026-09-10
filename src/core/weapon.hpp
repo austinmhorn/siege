@@ -16,6 +16,7 @@ struct WeaponDefinition {
     float firing_arc;
     float projectile_max_distance;
     float projectile_damage;
+    float splash_radius;
 };
 
 class Unit;

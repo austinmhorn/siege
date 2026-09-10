@@ -77,15 +77,16 @@ DebugRenderer::DebugRenderer(SDL_Renderer* renderer) noexcept : renderer_(render
 bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                            const double render_fps, const double simulation_hz,
                            const std::size_t corpse_count,
-                           const std::size_t firing_effect_count) const {
+                           const std::size_t firing_effect_count,
+                           const std::size_t explosion_effect_count) const {
     SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
     set_color(renderer_, 245, 245, 245);
     if (!SDL_RenderDebugTextFormat(renderer_, transform.viewport().x + 8.0F,
                                    transform.viewport().y + 8.0F,
-                                   "F3 debug | sim %.0f Hz | render %.1f FPS | units %zu | projectiles %zu | corpses %zu | firing %zu",
+                                   "F3 debug | sim %.0f Hz | render %.1f FPS | units %zu | projectiles %zu | corpses %zu | firing %zu | explosions %zu",
                                    simulation_hz, render_fps, world.units().size(),
                                    world.projectiles().size(), corpse_count,
-                                   firing_effect_count)) {
+                                   firing_effect_count, explosion_effect_count)) {
         return false;
     }
 
@@ -187,7 +188,12 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                                        unit.health(), unit.max_health(),
                                        unit.weapon().range,
                                        unit.weapon().firing_arc,
-                                       unit.weapon_cooldown_remaining())) {
+                                       unit.weapon_cooldown_remaining()) ||
+            !SDL_RenderDebugTextFormat(renderer_, marker.x + 10.0F, marker.y + 21.0F,
+                                       "projectile %.0f damage %.0f splash %.0f",
+                                       unit.weapon().projectile_speed,
+                                       unit.weapon().projectile_damage,
+                                       unit.weapon().splash_radius)) {
             return false;
         }
     }

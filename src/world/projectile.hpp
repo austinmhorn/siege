@@ -14,7 +14,7 @@ public:
 
     Projectile(Id id, WeaponType weapon_type, Team team, Unit::Id source_unit_id,
                Vec2 position, Vec2 velocity, float maximum_distance,
-               float damage) noexcept;
+               float damage, float splash_radius) noexcept;
 
     void begin_simulation_step() noexcept;
     void advance(double delta_seconds) noexcept;
@@ -28,6 +28,7 @@ public:
     [[nodiscard]] Vec2 velocity() const noexcept;
     [[nodiscard]] float remaining_distance() const noexcept;
     [[nodiscard]] float damage() const noexcept;
+    [[nodiscard]] float splash_radius() const noexcept;
     [[nodiscard]] bool expired() const noexcept;
 
 private:
@@ -40,6 +41,7 @@ private:
     Vec2 velocity_{};
     float remaining_distance_{};
     float damage_{};
+    float splash_radius_{};
 };
 
 } // namespace siege

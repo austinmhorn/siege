@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 #include <vector>
 
 namespace siege {
@@ -66,8 +67,13 @@ Vec2 separation_for(const Unit& unit, const std::vector<Unit>& units) noexcept {
     return separation * separation_weight;
 }
 
-Unit* nearest_projectile_hit(const Projectile& projectile,
-                             std::vector<Unit>& units) noexcept {
+struct ProjectileHit {
+    Unit* unit;
+    float segment_fraction;
+};
+
+std::optional<ProjectileHit> nearest_projectile_hit(
+    const Projectile& projectile, std::vector<Unit>& units) noexcept {
     Unit* nearest = nullptr;
     float nearest_fraction = 2.0F;
     for (auto& candidate : units) {
@@ -90,7 +96,25 @@ Unit* nearest_projectile_hit(const Projectile& projectile,
             nearest_fraction = *hit_fraction;
         }
     }
-    return nearest;
+    if (nearest == nullptr) {
+        return std::nullopt;
+    }
+    return ProjectileHit{nearest, nearest_fraction};
+}
+
+void apply_explosion(const Projectile& projectile, const Vec2 position,
+                     std::vector<Unit>& units) noexcept {
+    const float radius_squared =
+        projectile.splash_radius() * projectile.splash_radius();
+    for (auto& candidate : units) {
+        if (!candidate.is_alive() || candidate.id() == projectile.source_unit_id() ||
+            candidate.team() == Team::none || candidate.team() == projectile.team()) {
+            continue;
+        }
+        if (length_squared(candidate.position() - position) <= radius_squared) {
+            candidate.apply_damage(projectile.damage());
+        }
+    }
 }
 
 bool outside_world(const Vec2 position) noexcept {
@@ -116,8 +140,17 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
         projectile.advance(fixed_delta_seconds);
     }
     for (auto projectile = projectiles.begin(); projectile != projectiles.end();) {
-        if (Unit* hit = nearest_projectile_hit(*projectile, units)) {
-            hit->apply_damage(projectile->damage());
+        if (const auto hit = nearest_projectile_hit(*projectile, units)) {
+            if (projectile->splash_radius() > 0.0F) {
+                const Vec2 impact_position =
+                    projectile->previous_position() +
+                    (projectile->position() - projectile->previous_position()) *
+                        hit->segment_fraction;
+                world_.emit_explosion_event(*projectile, impact_position);
+                apply_explosion(*projectile, impact_position, units);
+            } else {
+                hit->unit->apply_damage(projectile->damage());
+            }
             projectile = projectiles.erase(projectile);
         } else if (projectile->expired() ||
                    outside_world(projectile->position())) {
@@ -240,7 +273,8 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
                                 unit.position(),
                                 direction * unit.weapon().projectile_speed,
                                 unit.weapon().projectile_max_distance,
-                                unit.weapon().projectile_damage);
+                                unit.weapon().projectile_damage,
+                                unit.weapon().splash_radius);
         world_.emit_fire_event(unit);
         unit.reset_weapon_cooldown();
     }

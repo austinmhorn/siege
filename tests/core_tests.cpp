@@ -8,6 +8,7 @@
 #include "world/unit.hpp"
 #include "world/world.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>
@@ -40,6 +41,7 @@ siege::Unit test_unit(const siege::Unit::Id id, const siege::Team team,
                            .firing_arc = 12.0F,
                            .projectile_max_distance = 520.0F,
                            .projectile_damage = 25.0F,
+                           .splash_radius = 0.0F,
                        },
                        facing};
 }
@@ -71,6 +73,10 @@ void arrange_combat_scenario(siege::World& world,
     units[5].set_position({1760.0F, 120.0F});
     units[6].set_position({1800.0F, 900.0F});
     units[7].set_position({1700.0F, 1020.0F});
+    units[8].set_position({300.0F, 980.0F});
+    units[9].set_position({500.0F, 980.0F});
+    units[10].set_position({1500.0F, 980.0F});
+    units[11].set_position({1650.0F, 980.0F});
 }
 
 void isolate_collision_units(siege::World& world) {
@@ -83,6 +89,10 @@ void isolate_collision_units(siege::World& world) {
     units[5].set_position({1700.0F, 1000.0F});
     units[6].set_position({1800.0F, 1000.0F});
     units[7].set_position({1900.0F, 1000.0F});
+    units[8].set_position({500.0F, 900.0F});
+    units[9].set_position({700.0F, 900.0F});
+    units[10].set_position({1400.0F, 900.0F});
+    units[11].set_position({1500.0F, 900.0F});
 }
 
 } // namespace
@@ -112,6 +122,19 @@ int main() {
                         near(machine_gun_definition.weapon.projectile_damage, 10.0F) &&
                         near(machine_gun_definition.zone_control_weight, 1.0F),
                     "machine_gun definition exposes its distinct gameplay profile");
+    passed &= check(bazooka_definition.type == TroopType::bazooka &&
+                        bazooka_definition.weapon.type == WeaponType::bazooka &&
+                        near(bazooka_definition.move_speed, 60.0F) &&
+                        near(bazooka_definition.rotation_speed, 50.0F) &&
+                        near(bazooka_definition.preferred_combat_range, 520.0F) &&
+                        near(bazooka_definition.weapon.fire_interval, 2.60F) &&
+                        near(bazooka_definition.weapon.range, 650.0F) &&
+                        near(bazooka_definition.weapon.projectile_speed, 480.0F) &&
+                        near(bazooka_definition.weapon.projectile_damage, 70.0F) &&
+                        near(bazooka_definition.weapon.splash_radius, 115.0F) &&
+                        near(bazooka_definition.max_health, 80.0F) &&
+                        near(bazooka_definition.zone_control_weight, 1.0F),
+                    "bazooka definition exposes its explosive long-range profile");
 
     Unit machine_gun_rotation = unit_from_definition(
         99, Team::team_a, {}, 0.0F, machine_gun_definition);
@@ -119,28 +142,36 @@ int main() {
     machine_gun_rotation.rotate_toward_desired(0.1);
     passed &= check(near(machine_gun_rotation.facing_angle(), 6.0F),
                     "machine_gun rotation uses its troop-specific speed");
+    Unit bazooka_rotation = unit_from_definition(
+        98, Team::team_a, {}, 0.0F, bazooka_definition);
+    bazooka_rotation.set_desired_facing_angle(90.0F);
+    bazooka_rotation.rotate_toward_desired(0.1);
+    passed &= check(near(bazooka_rotation.facing_angle(), 5.0F),
+                    "bazooka rotation uses its troop-specific speed");
 
     World mixed_world;
-    std::array<int, 2> team_a_counts{};
-    std::array<int, 2> team_b_counts{};
+    std::array<int, 3> team_a_counts{};
+    std::array<int, 3> team_b_counts{};
     for (const auto& unit : mixed_world.units()) {
-        const std::size_t type_index =
-            unit.troop_type() == TroopType::machine_gun ? 1U : 0U;
+        const std::size_t type_index = static_cast<std::size_t>(unit.troop_type());
         (unit.team() == Team::team_a ? team_a_counts : team_b_counts)[type_index]++;
     }
-    passed &= check(team_a_counts == std::array<int, 2>{2, 2} &&
-                        team_b_counts == std::array<int, 2>{2, 2},
-                    "demo world contains two rifles and two machine guns per team");
+    passed &= check(team_a_counts == std::array<int, 3>{2, 2, 2} &&
+                        team_b_counts == std::array<int, 3>{2, 2, 2},
+                    "demo world contains two of every troop type per team");
     const Vec2 rifle_move_start = mixed_world.units()[0].position();
     const Vec2 machine_gun_move_start = mixed_world.units()[2].position();
+    const Vec2 bazooka_move_start = mixed_world.units()[8].position();
     Simulation mixed_simulation{mixed_world};
     mixed_simulation.update(1.0 / 60.0);
     passed &= check(
         near(length(mixed_world.units()[0].position() - rifle_move_start),
              rifle_definition.move_speed / 60.0F) &&
             near(length(mixed_world.units()[2].position() - machine_gun_move_start),
-                 machine_gun_definition.move_speed / 60.0F),
-        "rifle and machine_gun movement use their troop-specific speeds");
+                 machine_gun_definition.move_speed / 60.0F) &&
+            near(length(mixed_world.units()[8].position() - bazooka_move_start),
+                 bazooka_definition.move_speed / 60.0F),
+        "all troops use their troop-specific movement speeds");
 
     Unit clockwise_wrap = test_unit(100, Team::team_a, {}, 350.0F);
     clockwise_wrap.set_desired_facing_angle(10.0F);
@@ -451,6 +482,53 @@ int main() {
                             machine_gunner_id,
                     "machine_gun cadence uses its shorter fixed-step fire interval");
 
+    World bazooka_firing_world;
+    const Unit::Id bazooka_unit_id = bazooka_firing_world.units()[8].id();
+    const Unit::Id bazooka_target_id = bazooka_firing_world.units()[10].id();
+    std::erase_if(bazooka_firing_world.units(),
+                  [bazooka_unit_id, bazooka_target_id](const Unit& unit) {
+                      return unit.id() != bazooka_unit_id &&
+                             unit.id() != bazooka_target_id;
+                  });
+    Unit& bazooka_unit = *bazooka_firing_world.find_unit(bazooka_unit_id);
+    Unit& bazooka_target = *bazooka_firing_world.find_unit(bazooka_target_id);
+    bazooka_unit.set_position({500.0F, 300.0F});
+    bazooka_target.set_position(
+        bazooka_unit.position() + direction_from_facing(35.0F) * 520.0F);
+    Simulation bazooka_firing_simulation{bazooka_firing_world};
+    bazooka_firing_simulation.update(1.0 / 60.0);
+    passed &= check(bazooka_firing_world.projectiles().size() == 1 &&
+                        bazooka_firing_world.projectiles().front().weapon_type() ==
+                            WeaponType::bazooka &&
+                        near(length(bazooka_firing_world.projectiles().front().velocity()),
+                             bazooka_definition.weapon.projectile_speed) &&
+                        near(bazooka_firing_world.projectiles().front().splash_radius(),
+                             bazooka_definition.weapon.splash_radius),
+                    "aligned bazooka creates a slower explosive projectile");
+    passed &= check(bazooka_firing_world.fire_events().size() == 1 &&
+                        bazooka_firing_world.fire_events().front().unit_id ==
+                            bazooka_unit_id &&
+                        bazooka_firing_world.fire_events().front().troop_type ==
+                            TroopType::bazooka,
+                    "actual bazooka shot emits one firing event");
+    for (int tick = 0; tick < 155; ++tick) {
+        bazooka_firing_simulation.update(1.0 / 60.0);
+        const bool bazooka_fired = std::ranges::any_of(
+            bazooka_firing_world.fire_events(),
+            [bazooka_unit_id](const FireEvent& event) {
+                return event.unit_id == bazooka_unit_id;
+            });
+        passed &= check(!bazooka_fired,
+                        "bazooka reload prevents an early repeat shot");
+    }
+    bazooka_firing_simulation.update(1.0 / 60.0);
+    passed &= check(std::ranges::any_of(
+                        bazooka_firing_world.fire_events(),
+                        [bazooka_unit_id](const FireEvent& event) {
+                            return event.unit_id == bazooka_unit_id;
+                        }),
+                    "bazooka cadence uses its long fixed-step reload interval");
+
     World expired_projectile_world;
     expired_projectile_world.spawn_projectile(
         WeaponType::rifle, Team::team_a,
@@ -535,6 +613,54 @@ int main() {
                         near(nearest_hit_world.units()[5].health(), 100.0F),
                     "projectile damages only the nearest intersected enemy");
 
+    World machine_gun_single_target_world;
+    isolate_collision_units(machine_gun_single_target_world);
+    machine_gun_single_target_world.units()[4].set_position({180.0F, 100.0F});
+    machine_gun_single_target_world.units()[5].set_position({220.0F, 100.0F});
+    machine_gun_single_target_world.spawn_projectile(
+        WeaponType::machine_gun, Team::team_a,
+        machine_gun_single_target_world.units()[2].id(), {100.0F, 100.0F},
+        {12000.0F, 0.0F}, 1000.0F, 10.0F);
+    Simulation machine_gun_single_target_simulation{
+        machine_gun_single_target_world};
+    machine_gun_single_target_simulation.update(1.0 / 60.0);
+    passed &= check(
+        near(machine_gun_single_target_world.units()[4].health(), 90.0F) &&
+            near(machine_gun_single_target_world.units()[5].health(), 100.0F),
+        "machine_gun projectile remains single-target");
+
+    World splash_world;
+    isolate_collision_units(splash_world);
+    Unit& splash_source = splash_world.units()[8];
+    Unit& splash_friendly = splash_world.units()[0];
+    Unit& direct_enemy = splash_world.units()[4];
+    Unit& clustered_enemy = splash_world.units()[5];
+    Unit& outside_enemy = splash_world.units()[6];
+    splash_source.set_position({170.0F, 100.0F});
+    splash_friendly.set_position({190.0F, 130.0F});
+    direct_enemy.set_position({200.0F, 100.0F});
+    clustered_enemy.set_position({250.0F, 100.0F});
+    outside_enemy.set_position({310.0F, 100.0F});
+    splash_world.spawn_projectile(
+        WeaponType::bazooka, Team::team_a, splash_source.id(),
+        {100.0F, 100.0F}, {12000.0F, 0.0F}, 1000.0F, 70.0F, 115.0F);
+    Simulation splash_simulation{splash_world};
+    splash_simulation.update(1.0 / 60.0);
+    passed &= check(splash_world.explosion_events().size() == 1 &&
+                        splash_world.explosion_events().front().weapon_type ==
+                            WeaponType::bazooka,
+                    "direct bazooka collision emits one explosion");
+    passed &= check(near(direct_enemy.health(), 30.0F) &&
+                        near(clustered_enemy.health(), 30.0F),
+                    "clustered hostile units each receive splash damage once");
+    passed &= check(near(outside_enemy.health(), 100.0F),
+                    "hostile unit outside splash radius takes no damage");
+    passed &= check(near(splash_friendly.health(), 100.0F) &&
+                        near(splash_source.health(), 80.0F),
+                    "bazooka source and friendly units are immune to splash");
+    passed &= check(splash_world.projectiles().empty(),
+                    "bazooka projectile is removed after exploding");
+
     World machine_gun_lifecycle_world;
     isolate_collision_units(machine_gun_lifecycle_world);
     const Unit::Id machine_gun_source_id =
@@ -555,6 +681,33 @@ int main() {
             machine_gun_lifecycle_world.death_events().front().troop_type ==
                 TroopType::machine_gun,
         "generic damage and death lifecycle remove a defeated machine_gun");
+
+    World bazooka_lifecycle_world;
+    isolate_collision_units(bazooka_lifecycle_world);
+    Unit& bazooka_observer = bazooka_lifecycle_world.units()[0];
+    Unit& defeated_bazooka = bazooka_lifecycle_world.units()[10];
+    Unit& replacement_target = bazooka_lifecycle_world.units()[4];
+    bazooka_observer.set_position({100.0F, 100.0F});
+    defeated_bazooka.set_position({100.0F, 200.0F});
+    replacement_target.set_position({100.0F, 300.0F});
+    const Unit::Id bazooka_observer_id = bazooka_observer.id();
+    const Unit::Id defeated_bazooka_id = defeated_bazooka.id();
+    const Unit::Id replacement_target_id = replacement_target.id();
+    bazooka_observer.set_target_id(defeated_bazooka_id);
+    defeated_bazooka.apply_damage(defeated_bazooka.max_health());
+    Simulation bazooka_lifecycle_simulation{bazooka_lifecycle_world};
+    bazooka_lifecycle_simulation.update(1.0 / 60.0);
+    const Unit* surviving_observer =
+        bazooka_lifecycle_world.find_unit(bazooka_observer_id);
+    passed &= check(
+        bazooka_lifecycle_world.find_unit(defeated_bazooka_id) == nullptr &&
+            bazooka_lifecycle_world.death_events().size() == 1 &&
+            bazooka_lifecycle_world.death_events().front().troop_type ==
+                TroopType::bazooka,
+        "bazooka death uses the generic removal and death-event lifecycle");
+    passed &= check(surviving_observer != nullptr &&
+                        surviving_observer->target_id() == replacement_target_id,
+                    "unit retargets after its bazooka target is removed");
 
     Unit defeated = test_unit(400, Team::team_b, {200.0F, 100.0F}, 90.0F);
     defeated.apply_damage(125.0F);
@@ -588,7 +741,7 @@ int main() {
     Simulation lifecycle_simulation{lifecycle_world};
     lifecycle_simulation.update(1.0 / 60.0);
     passed &= check(lifecycle_world.find_unit(defeated_id) == nullptr &&
-                        lifecycle_world.units().size() == 7,
+                        lifecycle_world.units().size() == 11,
                     "dead gameplay unit is removed from active world units");
     passed &= check(lifecycle_world.death_events().size() == 1 &&
                         lifecycle_world.death_events().front().unit_id == defeated_id,
@@ -616,7 +769,7 @@ int main() {
 
     World world;
     Simulation simulation{world};
-    std::array<Vec2, 8> spawn_positions{};
+    std::vector<Vec2> spawn_positions(world.units().size());
     for (std::size_t index = 0; index < world.units().size(); ++index) {
         spawn_positions[index] = world.units()[index].position();
     }
