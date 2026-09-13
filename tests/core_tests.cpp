@@ -1,5 +1,6 @@
 #include "core/combat_behavior.hpp"
 #include "client/capture_bar.hpp"
+#include "client/pointer_input.hpp"
 #include "client/unit_selection.hpp"
 #include "core/deployment.hpp"
 #include "core/economy.hpp"
@@ -138,6 +139,56 @@ int main() {
     passed &= check(!selection.contains(103) && !selection.contains(104) &&
                         !selection.contains(105),
                     "selection ignores outside, enemy, and dead units");
+
+    UnitSelection rmb_selection;
+    PointerInputRouter rmb_input;
+    const PointerDispatch rmb_press =
+        rmb_input.press(PointerButton::secondary, false);
+    const PointerDispatch rmb_release =
+        rmb_input.release(PointerButton::secondary);
+    if (rmb_press == PointerDispatch::secondary &&
+        rmb_release == PointerDispatch::secondary) {
+        rmb_selection.replace_from_rectangle(selection_world, {50.0F, 50.0F},
+                                              {200.0F, 200.0F});
+    }
+
+    UnitSelection control_lmb_selection;
+    PointerInputRouter control_lmb_input;
+    const PointerDispatch control_lmb_press =
+        control_lmb_input.press(PointerButton::primary, true);
+    const PointerDispatch control_lmb_release =
+        control_lmb_input.release(PointerButton::primary);
+    if (control_lmb_press == PointerDispatch::secondary &&
+        control_lmb_release == PointerDispatch::secondary) {
+        control_lmb_selection.replace_from_rectangle(
+            selection_world, {200.0F, 200.0F}, {50.0F, 50.0F});
+    }
+    passed &= check(
+        rmb_selection.ids() == std::vector<Unit::Id>{101, 102} &&
+            control_lmb_selection.ids() == rmb_selection.ids(),
+        "RMB and reversed Control+LMB drags produce identical selection");
+
+    PointerInputRouter normal_lmb_input;
+    passed &= check(
+        normal_lmb_input.press(PointerButton::primary, false) ==
+                PointerDispatch::primary &&
+            !normal_lmb_input.secondary_active() &&
+            normal_lmb_input.release(PointerButton::primary) ==
+                PointerDispatch::primary,
+        "normal LMB remains a primary action and cannot trigger selection");
+    int normal_lmb_action_count = 0;
+    PointerInputRouter exclusive_control_lmb;
+    if (exclusive_control_lmb.press(PointerButton::primary, true) ==
+        PointerDispatch::primary) {
+        ++normal_lmb_action_count;
+    }
+    passed &= check(
+        normal_lmb_action_count == 0 &&
+            exclusive_control_lmb.secondary_active() &&
+            exclusive_control_lmb.release(PointerButton::primary) ==
+                PointerDispatch::secondary &&
+            !exclusive_control_lmb.secondary_active(),
+        "Control+LMB is exclusively secondary for its complete lifecycle");
 
     selection.replace_from_rectangle(selection_world, {300.0F, 300.0F},
                                      {400.0F, 400.0F});

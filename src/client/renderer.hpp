@@ -28,9 +28,9 @@ public:
     [[nodiscard]] bool cancel_placement() noexcept;
     void set_pointer_position(float drawable_x, float drawable_y) noexcept;
     void handle_left_click(World& world, float drawable_x, float drawable_y);
-    void handle_right_press(float drawable_x, float drawable_y);
-    void handle_right_release(const World& world, float drawable_x,
-                              float drawable_y);
+    void handle_secondary_pointer_press(float drawable_x, float drawable_y);
+    void handle_secondary_pointer_release(const World& world, float drawable_x,
+                                          float drawable_y);
     [[nodiscard]] bool render(const World& world, double interpolation_alpha,
                               double render_fps) const;
 

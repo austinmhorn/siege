@@ -1,5 +1,6 @@
 #include "core/game.hpp"
 
+#include "client/pointer_input.hpp"
 #include "client/renderer.hpp"
 
 #include <SDL3/SDL.h>
@@ -11,6 +12,20 @@
 #include <filesystem>
 
 namespace siege {
+namespace {
+
+std::optional<PointerButton> pointer_button_for(
+    const Uint8 sdl_button) noexcept {
+    if (sdl_button == SDL_BUTTON_LEFT) {
+        return PointerButton::primary;
+    }
+    if (sdl_button == SDL_BUTTON_RIGHT) {
+        return PointerButton::secondary;
+    }
+    return std::nullopt;
+}
+
+} // namespace
 
 Game::Game() noexcept : simulation_(world_) {}
 
@@ -50,6 +65,7 @@ int Game::run() {
     }
     const auto asset_root = std::filesystem::path{base_path} / "assets";
     Renderer client_renderer{renderer_, asset_root};
+    PointerInputRouter pointer_input;
     using clock = std::chrono::steady_clock;
     auto previous_time = clock::now();
     double accumulator = 0.0;
@@ -74,28 +90,31 @@ int Game::run() {
                     client_renderer.set_pointer_position(event.motion.x,
                                                          event.motion.y);
                 }
-            } else if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
-                       event.button.button == SDL_BUTTON_LEFT) {
-                if (SDL_ConvertEventToRenderCoordinates(renderer_, &event)) {
-                    client_renderer.set_pointer_position(event.button.x,
-                                                         event.button.y);
-                    client_renderer.handle_left_click(
-                        world_, event.button.x, event.button.y);
+            } else if ((event.type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
+                        event.type == SDL_EVENT_MOUSE_BUTTON_UP) &&
+                       pointer_button_for(event.button.button).has_value()) {
+                if (!SDL_ConvertEventToRenderCoordinates(renderer_, &event)) {
+                    continue;
                 }
-            } else if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
-                       event.button.button == SDL_BUTTON_RIGHT) {
-                if (SDL_ConvertEventToRenderCoordinates(renderer_, &event)) {
-                    client_renderer.set_pointer_position(event.button.x,
-                                                         event.button.y);
-                    client_renderer.handle_right_press(event.button.x,
-                                                       event.button.y);
-                }
-            } else if (event.type == SDL_EVENT_MOUSE_BUTTON_UP &&
-                       event.button.button == SDL_BUTTON_RIGHT) {
-                if (SDL_ConvertEventToRenderCoordinates(renderer_, &event)) {
-                    client_renderer.set_pointer_position(event.button.x,
-                                                         event.button.y);
-                    client_renderer.handle_right_release(
+                client_renderer.set_pointer_position(event.button.x,
+                                                     event.button.y);
+                const PointerButton button =
+                    *pointer_button_for(event.button.button);
+                if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
+                    const bool control_held =
+                        (SDL_GetModState() & SDL_KMOD_CTRL) != 0;
+                    const PointerDispatch dispatch =
+                        pointer_input.press(button, control_held);
+                    if (dispatch == PointerDispatch::secondary) {
+                        client_renderer.handle_secondary_pointer_press(
+                            event.button.x, event.button.y);
+                    } else if (dispatch == PointerDispatch::primary) {
+                        client_renderer.handle_left_click(
+                            world_, event.button.x, event.button.y);
+                    }
+                } else if (pointer_input.release(button) ==
+                           PointerDispatch::secondary) {
+                    client_renderer.handle_secondary_pointer_release(
                         world_, event.button.x, event.button.y);
                 }
             }

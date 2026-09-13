@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <filesystem>
 #include <span>
 #include <string>
@@ -312,6 +313,23 @@ bool render_drawable_circle(SDL_Renderer* renderer, const Point center,
     return true;
 }
 
+bool render_filled_drawable_circle(SDL_Renderer* renderer, const Point center,
+                                   const float radius) {
+    const int vertical_radius = static_cast<int>(std::ceil(radius));
+    for (int y = -vertical_radius; y <= vertical_radius; ++y) {
+        const float offset_y = static_cast<float>(y);
+        const float width_squared =
+            std::max(0.0F, radius * radius - offset_y * offset_y);
+        const float half_width = std::sqrt(width_squared);
+        if (!SDL_RenderLine(renderer, center.x - half_width,
+                            center.y + offset_y, center.x + half_width,
+                            center.y + offset_y)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool render_capture_bars(SDL_Renderer* renderer, const World& world,
                          const WorldTransform& transform) {
     constexpr Color blue{60, 145, 245, 255};
@@ -366,15 +384,15 @@ bool render_capture_bars(SDL_Renderer* renderer, const World& world,
             draw_bar.x + draw_bar.width *
                              capture_bar_fraction(zone.capture_value());
         set_color(renderer, Color{18, 22, 26, 255});
-        if (!render_drawable_circle(
+        const Point marker_center{
+            marker_x, draw_bar.y + draw_bar.height * 0.5F};
+        if (!render_filled_drawable_circle(
                 renderer,
-                Point{marker_x, draw_bar.y + draw_bar.height * 0.5F}, 6.0F)) {
+                marker_center, 6.0F)) {
             return false;
         }
         set_color(renderer, Color{255, 255, 255, 255});
-        if (!render_drawable_circle(
-                renderer,
-                Point{marker_x, draw_bar.y + draw_bar.height * 0.5F}, 5.0F)) {
+        if (!render_drawable_circle(renderer, marker_center, 6.0F)) {
             return false;
         }
     }
@@ -544,8 +562,8 @@ void Renderer::handle_left_click(World& world, const float drawable_x,
     }
 }
 
-void Renderer::handle_right_press(const float drawable_x,
-                                  const float drawable_y) {
+void Renderer::handle_secondary_pointer_press(const float drawable_x,
+                                              const float drawable_y) {
     if (selected_troop_.has_value()) {
         return;
     }
@@ -557,8 +575,9 @@ void Renderer::handle_right_press(const float drawable_x,
     selection_drag_ = SelectionDrag{*world, *world};
 }
 
-void Renderer::handle_right_release(const World& world, const float drawable_x,
-                                    const float drawable_y) {
+void Renderer::handle_secondary_pointer_release(const World& world,
+                                                const float drawable_x,
+                                                const float drawable_y) {
     if (!selection_drag_.has_value()) {
         return;
     }

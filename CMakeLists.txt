@@ -66,6 +66,7 @@ add_executable(siege
     src/core/zone_capture.cpp
     src/client/frame_animation.cpp
     src/client/font_system.cpp
+    src/client/pointer_input.cpp
     src/client/unit_selection.cpp
     src/world/world.cpp
     src/world/unit.cpp
@@ -112,6 +113,7 @@ if(BUILD_TESTING)
         src/core/simulation.cpp
         src/core/support_positioning.cpp
         src/core/zone_capture.cpp
+        src/client/pointer_input.cpp
         src/client/unit_selection.cpp
         src/world/unit.cpp
         src/world/projectile.cpp
