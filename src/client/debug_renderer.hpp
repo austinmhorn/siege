@@ -19,7 +19,8 @@ public:
                               double render_fps, double simulation_hz,
                               std::size_t corpse_count,
                               std::size_t firing_effect_count,
-                              std::size_t explosion_effect_count) const;
+                              std::size_t explosion_effect_count,
+                              std::size_t selected_unit_count) const;
 
 private:
     SDL_Renderer* renderer_{};

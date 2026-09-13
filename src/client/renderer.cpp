@@ -178,6 +178,40 @@ bool contains(const SDL_FRect& rectangle, const Point point) noexcept {
            point.y >= rectangle.y && point.y < rectangle.y + rectangle.h;
 }
 
+std::optional<Vec2> selection_world_point(SDL_Renderer* renderer,
+                                          Point drawable,
+                                          const bool clamp_to_battlefield) {
+    int output_width = 0;
+    int output_height = 0;
+    if (!SDL_GetRenderOutputSize(renderer, &output_width, &output_height)) {
+        return std::nullopt;
+    }
+
+    const WorldTransform transform{World::width, World::height, output_width,
+                                   output_height};
+    const Bounds& viewport = transform.viewport();
+    const float right = viewport.x + viewport.width;
+    const float bottom = std::min(
+        viewport.y + viewport.height,
+        static_cast<float>(output_height) - ui_layout::deployment_bar_height);
+    if (right < viewport.x || bottom < viewport.y) {
+        return std::nullopt;
+    }
+
+    const bool inside = drawable.x >= viewport.x && drawable.x <= right &&
+                        drawable.y >= viewport.y && drawable.y <= bottom;
+    if (!inside && !clamp_to_battlefield) {
+        return std::nullopt;
+    }
+    drawable.x = std::clamp(drawable.x, viewport.x, right);
+    drawable.y = std::clamp(drawable.y, viewport.y, bottom);
+    const auto world = transform.drawable_to_world(drawable);
+    if (!world.has_value()) {
+        return std::nullopt;
+    }
+    return Vec2{world->x, world->y};
+}
+
 void set_color(SDL_Renderer* renderer, const Color color) {
     SDL_SetRenderDrawColor(renderer, color.red, color.green, color.blue, color.alpha);
 }
@@ -364,6 +398,7 @@ Renderer::Renderer(SDL_Renderer* renderer, std::filesystem::path asset_root)
       fonts_(renderer, textures_.asset_root()), debug_renderer_(renderer, fonts_) {}
 
 void Renderer::update(const World& world, const double fixed_delta_seconds) {
+    selection_.prune(world);
     deployment_feedback_seconds_ =
         std::max(0.0, deployment_feedback_seconds_ - fixed_delta_seconds);
     if (deployment_feedback_seconds_ <= 0.0) {
@@ -447,10 +482,19 @@ bool Renderer::cancel_placement() noexcept {
 void Renderer::set_pointer_position(const float drawable_x,
                                     const float drawable_y) noexcept {
     pointer_drawable_ = Point{drawable_x, drawable_y};
+    if (selection_drag_.has_value()) {
+        if (const auto world = selection_world_point(
+                renderer_, pointer_drawable_, true)) {
+            selection_drag_->current = *world;
+        }
+    }
 }
 
 void Renderer::handle_left_click(World& world, const float drawable_x,
                                  const float drawable_y) {
+    if (selection_drag_.has_value()) {
+        return;
+    }
     int output_width = 0;
     int output_height = 0;
     if (!SDL_GetRenderOutputSize(renderer_, &output_width, &output_height)) {
@@ -498,6 +542,33 @@ void Renderer::handle_left_click(World& world, const float drawable_x,
                 : DeploymentFeedback::invalid_location;
         deployment_feedback_seconds_ = deployment_feedback_duration_seconds;
     }
+}
+
+void Renderer::handle_right_press(const float drawable_x,
+                                  const float drawable_y) {
+    if (selected_troop_.has_value()) {
+        return;
+    }
+    const auto world = selection_world_point(
+        renderer_, Point{drawable_x, drawable_y}, false);
+    if (!world.has_value()) {
+        return;
+    }
+    selection_drag_ = SelectionDrag{*world, *world};
+}
+
+void Renderer::handle_right_release(const World& world, const float drawable_x,
+                                    const float drawable_y) {
+    if (!selection_drag_.has_value()) {
+        return;
+    }
+    if (const auto release = selection_world_point(
+            renderer_, Point{drawable_x, drawable_y}, true)) {
+        selection_drag_->current = *release;
+    }
+    selection_.replace_from_rectangle(world, selection_drag_->start,
+                                      selection_drag_->current);
+    selection_drag_.reset();
 }
 
 bool Renderer::render(const World& world, const double interpolation_alpha,
@@ -568,14 +639,15 @@ bool Renderer::render(const World& world, const double interpolation_alpha,
         !render_projectiles(world, transform, interpolation_alpha) ||
         !render_explosions(transform) ||
         !render_units(world, transform, interpolation_alpha) ||
-        !render_pending_deployments(world, transform)) {
+        !render_pending_deployments(world, transform) ||
+        !render_selection(world, transform, interpolation_alpha)) {
         return false;
     }
 
     if (debug_overlay_enabled_ &&
         !debug_renderer_.render(world, transform, render_fps, 60.0,
                                 corpses_.size(), firing_animations_.size(),
-                                explosions_.size())) {
+                                explosions_.size(), selection_.size())) {
         return false;
     }
 
@@ -584,6 +656,53 @@ bool Renderer::render(const World& world, const double interpolation_alpha,
     }
 
     return SDL_RenderPresent(renderer_);
+}
+
+bool Renderer::render_selection(const World& world,
+                                const WorldTransform& transform,
+                                const double interpolation_alpha) const {
+    if (!SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND)) {
+        return false;
+    }
+
+    const float alpha = static_cast<float>(interpolation_alpha);
+    const float ring_radius = std::max(12.0F, 31.0F * transform.scale());
+    for (const Unit::Id id : selection_.ids()) {
+        const Unit* unit = world.find_unit(id);
+        if (unit == nullptr || !unit->is_alive() ||
+            unit->team() != Team::team_a) {
+            continue;
+        }
+        const Vec2 position =
+            lerp(unit->previous_position(), unit->position(), alpha);
+        const Point center = transform.world_to_drawable(
+            Point{position.x, position.y});
+        set_color(renderer_, Color{78, 178, 255, 120});
+        if (!render_drawable_circle(renderer_, center, ring_radius + 2.0F)) {
+            return false;
+        }
+        set_color(renderer_, Color{160, 224, 255, 245});
+        if (!render_drawable_circle(renderer_, center, ring_radius)) {
+            return false;
+        }
+    }
+
+    if (!selection_drag_.has_value()) {
+        return true;
+    }
+    const Point first = transform.world_to_drawable(
+        Point{selection_drag_->start.x, selection_drag_->start.y});
+    const Point second = transform.world_to_drawable(
+        Point{selection_drag_->current.x, selection_drag_->current.y});
+    const SDL_FRect rectangle{
+        std::min(first.x, second.x), std::min(first.y, second.y),
+        std::abs(second.x - first.x), std::abs(second.y - first.y)};
+    set_color(renderer_, Color{70, 155, 255, 42});
+    if (!SDL_RenderFillRect(renderer_, &rectangle)) {
+        return false;
+    }
+    set_color(renderer_, Color{135, 213, 255, 245});
+    return SDL_RenderRect(renderer_, &rectangle);
 }
 
 bool Renderer::render_pending_deployments(

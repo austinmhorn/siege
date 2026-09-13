@@ -189,7 +189,8 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                            const double render_fps, const double simulation_hz,
                            const std::size_t corpse_count,
                            const std::size_t firing_effect_count,
-                           const std::size_t explosion_effect_count) const {
+                           const std::size_t explosion_effect_count,
+                           const std::size_t selected_unit_count) const {
     SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
     for (const auto& zone : world.zones()) {
         if (zone.type() != ZoneType::objective) {
@@ -306,6 +307,8 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                   world.projectiles().size());
     global.format(FontRole::debug, debug_text, "pending: %zu",
                   world.pending_deployments().size());
+    global.format(FontRole::debug, debug_text, "selected: %zu",
+                  selected_unit_count);
     global.format(FontRole::debug, debug_text, "corpses: %zu", corpse_count);
     global.format(FontRole::debug, debug_text, "firing effects: %zu",
                   firing_effect_count);

@@ -1,5 +1,6 @@
 #include "core/combat_behavior.hpp"
 #include "client/capture_bar.hpp"
+#include "client/unit_selection.hpp"
 #include "core/deployment.hpp"
 #include "core/economy.hpp"
 #include "core/frontline.hpp"
@@ -113,6 +114,46 @@ int main() {
     using namespace siege;
 
     bool passed = true;
+
+    World selection_world;
+    selection_world.units().clear();
+    selection_world.units().push_back(
+        test_unit(101, Team::team_a, {100.0F, 100.0F}, 0.0F));
+    selection_world.units().push_back(
+        test_unit(102, Team::team_a, {200.0F, 200.0F}, 0.0F));
+    selection_world.units().push_back(
+        test_unit(103, Team::team_a, {350.0F, 350.0F}, 0.0F));
+    selection_world.units().push_back(
+        test_unit(104, Team::team_b, {150.0F, 150.0F}, 180.0F));
+    selection_world.units().push_back(
+        test_unit(105, Team::team_a, {125.0F, 125.0F}, 0.0F));
+    selection_world.units().back().apply_damage(100.0F);
+
+    UnitSelection selection;
+    selection.replace_from_rectangle(selection_world, {200.0F, 200.0F},
+                                     {50.0F, 50.0F});
+    passed &= check(
+        selection.ids() == std::vector<Unit::Id>{101, 102},
+        "reversed selection includes living Team A units and inclusive edges only");
+    passed &= check(!selection.contains(103) && !selection.contains(104) &&
+                        !selection.contains(105),
+                    "selection ignores outside, enemy, and dead units");
+
+    selection.replace_from_rectangle(selection_world, {300.0F, 300.0F},
+                                     {400.0F, 400.0F});
+    passed &= check(selection.ids() == std::vector<Unit::Id>{103},
+                    "a new rectangle replaces the previous selection");
+    selection_world.units()[2].apply_damage(100.0F);
+    selection.prune(selection_world);
+    passed &= check(selection.ids().empty(),
+                    "dead selected unit IDs are pruned safely");
+
+    selection.replace_from_rectangle(selection_world, {90.0F, 90.0F},
+                                     {110.0F, 110.0F});
+    selection_world.units().erase(selection_world.units().begin());
+    selection.prune(selection_world);
+    passed &= check(selection.ids().empty(),
+                    "missing selected unit IDs are pruned safely");
 
     World economy_world;
     economy_world.units().clear();

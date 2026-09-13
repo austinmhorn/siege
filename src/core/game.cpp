@@ -82,6 +82,22 @@ int Game::run() {
                     client_renderer.handle_left_click(
                         world_, event.button.x, event.button.y);
                 }
+            } else if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
+                       event.button.button == SDL_BUTTON_RIGHT) {
+                if (SDL_ConvertEventToRenderCoordinates(renderer_, &event)) {
+                    client_renderer.set_pointer_position(event.button.x,
+                                                         event.button.y);
+                    client_renderer.handle_right_press(event.button.x,
+                                                       event.button.y);
+                }
+            } else if (event.type == SDL_EVENT_MOUSE_BUTTON_UP &&
+                       event.button.button == SDL_BUTTON_RIGHT) {
+                if (SDL_ConvertEventToRenderCoordinates(renderer_, &event)) {
+                    client_renderer.set_pointer_position(event.button.x,
+                                                         event.button.y);
+                    client_renderer.handle_right_release(
+                        world_, event.button.x, event.button.y);
+                }
             }
         }
 

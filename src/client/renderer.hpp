@@ -4,6 +4,7 @@
 #include "client/font_system.hpp"
 #include "client/texture_cache.hpp"
 #include "client/debug_renderer.hpp"
+#include "client/unit_selection.hpp"
 #include "client/world_transform.hpp"
 #include "world/combat_event.hpp"
 
@@ -27,6 +28,9 @@ public:
     [[nodiscard]] bool cancel_placement() noexcept;
     void set_pointer_position(float drawable_x, float drawable_y) noexcept;
     void handle_left_click(World& world, float drawable_x, float drawable_y);
+    void handle_right_press(float drawable_x, float drawable_y);
+    void handle_right_release(const World& world, float drawable_x,
+                              float drawable_y);
     [[nodiscard]] bool render(const World& world, double interpolation_alpha,
                               double render_fps) const;
 
@@ -48,6 +52,11 @@ private:
         double elapsed{};
     };
 
+    struct SelectionDrag {
+        Vec2 start;
+        Vec2 current;
+    };
+
     [[nodiscard]] bool render_units(const World& world,
                                     const class WorldTransform& transform,
                                     double interpolation_alpha) const;
@@ -60,6 +69,9 @@ private:
         const class WorldTransform& transform) const;
     [[nodiscard]] bool render_pending_deployments(
         const World& world, const class WorldTransform& transform) const;
+    [[nodiscard]] bool render_selection(
+        const World& world, const class WorldTransform& transform,
+        double interpolation_alpha) const;
     [[nodiscard]] bool render_deployment_ui(
         const World& world, const class WorldTransform& transform,
         int output_width, int output_height) const;
@@ -72,6 +84,8 @@ private:
     std::unordered_map<unsigned int, FrameAnimation> firing_animations_;
     std::vector<CorpseVisual> corpses_;
     std::vector<ExplosionVisual> explosions_;
+    UnitSelection selection_;
+    std::optional<SelectionDrag> selection_drag_;
     bool debug_overlay_enabled_{};
     std::optional<TroopType> selected_troop_{};
     DeploymentFeedback deployment_feedback_{DeploymentFeedback::none};
