@@ -6,6 +6,7 @@
 #include "core/economy.hpp"
 #include "core/frontline.hpp"
 #include "core/math.hpp"
+#include "core/movement_path.hpp"
 #include "core/perception.hpp"
 #include "core/projectile_collision.hpp"
 #include "core/simulation.hpp"
@@ -203,6 +204,47 @@ int main() {
             classify_secondary_gesture({20.0F, 20.0F}, {20.0F, 20.0F}) ==
                 SecondaryGesture::click,
         "RMB and Control+LMB reach the identical secondary-click menu path");
+
+    const auto picked_team_a =
+        pick_path_unit(selection_world, Team::team_a, {100.0F, 100.0F});
+    passed &= check(
+        picked_team_a == 101 &&
+            !pick_path_unit(selection_world, Team::team_a,
+                            {150.0F, 150.0F}, 20.0F)
+                 .has_value() &&
+            !pick_path_unit(selection_world, Team::team_b,
+                            {100.0F, 100.0F}, 20.0F)
+                 .has_value(),
+        "path picking accepts one living Team A unit and ignores enemy, dead, missing, and empty hits");
+    passed &= check(
+        should_begin_individual_path(PointerDispatch::primary, false, true) &&
+            !should_begin_individual_path(PointerDispatch::secondary, false,
+                                          true) &&
+            !should_begin_individual_path(PointerDispatch::primary, true,
+                                          true) &&
+            !should_begin_individual_path(PointerDispatch::primary, false,
+                                          false),
+        "only plain primary input on a valid unit starts a path and deployment takes precedence");
+
+    std::vector<Vec2> sampled_path;
+    passed &= check(
+        !append_path_sample(sampled_path, {0.0F, 0.0F}, {10.0F, 0.0F},
+                            false) &&
+            append_path_sample(sampled_path, {0.0F, 0.0F}, {18.0F, 0.0F},
+                               false) &&
+            !append_path_sample(sampled_path, {0.0F, 0.0F}, {30.0F, 0.0F},
+                                false) &&
+            append_path_sample(sampled_path, {0.0F, 0.0F}, {40.0F, 10.0F},
+                               false) &&
+            append_path_sample(sampled_path, {0.0F, 0.0F}, {45.0F, 12.0F},
+                               true) &&
+            sampled_path.size() == 3 && near(sampled_path[0].x, 18.0F) &&
+            near(sampled_path[0].y, 0.0F) &&
+            near(sampled_path[1].x, 40.0F) &&
+            near(sampled_path[1].y, 10.0F) &&
+            near(sampled_path[2].x, 45.0F) &&
+            near(sampled_path[2].y, 12.0F),
+        "waypoint sampling is distance-limited, ordered, endpoint-preserving, and deterministic");
 
     selection.replace_from_rectangle(selection_world, {300.0F, 300.0F},
                                      {400.0F, 400.0F});
@@ -709,6 +751,95 @@ int main() {
                  .tactical_position()
                  .has_value(),
         "Regroup is ID-order deterministic and Resume Auto clears manual intent");
+
+    World path_world;
+    path_world.units().clear();
+    path_world.units().push_back(
+        test_unit(5110, Team::team_a, {400.0F, 400.0F}, 270.0F));
+    path_world.units()[0].set_tactical_order(TacticalOrder::hold,
+                                              Vec2{400.0F, 400.0F});
+    path_world.units()[0].replace_movement_path(
+        {{470.0F, 400.0F}, {470.0F, 520.0F}});
+    passed &= check(
+        path_world.units()[0].tactical_order() == TacticalOrder::automatic &&
+            path_world.units()[0].remaining_waypoint_count() == 2,
+        "a new individual path replaces the previous tactical order");
+    Simulation path_simulation{path_world};
+    bool reached_second_waypoint = false;
+    bool followed_first_segment = false;
+    bool path_completed = false;
+    for (int tick = 0; tick < 480; ++tick) {
+        path_simulation.update(1.0 / 60.0);
+        const Unit& path_unit = path_world.units()[0];
+        if (!reached_second_waypoint &&
+            path_unit.remaining_waypoint_count() == 1) {
+            reached_second_waypoint = true;
+            followed_first_segment =
+                path_unit.position().x >= 456.0F &&
+                std::abs(path_unit.position().y - 400.0F) < 2.0F;
+        }
+        if (!path_unit.has_movement_path()) {
+            path_completed = true;
+            break;
+        }
+    }
+    passed &= check(
+        reached_second_waypoint && followed_first_segment && path_completed &&
+            near(path_world.units()[0].preferred_y(), 520.0F) &&
+            path_world.units()[0].tactical_order() == TacticalOrder::automatic,
+        "troop follows waypoints in sequence, clears the final path, adopts final Y, and returns to auto");
+
+    path_world.units()[0].replace_movement_path({{600.0F, 520.0F}});
+    path_world.units()[0].replace_movement_path(
+        {{430.0F, 430.0F}, {450.0F, 450.0F}});
+    passed &= check(
+        path_world.units()[0].remaining_waypoint_count() == 2 &&
+            near(path_world.units()[0].current_waypoint()->x, 430.0F),
+        "replacement path completely replaces older waypoints");
+    const std::array<Unit::Id, 1> path_command_ids{5110};
+    (void)apply_tactical_order(path_world, path_command_ids,
+                               TacticalOrder::advance);
+    passed &= check(!path_world.units()[0].has_movement_path() &&
+                        path_world.units()[0].tactical_order() ==
+                            TacticalOrder::advance,
+                    "a later group command cancels the affected individual path");
+
+    World path_combat_world;
+    path_combat_world.units().clear();
+    path_combat_world.units().push_back(
+        test_unit(5120, Team::team_a, {500.0F, 300.0F}, 270.0F));
+    path_combat_world.units().push_back(
+        test_unit(5121, Team::team_b, {520.0F, 300.0F}, 90.0F));
+    path_combat_world.units()[0].replace_movement_path({{700.0F, 300.0F}});
+    Simulation path_combat_simulation{path_combat_world};
+    path_combat_simulation.update(0.1);
+    const float danger_position_x = path_combat_world.units()[0].position().x;
+    const bool path_survived_combat =
+        path_combat_world.units()[0].has_movement_path() &&
+        path_combat_world.units()[0].combat_movement_state() ==
+            CombatMovementState::retreating &&
+        danger_position_x < 500.0F;
+    path_combat_world.units().erase(path_combat_world.units().begin() + 1);
+    path_combat_simulation.update(0.1);
+    passed &= check(
+        path_survived_combat &&
+            path_combat_world.units()[0].has_movement_path() &&
+            path_combat_world.units()[0].position().x > danger_position_x,
+        "immediate combat retreat preserves the path and movement resumes when pressure clears");
+
+    World path_frontline_world;
+    path_frontline_world.units().clear();
+    path_frontline_world.units().push_back(
+        test_unit(5130, Team::team_a, {767.5F, 300.0F}, 270.0F));
+    path_frontline_world.units()[0].replace_movement_path({{900.0F, 300.0F}});
+    Simulation path_frontline_simulation{path_frontline_world};
+    path_frontline_simulation.update(1.0);
+    passed &= check(
+        path_frontline_world.units()[0].position().x < 768.0F &&
+            path_frontline_world.units()[0].has_movement_path() &&
+            near(path_frontline_world.units()[0].current_waypoint()->x,
+                 900.0F),
+        "individual paths cannot bypass the uncaptured frontline and retain the blocked waypoint");
 
     passed &= check(near(capture_bar_fraction(100.0F), 0.0F) &&
                         near(capture_bar_fraction(0.0F), 0.5F) &&

@@ -28,6 +28,10 @@ inline constexpr float secondary_drag_threshold = 8.0F;
     Point press, Point release,
     float drag_threshold = secondary_drag_threshold) noexcept;
 
+[[nodiscard]] bool should_begin_individual_path(
+    PointerDispatch dispatch, bool deployment_active,
+    bool living_team_a_unit_hit) noexcept;
+
 // Converts physical pointer buttons and modifiers into an input role while
 // remembering the source button for the complete secondary drag lifecycle.
 class PointerInputRouter {

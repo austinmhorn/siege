@@ -109,13 +109,18 @@ int Game::run() {
                         client_renderer.handle_secondary_pointer_press(
                             event.button.x, event.button.y);
                     } else if (dispatch == PointerDispatch::primary) {
-                        client_renderer.handle_left_click(
+                        client_renderer.handle_primary_pointer_press(
                             world_, event.button.x, event.button.y);
                     }
-                } else if (pointer_input.release(button) ==
-                           PointerDispatch::secondary) {
-                    client_renderer.handle_secondary_pointer_release(
-                        world_, event.button.x, event.button.y);
+                } else {
+                    const PointerDispatch dispatch = pointer_input.release(button);
+                    if (dispatch == PointerDispatch::secondary) {
+                        client_renderer.handle_secondary_pointer_release(
+                            world_, event.button.x, event.button.y);
+                    } else if (dispatch == PointerDispatch::primary) {
+                        client_renderer.handle_primary_pointer_release(
+                            world_, event.button.x, event.button.y);
+                    }
                 }
             }
         }

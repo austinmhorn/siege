@@ -6,7 +6,9 @@
 
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string_view>
+#include <vector>
 
 namespace siege {
 
@@ -67,6 +69,10 @@ public:
                                  Vec2 steering) noexcept;
     void set_tactical_order(TacticalOrder order,
                             std::optional<Vec2> position = std::nullopt) noexcept;
+    void replace_movement_path(std::vector<Vec2> waypoints);
+    void advance_movement_path() noexcept;
+    void clear_movement_path() noexcept;
+    void set_preferred_y(float preferred_y) noexcept;
     void tick_weapon_cooldown(double delta_seconds) noexcept;
     void reset_weapon_cooldown() noexcept;
     void apply_damage(float damage) noexcept;
@@ -106,6 +112,10 @@ public:
     [[nodiscard]] CombatMovementState combat_movement_state() const noexcept;
     [[nodiscard]] TacticalOrder tactical_order() const noexcept;
     [[nodiscard]] std::optional<Vec2> tactical_position() const noexcept;
+    [[nodiscard]] bool has_movement_path() const noexcept;
+    [[nodiscard]] std::size_t remaining_waypoint_count() const noexcept;
+    [[nodiscard]] std::optional<Vec2> current_waypoint() const noexcept;
+    [[nodiscard]] std::span<const Vec2> remaining_waypoints() const noexcept;
 
 private:
     Id id_{};
@@ -142,6 +152,8 @@ private:
     CombatMovementState combat_movement_state_{CombatMovementState::advancing};
     TacticalOrder tactical_order_{TacticalOrder::automatic};
     std::optional<Vec2> tactical_position_{};
+    std::vector<Vec2> movement_path_{};
+    std::size_t movement_path_index_{};
 };
 
 } // namespace siege

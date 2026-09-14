@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace siege {
 
@@ -144,11 +145,37 @@ void Unit::set_support_positioning(const std::optional<Id> screen_id,
 
 void Unit::set_tactical_order(const TacticalOrder order,
                               const std::optional<Vec2> position) noexcept {
+    clear_movement_path();
     tactical_order_ = order;
     tactical_position_ = position;
     if (order == TacticalOrder::automatic || order == TacticalOrder::advance) {
         tactical_position_.reset();
     }
+}
+
+void Unit::replace_movement_path(std::vector<Vec2> waypoints) {
+    movement_path_ = std::move(waypoints);
+    movement_path_index_ = 0;
+    tactical_order_ = TacticalOrder::automatic;
+    tactical_position_.reset();
+}
+
+void Unit::advance_movement_path() noexcept {
+    if (movement_path_index_ < movement_path_.size()) {
+        ++movement_path_index_;
+    }
+    if (movement_path_index_ >= movement_path_.size()) {
+        clear_movement_path();
+    }
+}
+
+void Unit::clear_movement_path() noexcept {
+    movement_path_.clear();
+    movement_path_index_ = 0;
+}
+
+void Unit::set_preferred_y(const float preferred_y) noexcept {
+    preferred_y_ = preferred_y;
 }
 
 void Unit::tick_weapon_cooldown(const double delta_seconds) noexcept {
@@ -230,6 +257,22 @@ CombatMovementState Unit::combat_movement_state() const noexcept {
 TacticalOrder Unit::tactical_order() const noexcept { return tactical_order_; }
 std::optional<Vec2> Unit::tactical_position() const noexcept {
     return tactical_position_;
+}
+bool Unit::has_movement_path() const noexcept {
+    return movement_path_index_ < movement_path_.size();
+}
+std::size_t Unit::remaining_waypoint_count() const noexcept {
+    return has_movement_path() ? movement_path_.size() - movement_path_index_ : 0;
+}
+std::optional<Vec2> Unit::current_waypoint() const noexcept {
+    return has_movement_path()
+        ? std::optional<Vec2>{movement_path_[movement_path_index_]}
+        : std::nullopt;
+}
+std::span<const Vec2> Unit::remaining_waypoints() const noexcept {
+    return has_movement_path()
+        ? std::span<const Vec2>{movement_path_}.subspan(movement_path_index_)
+        : std::span<const Vec2>{};
 }
 
 } // namespace siege

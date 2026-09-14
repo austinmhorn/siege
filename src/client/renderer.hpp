@@ -27,8 +27,11 @@ public:
     void update(const World& world, double fixed_delta_seconds);
     void toggle_debug_overlay() noexcept;
     [[nodiscard]] bool cancel_placement() noexcept;
-    void set_pointer_position(float drawable_x, float drawable_y) noexcept;
-    void handle_left_click(World& world, float drawable_x, float drawable_y);
+    void set_pointer_position(float drawable_x, float drawable_y);
+    void handle_primary_pointer_press(World& world, float drawable_x,
+                                      float drawable_y);
+    void handle_primary_pointer_release(World& world, float drawable_x,
+                                        float drawable_y);
     void handle_secondary_pointer_press(float drawable_x, float drawable_y);
     void handle_secondary_pointer_release(World& world, float drawable_x,
                                           float drawable_y);
@@ -60,6 +63,13 @@ private:
         Point drawable_current;
     };
 
+    struct PathDrawing {
+        Unit::Id unit_id;
+        Vec2 origin;
+        Vec2 current;
+        std::vector<Vec2> sampled_points;
+    };
+
     [[nodiscard]] bool render_units(const World& world,
                                     const class WorldTransform& transform,
                                     double interpolation_alpha) const;
@@ -73,6 +83,9 @@ private:
     [[nodiscard]] bool render_pending_deployments(
         const World& world, const class WorldTransform& transform) const;
     [[nodiscard]] bool render_selection(
+        const World& world, const class WorldTransform& transform,
+        double interpolation_alpha) const;
+    [[nodiscard]] bool render_movement_paths(
         const World& world, const class WorldTransform& transform,
         double interpolation_alpha) const;
     [[nodiscard]] bool render_deployment_ui(
@@ -91,6 +104,7 @@ private:
     std::vector<ExplosionVisual> explosions_;
     UnitSelection selection_;
     std::optional<SelectionDrag> selection_drag_;
+    std::optional<PathDrawing> path_drawing_;
     std::optional<Point> command_menu_position_;
     bool debug_overlay_enabled_{};
     std::optional<TroopType> selected_troop_{};

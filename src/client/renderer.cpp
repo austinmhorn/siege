@@ -5,6 +5,7 @@
 #include "client/world_transform.hpp"
 #include "core/deployment.hpp"
 #include "core/math.hpp"
+#include "core/movement_path.hpp"
 #include "core/tactical_command.hpp"
 #include "core/troop_definition.hpp"
 #include "core/zone_capture.hpp"
@@ -475,6 +476,13 @@ void Renderer::update(const World& world, const double fixed_delta_seconds) {
     if (selection_.size() == 0) {
         command_menu_position_.reset();
     }
+    if (path_drawing_.has_value()) {
+        const Unit* unit = world.find_unit(path_drawing_->unit_id);
+        if (unit == nullptr || !unit->is_alive() ||
+            unit->team() != Team::team_a) {
+            path_drawing_.reset();
+        }
+    }
     deployment_feedback_seconds_ =
         std::max(0.0, deployment_feedback_seconds_ - fixed_delta_seconds);
     if (deployment_feedback_seconds_ <= 0.0) {
@@ -556,7 +564,7 @@ bool Renderer::cancel_placement() noexcept {
 }
 
 void Renderer::set_pointer_position(const float drawable_x,
-                                    const float drawable_y) noexcept {
+                                    const float drawable_y) {
     pointer_drawable_ = Point{drawable_x, drawable_y};
     if (selection_drag_.has_value()) {
         selection_drag_->drawable_current = pointer_drawable_;
@@ -565,10 +573,19 @@ void Renderer::set_pointer_position(const float drawable_x,
             selection_drag_->current = *world;
         }
     }
+    if (path_drawing_.has_value()) {
+        if (const auto world = selection_world_point(
+                renderer_, pointer_drawable_, true)) {
+            path_drawing_->current = *world;
+            (void)append_path_sample(path_drawing_->sampled_points,
+                                     path_drawing_->origin, *world, false);
+        }
+    }
 }
 
-void Renderer::handle_left_click(World& world, const float drawable_x,
-                                 const float drawable_y) {
+void Renderer::handle_primary_pointer_press(World& world,
+                                            const float drawable_x,
+                                            const float drawable_y) {
     if (selection_drag_.has_value()) {
         return;
     }
@@ -609,12 +626,24 @@ void Renderer::handle_left_click(World& world, const float drawable_x,
         return;
     }
 
-    if (!selected_troop_.has_value()) {
-        return;
-    }
     const WorldTransform transform{World::width, World::height, output_width,
                                    output_height};
     const auto world_point = transform.drawable_to_world(click);
+    if (!selected_troop_.has_value()) {
+        if (!world_point.has_value()) {
+            return;
+        }
+        const auto unit_id = pick_path_unit(world, Team::team_a,
+                                            Vec2{world_point->x, world_point->y});
+        if (!should_begin_individual_path(PointerDispatch::primary, false,
+                                          unit_id.has_value())) {
+            return;
+        }
+        const Unit* unit = world.find_unit(*unit_id);
+        path_drawing_ = PathDrawing{*unit_id, unit->position(), unit->position(), {}};
+        path_drawing_->sampled_points.reserve(32);
+        return;
+    }
     if (!world_point.has_value()) {
         deployment_feedback_ = DeploymentFeedback::invalid_location;
         deployment_feedback_seconds_ = deployment_feedback_duration_seconds;
@@ -634,6 +663,26 @@ void Renderer::handle_left_click(World& world, const float drawable_x,
                 : DeploymentFeedback::invalid_location;
         deployment_feedback_seconds_ = deployment_feedback_duration_seconds;
     }
+}
+
+void Renderer::handle_primary_pointer_release(World& world,
+                                              const float drawable_x,
+                                              const float drawable_y) {
+    if (!path_drawing_.has_value()) {
+        return;
+    }
+    if (const auto endpoint = selection_world_point(
+            renderer_, Point{drawable_x, drawable_y}, true)) {
+        path_drawing_->current = *endpoint;
+        (void)append_path_sample(path_drawing_->sampled_points,
+                                 path_drawing_->origin, *endpoint, true);
+    }
+    Unit* unit = world.find_unit(path_drawing_->unit_id);
+    if (unit != nullptr && unit->is_alive() && unit->team() == Team::team_a &&
+        !path_drawing_->sampled_points.empty()) {
+        unit->replace_movement_path(std::move(path_drawing_->sampled_points));
+    }
+    path_drawing_.reset();
 }
 
 void Renderer::handle_secondary_pointer_press(const float drawable_x,
@@ -744,6 +793,7 @@ bool Renderer::render(const World& world, const double interpolation_alpha,
     if (!render_corpses(transform) ||
         !render_projectiles(world, transform, interpolation_alpha) ||
         !render_explosions(transform) ||
+        !render_movement_paths(world, transform, interpolation_alpha) ||
         !render_units(world, transform, interpolation_alpha) ||
         !render_pending_deployments(world, transform) ||
         !render_selection(world, transform, interpolation_alpha)) {
@@ -766,6 +816,72 @@ bool Renderer::render(const World& world, const double interpolation_alpha,
     }
 
     return SDL_RenderPresent(renderer_);
+}
+
+bool Renderer::render_movement_paths(
+    const World& world, const WorldTransform& transform,
+    const double interpolation_alpha) const {
+    if (!SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND)) {
+        return false;
+    }
+
+    const auto render_path = [&](const Vec2 start,
+                                 const std::span<const Vec2> waypoints,
+                                 const std::optional<Vec2> cursor) {
+        std::vector<SDL_FPoint> points;
+        points.reserve(1 + waypoints.size() + (cursor.has_value() ? 1 : 0));
+        const auto add_point = [&](const Vec2 world_point) {
+            const Point drawable = transform.world_to_drawable(
+                Point{world_point.x, world_point.y});
+            points.push_back(SDL_FPoint{drawable.x, drawable.y});
+        };
+        add_point(start);
+        for (const Vec2 waypoint : waypoints) {
+            add_point(waypoint);
+        }
+        if (cursor.has_value() &&
+            (waypoints.empty() || length_squared(*cursor - waypoints.back()) > 0.0001F)) {
+            add_point(*cursor);
+        }
+        if (points.size() >= 2) {
+            set_color(renderer_, Color{95, 206, 255, 185});
+            if (!SDL_RenderLines(renderer_, points.data(),
+                                 static_cast<int>(points.size()))) {
+                return false;
+            }
+        }
+        if (points.size() >= 2) {
+            set_color(renderer_, Color{210, 245, 255, 235});
+            const Point endpoint{points.back().x, points.back().y};
+            if (!render_drawable_circle(renderer_, endpoint, 5.0F)) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    const float alpha = static_cast<float>(interpolation_alpha);
+    for (const auto& unit : world.units()) {
+        if (!unit.has_movement_path()) {
+            continue;
+        }
+        const Vec2 start = lerp(unit.previous_position(), unit.position(), alpha);
+        if (!render_path(start, unit.remaining_waypoints(), std::nullopt)) {
+            return false;
+        }
+    }
+
+    if (path_drawing_.has_value()) {
+        const Unit* unit = world.find_unit(path_drawing_->unit_id);
+        if (unit != nullptr) {
+            const Vec2 start = lerp(unit->previous_position(), unit->position(), alpha);
+            if (!render_path(start, path_drawing_->sampled_points,
+                             path_drawing_->current)) {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 bool Renderer::render_selection(const World& world,

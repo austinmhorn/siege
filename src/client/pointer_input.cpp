@@ -15,6 +15,13 @@ SecondaryGesture classify_secondary_gesture(const Point press,
         : SecondaryGesture::click;
 }
 
+bool should_begin_individual_path(const PointerDispatch dispatch,
+                                  const bool deployment_active,
+                                  const bool living_team_a_unit_hit) noexcept {
+    return dispatch == PointerDispatch::primary && !deployment_active &&
+           living_team_a_unit_hit;
+}
+
 PointerDispatch PointerInputRouter::press(const PointerButton button,
                                           const bool control_held) noexcept {
     if (secondary_source_.has_value()) {

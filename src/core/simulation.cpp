@@ -4,6 +4,7 @@
 #include "core/deployment.hpp"
 #include "core/economy.hpp"
 #include "core/frontline.hpp"
+#include "core/movement_path.hpp"
 #include "core/projectile_collision.hpp"
 #include "core/support_positioning.hpp"
 #include "core/tactical_command.hpp"
@@ -223,6 +224,17 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
     world_.remove_dead_units();
 
     for (auto& unit : units) {
+        while (unit.current_waypoint().has_value() &&
+               length(unit.position() - *unit.current_waypoint()) <=
+                   default_movement_path_rules.waypoint_reach_radius) {
+            const Vec2 reached = *unit.current_waypoint();
+            const bool final_waypoint = unit.remaining_waypoint_count() == 1;
+            unit.advance_movement_path();
+            if (final_waypoint) {
+                unit.set_preferred_y(reached.y);
+                unit.set_tactical_order(TacticalOrder::automatic);
+            }
+        }
         if (unit.tactical_order() == TacticalOrder::regroup &&
             unit.tactical_position().has_value() &&
             length(unit.position() - *unit.tactical_position()) <=
@@ -348,6 +360,25 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
             state = length_squared(velocity) > 0.0001F
                         ? MovementState::moving
                         : MovementState::idle;
+        }
+
+        if (unit.current_waypoint().has_value()) {
+            support = {};
+            const Vec2 toward_waypoint = *unit.current_waypoint() - unit.position();
+            const bool immediate_combat_danger =
+                target_ids[index].has_value() &&
+                combat_state == CombatMovementState::retreating;
+            if (!immediate_combat_danger) {
+                velocity = velocity_from_steering(toward_waypoint + separation,
+                                                  unit.move_speed());
+                if (!target_ids[index].has_value() &&
+                    length_squared(toward_waypoint) > 0.0001F) {
+                    desired_facing = facing_from_direction(toward_waypoint);
+                }
+                state = length_squared(velocity) > 0.0001F
+                            ? MovementState::moving
+                            : MovementState::idle;
+            }
         }
         intents.push_back(MotionIntent{velocity, desired_facing, state,
                                        combat_state, support.screen_id,
