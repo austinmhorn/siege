@@ -63,6 +63,7 @@ add_executable(siege
     src/core/targeting.cpp
     src/core/simulation.cpp
     src/core/support_positioning.cpp
+    src/core/tactical_command.cpp
     src/core/zone_capture.cpp
     src/client/frame_animation.cpp
     src/client/font_system.cpp
@@ -112,6 +113,7 @@ if(BUILD_TESTING)
         src/core/targeting.cpp
         src/core/simulation.cpp
         src/core/support_positioning.cpp
+        src/core/tactical_command.cpp
         src/core/zone_capture.cpp
         src/client/pointer_input.cpp
         src/client/unit_selection.cpp

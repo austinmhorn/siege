@@ -1,6 +1,19 @@
 #include "client/pointer_input.hpp"
 
+#include <algorithm>
+
 namespace siege {
+
+SecondaryGesture classify_secondary_gesture(const Point press,
+                                             const Point release,
+                                             const float drag_threshold) noexcept {
+    const float threshold = std::max(0.0F, drag_threshold);
+    const float delta_x = release.x - press.x;
+    const float delta_y = release.y - press.y;
+    return delta_x * delta_x + delta_y * delta_y > threshold * threshold
+        ? SecondaryGesture::drag
+        : SecondaryGesture::click;
+}
 
 PointerDispatch PointerInputRouter::press(const PointerButton button,
                                           const bool control_held) noexcept {

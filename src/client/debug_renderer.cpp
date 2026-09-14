@@ -5,6 +5,7 @@
 #include "client/world_transform.hpp"
 #include "core/economy.hpp"
 #include "core/math.hpp"
+#include "core/tactical_command.hpp"
 #include "core/troop_definition.hpp"
 #include "core/zone_capture.hpp"
 #include "world/unit.hpp"
@@ -35,7 +36,7 @@ constexpr float left_panel_width = 256.0F;
 constexpr float unit_column_preferred_width = 190.0F;
 constexpr float unit_column_minimum_width = 148.0F;
 constexpr float unit_block_gap = 6.0F;
-constexpr std::size_t unit_block_line_count = 12;
+constexpr std::size_t unit_block_line_count = 13;
 
 struct TextCursor {
     FontSystem& fonts;
@@ -270,6 +271,38 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
             }
         }
 
+        if (unit.tactical_position().has_value()) {
+            const Vec2 tactical_position = *unit.tactical_position();
+            set_color(renderer_, 255, 190, 80, 220);
+            if (!draw_world_line(renderer_, transform, position,
+                                 tactical_position)) {
+                return false;
+            }
+            if (unit.tactical_order() == TacticalOrder::hold) {
+                if (!draw_world_circle(renderer_, transform, tactical_position,
+                                       default_tactical_rules
+                                           .hold_leash_radius)) {
+                    return false;
+                }
+            } else {
+                const float target_size = 10.0F;
+                if (!draw_world_line(
+                        renderer_, transform,
+                        {tactical_position.x - target_size,
+                         tactical_position.y},
+                        {tactical_position.x + target_size,
+                         tactical_position.y}) ||
+                    !draw_world_line(
+                        renderer_, transform,
+                        {tactical_position.x,
+                         tactical_position.y - target_size},
+                        {tactical_position.x,
+                         tactical_position.y + target_size})) {
+                    return false;
+                }
+            }
+        }
+
         set_color(renderer_, 80, 235, 255, 190);
         if (!draw_world_line(renderer_, transform,
                              {position.x - preferred_half_width, unit.preferred_y()},
@@ -417,6 +450,9 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
         const auto state = to_string(unit.combat_movement_state());
         cursor.format(FontRole::debug, debug_text, "state: %.*s",
                       static_cast<int>(state.size()), state.data());
+        const auto order = to_string(unit.tactical_order());
+        cursor.format(FontRole::debug, debug_text, "order: %.*s",
+                      static_cast<int>(order.size()), order.data());
         cursor.format(FontRole::debug, debug_text, "hp: %.0f/%.0f", unit.health(),
                       unit.max_health());
         if (unit.target_id().has_value()) {

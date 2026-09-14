@@ -55,6 +55,20 @@ std::string_view to_string(const CombatMovementState state) noexcept {
     return "unknown";
 }
 
+std::string_view to_string(const TacticalOrder order) noexcept {
+    switch (order) {
+    case TacticalOrder::automatic:
+        return "auto";
+    case TacticalOrder::advance:
+        return "advance";
+    case TacticalOrder::hold:
+        return "hold";
+    case TacticalOrder::regroup:
+        return "regroup";
+    }
+    return "unknown";
+}
+
 Unit::Unit(const Id id, const TroopType troop_type, const Team team,
            const Vec2 spawn_position, const float move_speed,
            const float rotation_speed, const float vision_range,
@@ -128,6 +142,15 @@ void Unit::set_support_positioning(const std::optional<Id> screen_id,
     support_steering_ = steering;
 }
 
+void Unit::set_tactical_order(const TacticalOrder order,
+                              const std::optional<Vec2> position) noexcept {
+    tactical_order_ = order;
+    tactical_position_ = position;
+    if (order == TacticalOrder::automatic || order == TacticalOrder::advance) {
+        tactical_position_.reset();
+    }
+}
+
 void Unit::tick_weapon_cooldown(const double delta_seconds) noexcept {
     weapon_cooldown_remaining_ =
         std::max(0.0F, weapon_cooldown_remaining_ -
@@ -151,6 +174,7 @@ void Unit::apply_damage(const float damage) noexcept {
         movement_state_ = MovementState::idle;
         combat_movement_state_ = CombatMovementState::inactive;
         set_support_positioning(std::nullopt, {});
+        set_tactical_order(TacticalOrder::automatic);
     }
 }
 
@@ -202,6 +226,10 @@ bool Unit::is_alive() const noexcept { return health_ > 0.0F; }
 MovementState Unit::movement_state() const noexcept { return movement_state_; }
 CombatMovementState Unit::combat_movement_state() const noexcept {
     return combat_movement_state_;
+}
+TacticalOrder Unit::tactical_order() const noexcept { return tactical_order_; }
+std::optional<Vec2> Unit::tactical_position() const noexcept {
+    return tactical_position_;
 }
 
 } // namespace siege

@@ -10,6 +10,7 @@
 #include "core/projectile_collision.hpp"
 #include "core/simulation.hpp"
 #include "core/support_positioning.hpp"
+#include "core/tactical_command.hpp"
 #include "core/targeting.hpp"
 #include "core/troop_definition.hpp"
 #include "core/zone_capture.hpp"
@@ -189,6 +190,19 @@ int main() {
                 PointerDispatch::secondary &&
             !exclusive_control_lmb.secondary_active(),
         "Control+LMB is exclusively secondary for its complete lifecycle");
+    passed &= check(
+        classify_secondary_gesture({100.0F, 100.0F},
+                                   {104.0F, 104.0F}) ==
+                SecondaryGesture::click &&
+            classify_secondary_gesture({100.0F, 100.0F},
+                                       {120.0F, 100.0F}) ==
+                SecondaryGesture::drag,
+        "secondary click and drag use one deterministic movement threshold");
+    passed &= check(
+        rmb_press == control_lmb_press && rmb_release == control_lmb_release &&
+            classify_secondary_gesture({20.0F, 20.0F}, {20.0F, 20.0F}) ==
+                SecondaryGesture::click,
+        "RMB and Control+LMB reach the identical secondary-click menu path");
 
     selection.replace_from_rectangle(selection_world, {300.0F, 300.0F},
                                      {400.0F, 400.0F});
@@ -205,6 +219,30 @@ int main() {
     selection.prune(selection_world);
     passed &= check(selection.ids().empty(),
                     "missing selected unit IDs are pruned safely");
+
+    World command_filter_world;
+    command_filter_world.units().clear();
+    command_filter_world.units().push_back(
+        test_unit(201, Team::team_a, {200.0F, 200.0F}, 270.0F));
+    command_filter_world.units().push_back(
+        test_unit(202, Team::team_a, {250.0F, 200.0F}, 270.0F));
+    command_filter_world.units().push_back(
+        test_unit(203, Team::team_b, {300.0F, 200.0F}, 90.0F));
+    command_filter_world.units()[1].apply_damage(100.0F);
+    const std::array<Unit::Id, 5> mixed_command_ids{201, 202, 203, 999, 201};
+    passed &= check(
+        apply_tactical_order(command_filter_world, mixed_command_ids,
+                             TacticalOrder::hold) == 1 &&
+            command_filter_world.units()[0].tactical_order() ==
+                TacticalOrder::hold &&
+            command_filter_world.units()[0].tactical_position().has_value() &&
+            near(command_filter_world.units()[0].tactical_position()->x,
+                 200.0F) &&
+            command_filter_world.units()[1].tactical_order() ==
+                TacticalOrder::automatic &&
+            command_filter_world.units()[2].tactical_order() ==
+                TacticalOrder::automatic,
+        "commands affect selected living friendlies and safely ignore stale, dead, enemy, and duplicate IDs");
 
     World economy_world;
     economy_world.units().clear();
@@ -553,6 +591,124 @@ int main() {
                                 .combat_movement_state() ==
                             CombatMovementState::closing,
                     "combat closing remains active within the frontline objective");
+
+    World advance_order_world;
+    advance_order_world.units().clear();
+    advance_order_world.units().push_back(
+        test_unit(5060, Team::team_a, {767.5F, 300.0F}, 270.0F));
+    const std::array<Unit::Id, 1> advance_ids{5060};
+    (void)apply_tactical_order(advance_order_world, advance_ids,
+                               TacticalOrder::advance);
+    Simulation advance_order_simulation{advance_order_world};
+    advance_order_simulation.update(1.0);
+    passed &= check(
+        advance_order_world.units()[0].position().x > 767.5F &&
+            advance_order_world.units()[0].position().x < 768.0F &&
+            advance_order_world.units()[0].tactical_order() ==
+                TacticalOrder::advance,
+        "Advance pushes deliberately but cannot cross the uncaptured frontline");
+
+    World hold_world;
+    hold_world.units().clear();
+    hold_world.units().push_back(
+        test_unit(5070, Team::team_a, {500.0F, 200.0F}, 0.0F));
+    hold_world.units().push_back(
+        test_unit(5071, Team::team_b, {500.0F, 650.0F}, 0.0F));
+    const std::array<Unit::Id, 1> hold_ids{5070};
+    (void)apply_tactical_order(hold_world, hold_ids, TacticalOrder::hold);
+    const Vec2 hold_anchor = *hold_world.units()[0].tactical_position();
+    Simulation hold_simulation{hold_world};
+    for (int tick = 0; tick < 120; ++tick) {
+        hold_simulation.update(1.0 / 60.0);
+    }
+    passed &= check(
+        near(hold_anchor.x, 500.0F) && near(hold_anchor.y, 200.0F) &&
+            length(hold_world.units()[0].position() - hold_anchor) <=
+                default_tactical_rules.hold_leash_radius + 0.01F,
+        "Hold stores the issue position and prevents long-distance pursuit");
+
+    World hold_combat_world;
+    hold_combat_world.units().clear();
+    hold_combat_world.units().push_back(
+        test_unit(5080, Team::team_a, {500.0F, 200.0F}, 0.0F));
+    hold_combat_world.units().push_back(
+        test_unit(5081, Team::team_b, {500.0F, 480.0F}, 180.0F));
+    const std::array<Unit::Id, 1> hold_combat_ids{5080};
+    (void)apply_tactical_order(hold_combat_world, hold_combat_ids,
+                               TacticalOrder::hold);
+    Simulation hold_combat_simulation{hold_combat_world};
+    hold_combat_simulation.update(1.0 / 60.0);
+    passed &= check(
+        hold_combat_world.units()[0].target_id() == 5081 &&
+            !hold_combat_world.projectiles().empty() &&
+            hold_combat_world.units()[0].tactical_order() ==
+                TacticalOrder::hold,
+        "Hold preserves target acquisition, tracking, and firing");
+
+    World regroup_world;
+    regroup_world.units().clear();
+    regroup_world.units().push_back(
+        test_unit(5092, Team::team_a, {650.0F, 500.0F}, 270.0F));
+    regroup_world.units().push_back(
+        test_unit(5091, Team::team_a, {450.0F, 500.0F}, 270.0F));
+    const std::array<Unit::Id, 2> regroup_ids{5092, 5091};
+    passed &= check(
+        apply_tactical_order(regroup_world, regroup_ids,
+                             TacticalOrder::regroup) == 2 &&
+            regroup_world.units()[0].tactical_position().has_value() &&
+            regroup_world.units()[1].tactical_position().has_value() &&
+            near(regroup_world.units()[0].tactical_position()->x, 550.0F) &&
+            near(regroup_world.units()[1].tactical_position()->x, 550.0F),
+        "Regroup assigns one deterministic center to the selected living units");
+    const float initial_regroup_separation =
+        length(regroup_world.units()[0].position() -
+               regroup_world.units()[1].position());
+    Simulation regroup_simulation{regroup_world};
+    bool regroup_completed = false;
+    for (int tick = 0; tick < 240; ++tick) {
+        regroup_simulation.update(1.0 / 60.0);
+        if (regroup_world.units()[0].tactical_order() ==
+                TacticalOrder::automatic &&
+            regroup_world.units()[1].tactical_order() ==
+                TacticalOrder::automatic) {
+            regroup_completed = true;
+            break;
+        }
+    }
+    passed &= check(
+        regroup_completed &&
+            length(regroup_world.units()[0].position() -
+                   regroup_world.units()[1].position()) <
+                initial_regroup_separation,
+        "Regroup consolidates dispersed units and completes back to auto");
+
+    World deterministic_regroup_world;
+    deterministic_regroup_world.units().clear();
+    deterministic_regroup_world.units().push_back(
+        test_unit(5101, Team::team_a, {100.0F, 300.0F}, 270.0F));
+    deterministic_regroup_world.units().push_back(
+        test_unit(5102, Team::team_a, {500.0F, 700.0F}, 270.0F));
+    const std::array<Unit::Id, 2> forward_ids{5101, 5102};
+    const std::array<Unit::Id, 2> reverse_ids{5102, 5101};
+    (void)apply_tactical_order(deterministic_regroup_world, forward_ids,
+                               TacticalOrder::regroup);
+    const Vec2 first_center =
+        *deterministic_regroup_world.units()[0].tactical_position();
+    (void)apply_tactical_order(deterministic_regroup_world, reverse_ids,
+                               TacticalOrder::regroup);
+    const Vec2 second_center =
+        *deterministic_regroup_world.units()[0].tactical_position();
+    (void)apply_tactical_order(deterministic_regroup_world, forward_ids,
+                               TacticalOrder::automatic);
+    passed &= check(
+        near(first_center.x, second_center.x) &&
+            near(first_center.y, second_center.y) &&
+            deterministic_regroup_world.units()[0].tactical_order() ==
+                TacticalOrder::automatic &&
+            !deterministic_regroup_world.units()[0]
+                 .tactical_position()
+                 .has_value(),
+        "Regroup is ID-order deterministic and Resume Auto clears manual intent");
 
     passed &= check(near(capture_bar_fraction(100.0F), 0.0F) &&
                         near(capture_bar_fraction(0.0F), 0.5F) &&

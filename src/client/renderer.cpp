@@ -5,6 +5,7 @@
 #include "client/world_transform.hpp"
 #include "core/deployment.hpp"
 #include "core/math.hpp"
+#include "core/tactical_command.hpp"
 #include "core/troop_definition.hpp"
 #include "core/zone_capture.hpp"
 #include "world/unit.hpp"
@@ -52,6 +53,30 @@ constexpr float capture_bar_world_y = 18.0F;
 constexpr float capture_bar_world_height = 18.0F;
 constexpr int capture_bar_gradient_segments = 48;
 constexpr int capture_marker_segments = 20;
+constexpr float command_menu_width = 184.0F;
+constexpr float command_menu_item_height = 30.0F;
+constexpr float command_menu_padding = 4.0F;
+
+constexpr std::array<TacticalOrder, 4> tactical_commands{
+    TacticalOrder::advance,
+    TacticalOrder::hold,
+    TacticalOrder::regroup,
+    TacticalOrder::automatic,
+};
+
+std::string_view command_display_name(const TacticalOrder order) noexcept {
+    switch (order) {
+    case TacticalOrder::advance:
+        return "Advance";
+    case TacticalOrder::hold:
+        return "Hold Position";
+    case TacticalOrder::regroup:
+        return "Regroup";
+    case TacticalOrder::automatic:
+        return "Resume Auto";
+    }
+    return "Unknown";
+}
 
 struct SoldierVisualLayout {
     float source_pixel_world_size;
@@ -171,6 +196,36 @@ SDL_FRect deployment_button_rect(const std::size_t index,
             ui_layout::deployment_button_top_inset,
         ui_layout::deployment_button_width,
         ui_layout::deployment_button_height,
+    };
+}
+
+SDL_FRect command_menu_rect(const Point requested, const int output_width,
+                            const int output_height) noexcept {
+    const float height = command_menu_padding * 2.0F +
+                         command_menu_item_height * tactical_commands.size();
+    const float maximum_x =
+        std::max(command_menu_padding,
+                 static_cast<float>(output_width) - command_menu_width -
+                     command_menu_padding);
+    const float maximum_y =
+        std::max(command_menu_padding,
+                 static_cast<float>(output_height) -
+                     ui_layout::deployment_bar_height - height -
+                     command_menu_padding);
+    return SDL_FRect{
+        std::clamp(requested.x, command_menu_padding, maximum_x),
+        std::clamp(requested.y, command_menu_padding, maximum_y),
+        command_menu_width, height};
+}
+
+SDL_FRect command_item_rect(const SDL_FRect menu,
+                            const std::size_t index) noexcept {
+    return SDL_FRect{
+        menu.x + command_menu_padding,
+        menu.y + command_menu_padding +
+            static_cast<float>(index) * command_menu_item_height,
+        menu.w - command_menu_padding * 2.0F,
+        command_menu_item_height,
     };
 }
 
@@ -417,6 +472,9 @@ Renderer::Renderer(SDL_Renderer* renderer, std::filesystem::path asset_root)
 
 void Renderer::update(const World& world, const double fixed_delta_seconds) {
     selection_.prune(world);
+    if (selection_.size() == 0) {
+        command_menu_position_.reset();
+    }
     deployment_feedback_seconds_ =
         std::max(0.0, deployment_feedback_seconds_ - fixed_delta_seconds);
     if (deployment_feedback_seconds_ <= 0.0) {
@@ -501,6 +559,7 @@ void Renderer::set_pointer_position(const float drawable_x,
                                     const float drawable_y) noexcept {
     pointer_drawable_ = Point{drawable_x, drawable_y};
     if (selection_drag_.has_value()) {
+        selection_drag_->drawable_current = pointer_drawable_;
         if (const auto world = selection_world_point(
                 renderer_, pointer_drawable_, true)) {
             selection_drag_->current = *world;
@@ -520,6 +579,21 @@ void Renderer::handle_left_click(World& world, const float drawable_x,
     }
 
     const Point click{drawable_x, drawable_y};
+    if (command_menu_position_.has_value()) {
+        const SDL_FRect menu = command_menu_rect(
+            *command_menu_position_, output_width, output_height);
+        for (std::size_t index = 0; index < tactical_commands.size(); ++index) {
+            if (contains(command_item_rect(menu, index), click)) {
+                selection_.prune(world);
+                (void)apply_tactical_order(world, selection_.ids(),
+                                           tactical_commands[index]);
+                command_menu_position_.reset();
+                return;
+            }
+        }
+        command_menu_position_.reset();
+        return;
+    }
     for (std::size_t index = 0; index < purchasable_troops.size(); ++index) {
         if (contains(deployment_button_rect(index, output_width, output_height),
                      click)) {
@@ -572,21 +646,34 @@ void Renderer::handle_secondary_pointer_press(const float drawable_x,
     if (!world.has_value()) {
         return;
     }
-    selection_drag_ = SelectionDrag{*world, *world};
+    const Point drawable{drawable_x, drawable_y};
+    selection_drag_ = SelectionDrag{*world, *world, drawable, drawable};
 }
 
-void Renderer::handle_secondary_pointer_release(const World& world,
+void Renderer::handle_secondary_pointer_release(World& world,
                                                 const float drawable_x,
                                                 const float drawable_y) {
     if (!selection_drag_.has_value()) {
         return;
     }
+    const Point drawable_release{drawable_x, drawable_y};
+    selection_drag_->drawable_current = drawable_release;
     if (const auto release = selection_world_point(
             renderer_, Point{drawable_x, drawable_y}, true)) {
         selection_drag_->current = *release;
     }
-    selection_.replace_from_rectangle(world, selection_drag_->start,
-                                      selection_drag_->current);
+    if (classify_secondary_gesture(selection_drag_->drawable_start,
+                                   selection_drag_->drawable_current) ==
+        SecondaryGesture::drag) {
+        selection_.replace_from_rectangle(world, selection_drag_->start,
+                                          selection_drag_->current);
+        command_menu_position_.reset();
+    } else {
+        selection_.prune(world);
+        command_menu_position_ = selection_.size() > 0
+            ? std::optional<Point>{drawable_release}
+            : std::nullopt;
+    }
     selection_drag_.reset();
 }
 
@@ -671,6 +758,10 @@ bool Renderer::render(const World& world, const double interpolation_alpha,
     }
 
     if (!render_deployment_ui(world, transform, output_width, output_height)) {
+        return false;
+    }
+
+    if (!render_command_menu(output_width, output_height)) {
         return false;
     }
 
@@ -873,6 +964,44 @@ bool Renderer::render_deployment_ui(const World& world,
                           marker.x + cursor_size, marker.y) &&
            SDL_RenderLine(renderer_, marker.x, marker.y - cursor_size,
                           marker.x, marker.y + cursor_size);
+}
+
+bool Renderer::render_command_menu(const int output_width,
+                                   const int output_height) const {
+    if (!command_menu_position_.has_value()) {
+        return true;
+    }
+    if (!SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND)) {
+        return false;
+    }
+    const SDL_FRect menu = command_menu_rect(
+        *command_menu_position_, output_width, output_height);
+    set_color(renderer_, Color{10, 14, 18, 245});
+    if (!SDL_RenderFillRect(renderer_, &menu)) {
+        return false;
+    }
+    for (std::size_t index = 0; index < tactical_commands.size(); ++index) {
+        const SDL_FRect item = command_item_rect(menu, index);
+        const bool hovered = contains(item, pointer_drawable_);
+        set_color(renderer_, hovered ? Color{60, 91, 120, 245}
+                                     : Color{34, 42, 50, 245});
+        if (!SDL_RenderFillRect(renderer_, &item)) {
+            return false;
+        }
+        set_color(renderer_, Color{145, 165, 180, 255});
+        if (!SDL_RenderRect(renderer_, &item)) {
+            return false;
+        }
+        const std::string_view label =
+            command_display_name(tactical_commands[index]);
+        if (!fonts_.draw(item.x + 10.0F, item.y + 8.0F, label,
+                         FontRole::body_bold,
+                         FontColor{245, 245, 245, 255})) {
+            return false;
+        }
+    }
+    set_color(renderer_, Color{225, 232, 238, 255});
+    return SDL_RenderRect(renderer_, &menu);
 }
 
 bool Renderer::render_projectiles(const World& world,

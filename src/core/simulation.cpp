@@ -6,6 +6,7 @@
 #include "core/frontline.hpp"
 #include "core/projectile_collision.hpp"
 #include "core/support_positioning.hpp"
+#include "core/tactical_command.hpp"
 #include "core/targeting.hpp"
 #include "core/weapon.hpp"
 #include "core/zone_capture.hpp"
@@ -78,6 +79,45 @@ Vec2 separation_for(const Unit& unit, const std::vector<Unit>& units) noexcept {
         separation = separation + offset * influence;
     }
     return separation * separation_weight;
+}
+
+float team_advance_direction(const Team team) noexcept {
+    return team == Team::team_a ? 1.0F : team == Team::team_b ? -1.0F : 0.0F;
+}
+
+Vec2 hold_velocity_for(const Unit& unit, const Vec2 desired_velocity,
+                       const Vec2 separation) noexcept {
+    if (!unit.tactical_position().has_value()) {
+        return desired_velocity;
+    }
+    const Vec2 toward_anchor = *unit.tactical_position() - unit.position();
+    const float distance = length(toward_anchor);
+    const float return_start = default_tactical_rules.hold_leash_radius *
+                               default_tactical_rules.hold_return_start_fraction;
+    if (distance <= return_start) {
+        return desired_velocity;
+    }
+    const float blend_distance = std::max(
+        1.0F, default_tactical_rules.hold_leash_radius - return_start);
+    const float return_weight =
+        std::clamp((distance - return_start) / blend_distance, 0.0F, 1.0F);
+    const Vec2 return_velocity = velocity_from_steering(
+        toward_anchor + separation, unit.move_speed());
+    return lerp(desired_velocity, return_velocity, return_weight);
+}
+
+Vec2 constrain_to_hold_leash(const Unit& unit, const Vec2 position) noexcept {
+    if (unit.tactical_order() != TacticalOrder::hold ||
+        !unit.tactical_position().has_value()) {
+        return position;
+    }
+    const Vec2 offset = position - *unit.tactical_position();
+    const float distance = length(offset);
+    if (distance <= default_tactical_rules.hold_leash_radius) {
+        return position;
+    }
+    return *unit.tactical_position() +
+           normalized(offset) * default_tactical_rules.hold_leash_radius;
 }
 
 struct ProjectileHit {
@@ -182,6 +222,15 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
 
     world_.remove_dead_units();
 
+    for (auto& unit : units) {
+        if (unit.tactical_order() == TacticalOrder::regroup &&
+            unit.tactical_position().has_value() &&
+            length(unit.position() - *unit.tactical_position()) <=
+                default_tactical_rules.regroup_completion_radius) {
+            unit.set_tactical_order(TacticalOrder::automatic);
+        }
+    }
+
     std::vector<std::optional<Unit::Id>> target_ids;
     target_ids.reserve(units.size());
     for (const auto& unit : units) {
@@ -199,8 +248,9 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
             continue;
         }
 
-        const float advance_x =
-            autonomous_advance_x(world_, unit.team(), unit.position());
+        const float advance_x = unit.tactical_order() == TacticalOrder::advance
+            ? team_advance_direction(unit.team())
+            : autonomous_advance_x(world_, unit.team(), unit.position());
         const bool reached_edge =
             (unit.team() == Team::team_a && unit.position().x >= World::width - world_margin) ||
             (unit.team() == Team::team_b && unit.position().x <= world_margin);
@@ -274,6 +324,31 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
                             : MovementState::idle;
             }
         }
+
+        if (unit.tactical_order() == TacticalOrder::hold) {
+            support = {};
+            const Vec2 desired_velocity = target_ids[index].has_value()
+                ? velocity
+                : soft_separation_velocity(separation, unit.move_speed());
+            velocity = hold_velocity_for(unit, desired_velocity, separation);
+            state = length_squared(velocity) > 0.0001F
+                        ? MovementState::moving
+                        : MovementState::idle;
+        } else if (unit.tactical_order() == TacticalOrder::regroup &&
+                   unit.tactical_position().has_value()) {
+            support = {};
+            const Vec2 toward_regroup =
+                *unit.tactical_position() - unit.position();
+            velocity = velocity_from_steering(toward_regroup + separation,
+                                              unit.move_speed());
+            if (!target_ids[index].has_value() &&
+                length_squared(toward_regroup) > 0.0001F) {
+                desired_facing = facing_from_direction(toward_regroup);
+            }
+            state = length_squared(velocity) > 0.0001F
+                        ? MovementState::moving
+                        : MovementState::idle;
+        }
         intents.push_back(MotionIntent{velocity, desired_facing, state,
                                        combat_state, support.screen_id,
                                        support.steering});
@@ -284,8 +359,9 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
         const auto& intent = intents[index];
         const auto unconstrained_position =
             unit.position() + intent.velocity * static_cast<float>(fixed_delta_seconds);
-        const auto next_position = constrain_to_frontline(
+        const auto frontline_position = constrain_to_frontline(
             world_, unit.team(), unit.position(), unconstrained_position);
+        const auto next_position = constrain_to_hold_leash(unit, frontline_position);
         const Vec2 final_position{
             std::clamp(next_position.x, world_margin, World::width - world_margin),
             std::clamp(next_position.y, world_margin, World::height - world_margin),

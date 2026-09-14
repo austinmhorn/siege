@@ -2,6 +2,7 @@
 
 #include "client/frame_animation.hpp"
 #include "client/font_system.hpp"
+#include "client/pointer_input.hpp"
 #include "client/texture_cache.hpp"
 #include "client/debug_renderer.hpp"
 #include "client/unit_selection.hpp"
@@ -29,7 +30,7 @@ public:
     void set_pointer_position(float drawable_x, float drawable_y) noexcept;
     void handle_left_click(World& world, float drawable_x, float drawable_y);
     void handle_secondary_pointer_press(float drawable_x, float drawable_y);
-    void handle_secondary_pointer_release(const World& world, float drawable_x,
+    void handle_secondary_pointer_release(World& world, float drawable_x,
                                           float drawable_y);
     [[nodiscard]] bool render(const World& world, double interpolation_alpha,
                               double render_fps) const;
@@ -55,6 +56,8 @@ private:
     struct SelectionDrag {
         Vec2 start;
         Vec2 current;
+        Point drawable_start;
+        Point drawable_current;
     };
 
     [[nodiscard]] bool render_units(const World& world,
@@ -75,6 +78,8 @@ private:
     [[nodiscard]] bool render_deployment_ui(
         const World& world, const class WorldTransform& transform,
         int output_width, int output_height) const;
+    [[nodiscard]] bool render_command_menu(int output_width,
+                                           int output_height) const;
 
     SDL_Renderer* renderer_{};
     mutable TextureCache textures_;
@@ -86,6 +91,7 @@ private:
     std::vector<ExplosionVisual> explosions_;
     UnitSelection selection_;
     std::optional<SelectionDrag> selection_drag_;
+    std::optional<Point> command_menu_position_;
     bool debug_overlay_enabled_{};
     std::optional<TroopType> selected_troop_{};
     DeploymentFeedback deployment_feedback_{DeploymentFeedback::none};

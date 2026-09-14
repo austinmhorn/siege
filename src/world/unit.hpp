@@ -29,10 +29,18 @@ enum class CombatMovementState {
     retreating,
 };
 
+enum class TacticalOrder {
+    automatic,
+    advance,
+    hold,
+    regroup,
+};
+
 [[nodiscard]] std::string_view to_string(TroopType type) noexcept;
 [[nodiscard]] std::string_view to_string(Team team) noexcept;
 [[nodiscard]] std::string_view to_string(MovementState state) noexcept;
 [[nodiscard]] std::string_view to_string(CombatMovementState state) noexcept;
+[[nodiscard]] std::string_view to_string(TacticalOrder order) noexcept;
 
 class Unit {
 public:
@@ -57,6 +65,8 @@ public:
     void set_combat_movement_state(CombatMovementState state) noexcept;
     void set_support_positioning(std::optional<Id> screen_id,
                                  Vec2 steering) noexcept;
+    void set_tactical_order(TacticalOrder order,
+                            std::optional<Vec2> position = std::nullopt) noexcept;
     void tick_weapon_cooldown(double delta_seconds) noexcept;
     void reset_weapon_cooldown() noexcept;
     void apply_damage(float damage) noexcept;
@@ -94,6 +104,8 @@ public:
     [[nodiscard]] bool is_alive() const noexcept;
     [[nodiscard]] MovementState movement_state() const noexcept;
     [[nodiscard]] CombatMovementState combat_movement_state() const noexcept;
+    [[nodiscard]] TacticalOrder tactical_order() const noexcept;
+    [[nodiscard]] std::optional<Vec2> tactical_position() const noexcept;
 
 private:
     Id id_{};
@@ -128,6 +140,8 @@ private:
     float hit_radius_{};
     MovementState movement_state_{MovementState::idle};
     CombatMovementState combat_movement_state_{CombatMovementState::advancing};
+    TacticalOrder tactical_order_{TacticalOrder::automatic};
+    std::optional<Vec2> tactical_position_{};
 };
 
 } // namespace siege
