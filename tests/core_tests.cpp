@@ -1,4 +1,5 @@
 #include "core/combat_behavior.hpp"
+#include "client/cash_display.hpp"
 #include "client/capture_bar.hpp"
 #include "client/local_control.hpp"
 #include "client/pointer_input.hpp"
@@ -311,6 +312,31 @@ int main() {
                         team_color_name(local_control.team()) == "RED" &&
                         local_control.toggle() == Team::team_a,
                     "local control defaults BLUE and toggles A to B to A");
+
+    World cash_display_world;
+    cash_display_world.find_player(Team::team_a)->reset_cash(18'450);
+    cash_display_world.find_player(Team::team_b)->reset_cash(9'876'543);
+    const auto blue_display_cash =
+        controlled_team_cash(cash_display_world, local_control);
+    (void)local_control.toggle();
+    const auto red_display_cash =
+        controlled_team_cash(cash_display_world, local_control);
+    (void)local_control.toggle();
+    cash_display_world.reset_for_sudden_death();
+    const auto reset_blue_cash =
+        controlled_team_cash(cash_display_world, local_control);
+    (void)local_control.toggle();
+    const auto reset_red_cash =
+        controlled_team_cash(cash_display_world, local_control);
+    (void)local_control.toggle();
+    passed &= check(
+        blue_display_cash == 18'450 && red_display_cash == 9'876'543 &&
+            format_cash(*blue_display_cash) == "$18,450" &&
+            format_cash(*red_display_cash) == "$9,876,543" &&
+            reset_blue_cash == 25'000 && reset_red_cash == 25'000 &&
+            format_cash(*reset_blue_cash) == "$25,000" &&
+            format_cash(0) == "$0",
+        "cash display selects the controlled player, formats separators, and reflects sudden-death cash reset");
 
     UnitSelection red_selection;
     red_selection.replace_from_rectangle(selection_world, Team::team_b,

@@ -72,6 +72,7 @@ add_executable(siege
     src/core/zone_capture.cpp
     src/client/frame_animation.cpp
     src/client/battlefield_renderer.cpp
+    src/client/cash_display.cpp
     src/client/font_system.cpp
     src/client/pointer_input.cpp
     src/client/unit_selection.cpp
@@ -126,6 +127,7 @@ if(BUILD_TESTING)
         src/core/support_positioning.cpp
         src/core/tactical_command.cpp
         src/core/zone_capture.cpp
+        src/client/cash_display.cpp
         src/client/pointer_input.cpp
         src/client/unit_selection.cpp
         src/world/unit.cpp

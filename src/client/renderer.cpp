@@ -1,6 +1,7 @@
 #include "client/renderer.hpp"
 
 #include "client/battlefield_renderer.hpp"
+#include "client/cash_display.hpp"
 #include "client/capture_bar.hpp"
 #include "client/ui_layout.hpp"
 #include "client/world_transform.hpp"
@@ -1194,6 +1195,40 @@ bool Renderer::render_deployment_ui(const World& world,
     }
 
     const PlayerState* player = world.find_player(local_control_.team());
+    if (const auto cash = controlled_team_cash(world, local_control_)) {
+        const std::string cash_text = format_cash(*cash);
+        float text_width = 0.0F;
+        float text_height = 0.0F;
+        if (!fonts_.measure(cash_text, FontRole::heading_bold, text_width,
+                            text_height)) {
+            return false;
+        }
+        const SDL_FRect first_button =
+            deployment_button_rect(0, output_width, output_height);
+        const SDL_FRect last_button = deployment_button_rect(
+            purchasable_troops.size() - 1, output_width, output_height);
+        const float group_center_x =
+            (first_button.x + last_button.x + last_button.w) * 0.5F;
+        const float text_x = group_center_x - text_width * 0.5F;
+        const float text_y = first_button.y -
+                             ui_layout::deployment_cash_gap - text_height;
+        const SDL_FRect cash_panel{
+            text_x - ui_layout::deployment_cash_horizontal_padding,
+            text_y - ui_layout::deployment_cash_vertical_padding,
+            text_width + ui_layout::deployment_cash_horizontal_padding * 2.0F,
+            text_height + ui_layout::deployment_cash_vertical_padding * 2.0F,
+        };
+        set_color(renderer_, Color{10, 14, 18, 225});
+        if (!SDL_RenderFillRect(renderer_, &cash_panel)) {
+            return false;
+        }
+        set_color(renderer_, Color{145, 165, 180, 255});
+        if (!SDL_RenderRect(renderer_, &cash_panel) ||
+            !fonts_.draw(text_x, text_y, cash_text, FontRole::heading_bold,
+                         FontColor{245, 250, 247, 255})) {
+            return false;
+        }
+    }
     for (std::size_t index = 0; index < purchasable_troops.size(); ++index) {
         const TroopType troop = purchasable_troops[index];
         const TroopDefinition* definition = troop_definition_for(troop);
