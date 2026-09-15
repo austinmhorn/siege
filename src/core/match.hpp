@@ -7,8 +7,11 @@
 
 namespace siege {
 
+class World;
+
 enum class MatchPhase {
-    active,
+    regulation,
+    sudden_death,
     finished,
 };
 
@@ -16,7 +19,12 @@ enum class MatchResult {
     none,
     team_a,
     team_b,
-    tie,
+};
+
+enum class MatchTransition {
+    none,
+    sudden_death,
+    finished,
 };
 
 struct MatchRules {
@@ -45,19 +53,20 @@ public:
     [[nodiscard]] std::uint32_t remaining_display_seconds() const noexcept;
     [[nodiscard]] const MatchRules& rules() const noexcept;
 
-    // Returns true only on the single transition from active to finished.
-    [[nodiscard]] bool advance(std::uint64_t fixed_tick_count,
-                               Score team_a_score,
-                               Score team_b_score) noexcept;
+    [[nodiscard]] MatchTransition advance(std::uint64_t fixed_tick_count,
+                                          Score team_a_score,
+                                          Score team_b_score) noexcept;
+    [[nodiscard]] bool resolve_sudden_death(Team winner) noexcept;
 
 private:
     MatchRules rules_;
     std::uint64_t remaining_ticks_{};
-    MatchPhase phase_{MatchPhase::active};
+    MatchPhase phase_{MatchPhase::regulation};
     MatchResult result_{MatchResult::none};
 };
 
 [[nodiscard]] std::string_view to_string(MatchPhase phase) noexcept;
 [[nodiscard]] std::string_view to_string(MatchResult result) noexcept;
+[[nodiscard]] bool resolve_sudden_death_center_capture(World& world) noexcept;
 
 } // namespace siege

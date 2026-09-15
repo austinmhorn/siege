@@ -19,6 +19,7 @@ public:
     [[nodiscard]] bool can_afford(Money amount) const noexcept;
     [[nodiscard]] bool try_spend(Money amount) noexcept;
     void credit(Money amount) noexcept;
+    void reset_cash(Money amount) noexcept;
     void add_score(Score points) noexcept;
 
     void accrue_passive_income(Money cash_per_second,

@@ -31,6 +31,11 @@ void PlayerState::credit(const Money amount) noexcept {
     }
 }
 
+void PlayerState::reset_cash(const Money amount) noexcept {
+    cash_ = std::max<Money>(0, amount);
+    passive_income_remainder_ = 0;
+}
+
 void PlayerState::add_score(const Score points) noexcept {
     if (points > 0) {
         score_ += points;

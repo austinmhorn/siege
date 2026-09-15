@@ -100,4 +100,16 @@ void Zone::update_security(const double delta_seconds,
     secured_ = secure_timer_seconds_ >= duration;
 }
 
+void Zone::reset_objective() noexcept {
+    if (type_ != ZoneType::objective) {
+        return;
+    }
+    owner_ = Team::none;
+    team_a_count_ = 0;
+    team_b_count_ = 0;
+    capture_value_ = 0.0F;
+    secure_timer_seconds_ = 0.0;
+    secured_ = false;
+}
+
 } // namespace siege

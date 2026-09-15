@@ -42,9 +42,14 @@ void update_zone_capture(
     ZoneSecurityRules security_rules = default_zone_security_rules) noexcept;
 
 [[nodiscard]] bool is_zone_deployable(const Zone& zone, Team team) noexcept;
+[[nodiscard]] bool is_zone_deployable(const World& world, const Zone& zone,
+                                      Team team) noexcept;
 
 [[nodiscard]] std::optional<Bounds> deployment_bounds(
     const Zone& zone, Team team,
+    ZoneSecurityRules rules = default_zone_security_rules) noexcept;
+[[nodiscard]] std::optional<Bounds> deployment_bounds(
+    const World& world, const Zone& zone, Team team,
     ZoneSecurityRules rules = default_zone_security_rules) noexcept;
 
 } // namespace siege

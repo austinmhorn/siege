@@ -418,6 +418,10 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
 
     update_zone_capture(world_, fixed_delta_seconds);
     award_zone_capture_rewards(world_);
+    if (resolve_sudden_death_center_capture(world_)) {
+        ++tick_count_;
+        return;
+    }
     update_objective_scoring(world_);
     update_passive_income(world_);
 
@@ -448,7 +452,11 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
     const PlayerState* team_b = world_.find_player(Team::team_b);
     const Score team_a_score = team_a == nullptr ? 0 : team_a->score();
     const Score team_b_score = team_b == nullptr ? 0 : team_b->score();
-    (void)world_.match_state().advance(1, team_a_score, team_b_score);
+    const MatchTransition transition =
+        world_.match_state().advance(1, team_a_score, team_b_score);
+    if (transition == MatchTransition::sudden_death) {
+        world_.reset_for_sudden_death();
+    }
 
     ++tick_count_;
 }

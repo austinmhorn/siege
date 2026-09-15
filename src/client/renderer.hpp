@@ -7,6 +7,7 @@
 #include "client/debug_renderer.hpp"
 #include "client/unit_selection.hpp"
 #include "client/world_transform.hpp"
+#include "core/match.hpp"
 #include "world/combat_event.hpp"
 
 #include <filesystem>
@@ -115,6 +116,7 @@ private:
     DeploymentFeedback deployment_feedback_{DeploymentFeedback::none};
     double deployment_feedback_seconds_{};
     Point pointer_drawable_{};
+    MatchPhase observed_match_phase_{MatchPhase::regulation};
 };
 
 } // namespace siege

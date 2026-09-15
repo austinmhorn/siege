@@ -105,8 +105,6 @@ std::string_view match_result_label(const MatchResult result) noexcept {
         return "BLUE WINS";
     case MatchResult::team_b:
         return "RED WINS";
-    case MatchResult::tie:
-        return "TIE";
     case MatchResult::none:
         return "";
     }
@@ -506,6 +504,22 @@ Renderer::Renderer(SDL_Renderer* renderer, std::filesystem::path asset_root)
       fonts_(renderer, textures_.asset_root()), debug_renderer_(renderer, fonts_) {}
 
 void Renderer::update(const World& world, const double fixed_delta_seconds) {
+    const MatchPhase match_phase = world.match_state().phase();
+    if (match_phase == MatchPhase::sudden_death &&
+        observed_match_phase_ != MatchPhase::sudden_death) {
+        selection_.clear();
+        selection_drag_.reset();
+        path_drawing_.reset();
+        command_menu_position_.reset();
+        selected_troop_.reset();
+        deployment_feedback_ = DeploymentFeedback::none;
+        deployment_feedback_seconds_ = 0.0;
+        leg_animations_.clear();
+        firing_animations_.clear();
+        corpses_.clear();
+        explosions_.clear();
+    }
+    observed_match_phase_ = match_phase;
     const bool match_active = world.match_state().active();
     if (!match_active) {
         selection_drag_.reset();
@@ -822,7 +836,8 @@ bool Renderer::render(const World& world, const double interpolation_alpha,
             return false;
         }
         for (const auto& zone : world.zones()) {
-            const auto deployment = deployment_bounds(zone, Team::team_a);
+            const auto deployment =
+                deployment_bounds(world, zone, Team::team_a);
             if (!deployment.has_value()) {
                 continue;
             }
@@ -886,8 +901,12 @@ bool Renderer::render_match_hud(const World& world,
     const PlayerState* team_b_player = world.find_player(Team::team_b);
     const Score team_a_score = team_a_player == nullptr ? 0 : team_a_player->score();
     const Score team_b_score = team_b_player == nullptr ? 0 : team_b_player->score();
-    const std::string timer =
-        format_match_time(world.match_state().remaining_display_seconds());
+    const std::string timer = world.match_state().phase() ==
+                                      MatchPhase::sudden_death
+                                  ? "SUDDEN DEATH"
+                                  : format_match_time(
+                                        world.match_state()
+                                            .remaining_display_seconds());
     const float panel_x =
         (static_cast<float>(output_width) - score_panel_width) * 0.5F;
     const SDL_FRect panel{panel_x, score_panel_y, score_panel_width,

@@ -187,6 +187,20 @@ void World::clear_transient_events() noexcept {
     zone_ownership_events_.clear();
 }
 
+void World::reset_for_sudden_death() noexcept {
+    units_.clear();
+    projectiles_.clear();
+    pending_deployments_.clear();
+    clear_transient_events();
+    for (auto& zone : zones_) {
+        zone.reset_objective();
+    }
+    for (auto& player : players_) {
+        player.reset_cash(default_economy_rules.starting_cash);
+    }
+    scoring_tick_progress_ = 0;
+}
+
 void World::remove_dead_units() {
     for (const auto& unit : units_) {
         if (!unit.is_alive()) {

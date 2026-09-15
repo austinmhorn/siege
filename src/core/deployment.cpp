@@ -24,7 +24,8 @@ bool is_valid_deployment_location(const World& world, const Team team,
     if (!zone_index.has_value()) {
         return false;
     }
-    const auto bounds = deployment_bounds(world.zones()[*zone_index], team);
+    const auto bounds =
+        deployment_bounds(world, world.zones()[*zone_index], team);
     return bounds.has_value() && contains(*bounds, position);
 }
 

@@ -54,6 +54,7 @@ public:
     [[nodiscard]] std::vector<ZoneOwnershipEvent>& zone_ownership_events()
         noexcept;
     void clear_transient_events() noexcept;
+    void reset_for_sudden_death() noexcept;
     void remove_dead_units();
     void emit_fire_event(const Unit& unit);
     Projectile& spawn_projectile(WeaponType weapon_type, Team team,

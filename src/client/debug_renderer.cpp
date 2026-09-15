@@ -198,7 +198,8 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
         if (zone.type() != ZoneType::objective) {
             continue;
         }
-        if (const auto deployment = deployment_bounds(zone, zone.owner())) {
+        if (const auto deployment =
+                deployment_bounds(world, zone, zone.owner())) {
             set_color(renderer_, 120, 255, 150, 190);
             if (!draw_world_bounds(renderer_, transform, *deployment)) {
                 return false;
@@ -366,7 +367,7 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                       default_economy_rules.passive_income_per_second));
     global.blank();
 
-    global.line(FontRole::debug_bold, debug_heading, "SCORE");
+    global.line(FontRole::debug_bold, debug_heading, "REGULATION SCORE");
     global.format(FontRole::debug, debug_text, "Team A score: %lld",
                   static_cast<long long>(team_a_player == nullptr
                                              ? 0
@@ -397,6 +398,13 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                       world.match_state().rules().fixed_ticks_per_second);
     global.format(FontRole::debug, debug_text, "result: %.*s",
                   static_cast<int>(match_result.size()), match_result.data());
+    if (world.match_state().phase() == MatchPhase::sudden_death) {
+        const Zone& center = world.zones()[2];
+        global.format(FontRole::debug, debug_text, "center: %s / %+.1f",
+                      short_team_name(center.owner()), center.capture_value());
+        global.line(FontRole::debug, debug_text,
+                    "deployment: home only");
+    }
     global.blank();
 
     global.line(FontRole::debug_bold, debug_heading, "OBJECTIVES");
@@ -423,8 +431,8 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
         global.format(FontRole::debug, debug_text, "secured: %s",
                       yes_no(zone.secured()));
         global.format(FontRole::debug, debug_text, "deploy A/B: %s / %s",
-                      yes_no(is_zone_deployable(zone, Team::team_a)),
-                      yes_no(is_zone_deployable(zone, Team::team_b)));
+                      yes_no(is_zone_deployable(world, zone, Team::team_a)),
+                      yes_no(is_zone_deployable(world, zone, Team::team_b)));
     }
     if (!global.succeeded) {
         return false;

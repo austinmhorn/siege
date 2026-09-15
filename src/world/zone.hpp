@@ -45,6 +45,7 @@ public:
     void set_owner(Team owner) noexcept;
     void update_security(double delta_seconds,
                          double required_seconds) noexcept;
+    void reset_objective() noexcept;
 
 private:
     std::size_t index_{};

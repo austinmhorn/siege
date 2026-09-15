@@ -98,6 +98,15 @@ bool is_zone_deployable(const Zone& zone, const Team team) noexcept {
     return zone.type() == ZoneType::home || zone.secured();
 }
 
+bool is_zone_deployable(const World& world, const Zone& zone,
+                        const Team team) noexcept {
+    if (world.match_state().phase() == MatchPhase::sudden_death &&
+        zone.type() != ZoneType::home) {
+        return false;
+    }
+    return is_zone_deployable(zone, team);
+}
+
 std::optional<Bounds> deployment_bounds(
     const Zone& zone, const Team team, ZoneSecurityRules rules) noexcept {
     if (!is_zone_deployable(zone, team)) {
@@ -115,6 +124,15 @@ std::optional<Bounds> deployment_bounds(
         ? bounds.x
         : bounds.x + bounds.width - deployment_width;
     return Bounds{deployment_x, bounds.y, deployment_width, bounds.height};
+}
+
+std::optional<Bounds> deployment_bounds(
+    const World& world, const Zone& zone, const Team team,
+    const ZoneSecurityRules rules) noexcept {
+    if (!is_zone_deployable(world, zone, team)) {
+        return std::nullopt;
+    }
+    return deployment_bounds(zone, team, rules);
 }
 
 } // namespace siege

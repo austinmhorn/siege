@@ -385,7 +385,9 @@ int main() {
 
     MatchState default_match;
     passed &= check(
-        default_match.active() && default_match.result() == MatchResult::none &&
+        default_match.active() &&
+            default_match.phase() == MatchPhase::regulation &&
+            default_match.result() == MatchResult::none &&
             default_match.remaining_ticks() == 18'000 &&
             default_match.remaining_display_seconds() == 300 &&
             default_match.rules().duration_seconds == 300,
@@ -396,29 +398,218 @@ int main() {
         .duration_seconds = 1,
     };
     MatchState exact_countdown{one_second_match};
-    passed &= check(!exact_countdown.advance(59, 0, 0) &&
+    passed &= check(exact_countdown.advance(59, 0, 0) ==
+                            MatchTransition::none &&
                         exact_countdown.active() &&
                         exact_countdown.remaining_ticks() == 1 &&
                         exact_countdown.remaining_display_seconds() == 1,
                     "match countdown cannot expire before its exact final tick");
-    passed &= check(exact_countdown.advance(1, 0, 0) &&
-                        !exact_countdown.active() &&
+    passed &= check(exact_countdown.advance(1, 0, 0) ==
+                            MatchTransition::sudden_death &&
+                        exact_countdown.active() &&
+                        exact_countdown.phase() == MatchPhase::sudden_death &&
                         exact_countdown.remaining_ticks() == 0 &&
                         exact_countdown.remaining_display_seconds() == 0 &&
-                        exact_countdown.result() == MatchResult::tie,
-                    "match expires exactly once at zero and equal scores tie");
-    passed &= check(!exact_countdown.advance(10'000, 50, 0) &&
+                        exact_countdown.result() == MatchResult::none,
+                    "tied regulation enters sudden death exactly at zero");
+    passed &= check(exact_countdown.advance(10'000, 50, 0) ==
+                            MatchTransition::none &&
                         exact_countdown.remaining_ticks() == 0 &&
-                        exact_countdown.result() == MatchResult::tie,
-                    "finished timer stays at zero and finalized result cannot change");
+                        exact_countdown.phase() == MatchPhase::sudden_death &&
+                        exact_countdown.result() == MatchResult::none,
+                    "sudden death transition occurs only once and has no timer");
 
     MatchState team_a_win{one_second_match};
     MatchState team_b_win{one_second_match};
     (void)team_a_win.advance(60, 4, 3);
     (void)team_b_win.advance(60, 8, 9);
-    passed &= check(team_a_win.result() == MatchResult::team_a &&
+    passed &= check(team_a_win.phase() == MatchPhase::finished &&
+                        team_b_win.phase() == MatchPhase::finished &&
+                        team_a_win.result() == MatchResult::team_a &&
                         team_b_win.result() == MatchResult::team_b,
-                    "higher score resolves the correct Team A or Team B winner");
+                    "non-tied regulation finishes with the higher-score winner");
+
+    World sudden_reset_world{one_second_match};
+    sudden_reset_world.units().clear();
+    sudden_reset_world.units().push_back(
+        test_unit(1220, Team::team_a, {200.0F, 300.0F}, 270.0F));
+    sudden_reset_world.units().push_back(
+        test_unit(1221, Team::team_b, {1700.0F, 300.0F}, 90.0F));
+    sudden_reset_world.spawn_projectile(
+        WeaponType::rifle, Team::team_a, 1220, {500.0F, 900.0F},
+        {100.0F, 0.0F}, 10'000.0F, 10.0F);
+    sudden_reset_world.queue_deployment(Team::team_a, TroopType::rifle,
+                                        {100.0F, 500.0F}, 10.0);
+    sudden_reset_world.zones()[1].advance_capture(100.0F);
+    sudden_reset_world.zones()[1].set_owner(Team::team_a);
+    sudden_reset_world.zones()[1].update_security(2.0, 2.0);
+    (void)sudden_reset_world.find_player(Team::team_a)->try_spend(4'000);
+    sudden_reset_world.find_player(Team::team_b)->credit(2'000);
+    sudden_reset_world.find_player(Team::team_a)->add_score(3);
+    sudden_reset_world.find_player(Team::team_b)->add_score(3);
+    Simulation sudden_reset_simulation{sudden_reset_world};
+    for (int tick = 0; tick < 60; ++tick) {
+        sudden_reset_simulation.update(1.0 / 60.0);
+    }
+    bool objectives_reset = true;
+    for (std::size_t index = 1; index <= 3; ++index) {
+        const Zone& zone = sudden_reset_world.zones()[index];
+        objectives_reset &= zone.owner() == Team::none &&
+                            near(zone.capture_value(), 0.0F) &&
+                            zone.team_a_count() == 0 &&
+                            zone.team_b_count() == 0 &&
+                            !zone.secured() &&
+                            near(static_cast<float>(zone.secure_timer_seconds()),
+                                 0.0F);
+    }
+    passed &= check(
+        sudden_reset_world.match_state().phase() ==
+                MatchPhase::sudden_death &&
+            sudden_reset_world.match_state().result() == MatchResult::none &&
+            sudden_reset_world.units().empty() &&
+            sudden_reset_world.projectiles().empty() &&
+            sudden_reset_world.pending_deployments().empty() &&
+            sudden_reset_world.death_events().empty() && objectives_reset &&
+            sudden_reset_world.find_player(Team::team_a)->cash() == 25'000 &&
+            sudden_reset_world.find_player(Team::team_b)->cash() == 25'000 &&
+            sudden_reset_world.find_player(Team::team_a)->score() == 3 &&
+            sudden_reset_world.find_player(Team::team_b)->score() == 3,
+        "tied regulation performs one clean sudden-death reset while preserving scores");
+
+    for (int tick = 0; tick < 60; ++tick) {
+        sudden_reset_simulation.update(1.0 / 60.0);
+    }
+    passed &= check(
+        sudden_reset_world.match_state().phase() ==
+                MatchPhase::sudden_death &&
+            sudden_reset_world.find_player(Team::team_a)->cash() == 25'100 &&
+            sudden_reset_world.find_player(Team::team_b)->cash() == 25'100 &&
+            sudden_reset_world.find_player(Team::team_a)->score() == 3 &&
+            sudden_reset_world.find_player(Team::team_b)->score() == 3,
+        "sudden death has no timer, keeps passive income, and freezes regulation scores");
+
+    sudden_reset_world.zones()[1].advance_capture(100.0F);
+    sudden_reset_world.zones()[1].set_owner(Team::team_a);
+    sudden_reset_world.zones()[1].update_security(2.0, 2.0);
+    passed &= check(
+        request_deployment(sudden_reset_world, Team::team_a,
+                           TroopType::rifle, {500.0F, 500.0F}) ==
+                DeploymentResult::invalid_location &&
+            request_deployment(sudden_reset_world, Team::team_a,
+                               TroopType::rifle, {100.0F, 500.0F}) ==
+                DeploymentResult::accepted,
+        "sudden death permits home deployment but rejects secured objective origins");
+    sudden_reset_world.units().push_back(
+        test_unit(1222, Team::team_a, {500.0F, 300.0F}, 270.0F));
+    update_zone_capture(sudden_reset_world, 0.0);
+    update_objective_scoring(sudden_reset_world, 60);
+    passed &= check(
+        sudden_reset_world.find_player(Team::team_a)->score() == 3 &&
+            !is_zone_deployable(sudden_reset_world,
+                                sudden_reset_world.zones()[1],
+                                Team::team_a),
+        "captured sudden-death objectives neither score nor become deployable");
+
+    constexpr MatchRules immediate_sudden_death{
+        .fixed_ticks_per_second = 60,
+        .duration_seconds = 0,
+    };
+    World partial_center_world{immediate_sudden_death};
+    partial_center_world.reset_for_sudden_death();
+    partial_center_world.zones()[2].advance_capture(50.0F);
+    passed &= check(
+        !resolve_sudden_death_center_capture(partial_center_world) &&
+            partial_center_world.match_state().phase() ==
+                MatchPhase::sudden_death,
+        "partial center capture does not win sudden death");
+
+    World neutralized_center_world{immediate_sudden_death};
+    neutralized_center_world.reset_for_sudden_death();
+    neutralized_center_world.zones()[2].advance_capture(100.0F);
+    neutralized_center_world.zones()[2].set_owner(Team::team_a);
+    neutralized_center_world.zones()[2].advance_capture(-100.0F);
+    update_zone_capture(neutralized_center_world, 0.0);
+    passed &= check(
+        neutralized_center_world.zones()[2].owner() == Team::none &&
+            !resolve_sudden_death_center_capture(neutralized_center_world) &&
+            neutralized_center_world.match_state().phase() ==
+                MatchPhase::sudden_death,
+        "center neutralization alone does not win sudden death");
+
+    World team_a_center_world{immediate_sudden_death};
+    team_a_center_world.reset_for_sudden_death();
+    team_a_center_world.zones()[2].advance_capture(95.0F);
+    team_a_center_world.units().push_back(
+        test_unit(1223, Team::team_a, {900.0F, 300.0F}, 270.0F));
+    update_zone_capture(team_a_center_world, 1.0);
+    passed &= check(
+        resolve_sudden_death_center_capture(team_a_center_world) &&
+            team_a_center_world.match_state().phase() == MatchPhase::finished &&
+            team_a_center_world.match_state().result() == MatchResult::team_a &&
+            !team_a_center_world.zones()[2].secured() &&
+            !team_a_center_world.match_state().resolve_sudden_death(
+                Team::team_b) &&
+            team_a_center_world.match_state().result() == MatchResult::team_a,
+        "first full Team A center capture wins once without requiring security");
+
+    World team_b_center_world{immediate_sudden_death};
+    team_b_center_world.reset_for_sudden_death();
+    team_b_center_world.zones()[2].advance_capture(-95.0F);
+    team_b_center_world.units().push_back(
+        test_unit(1224, Team::team_b, {900.0F, 300.0F}, 90.0F));
+    update_zone_capture(team_b_center_world, 1.0);
+    passed &= check(
+        resolve_sudden_death_center_capture(team_b_center_world) &&
+            team_b_center_world.match_state().phase() == MatchPhase::finished &&
+            team_b_center_world.match_state().result() == MatchResult::team_b,
+        "first full Team B center capture wins sudden death");
+
+    World simulated_center_win_world{immediate_sudden_death};
+    simulated_center_win_world.reset_for_sudden_death();
+    simulated_center_win_world.zones()[2].advance_capture(99.95F);
+    simulated_center_win_world.units().push_back(
+        test_unit(1225, Team::team_a, {900.0F, 300.0F}, 270.0F));
+    Simulation simulated_center_win{simulated_center_win_world};
+    simulated_center_win.update(1.0 / 60.0);
+    const Vec2 center_winner_position =
+        simulated_center_win_world.units().front().position();
+    simulated_center_win.update(1.0 / 60.0);
+    passed &= check(
+        simulated_center_win_world.match_state().phase() ==
+                MatchPhase::finished &&
+            simulated_center_win_world.match_state().result() ==
+                MatchResult::team_a &&
+            near(simulated_center_win_world.units().front().position().x,
+                 center_winner_position.x) &&
+            near(simulated_center_win_world.units().front().position().y,
+                 center_winner_position.y),
+        "simulation resolves full center capture immediately and freezes afterward");
+
+    World deterministic_reset_world{one_second_match};
+    deterministic_reset_world.units().clear();
+    deterministic_reset_world.find_player(Team::team_a)->add_score(3);
+    deterministic_reset_world.find_player(Team::team_b)->add_score(3);
+    deterministic_reset_world.find_player(Team::team_a)->credit(500);
+    deterministic_reset_world.zones()[3].advance_capture(-75.0F);
+    deterministic_reset_world.queue_deployment(
+        Team::team_b, TroopType::bazooka, {1800.0F, 500.0F}, 5.0);
+    Simulation deterministic_reset_simulation{deterministic_reset_world};
+    for (int tick = 0; tick < 60; ++tick) {
+        deterministic_reset_simulation.update(1.0 / 60.0);
+    }
+    passed &= check(
+        deterministic_reset_world.match_state().phase() ==
+                sudden_reset_world.match_state().phase() &&
+            deterministic_reset_world.find_player(Team::team_a)->cash() ==
+                25'000 &&
+            deterministic_reset_world.find_player(Team::team_b)->cash() ==
+                25'000 &&
+            deterministic_reset_world.find_player(Team::team_a)->score() == 3 &&
+            deterministic_reset_world.find_player(Team::team_b)->score() == 3 &&
+            deterministic_reset_world.units().empty() &&
+            deterministic_reset_world.pending_deployments().empty() &&
+            near(deterministic_reset_world.zones()[3].capture_value(), 0.0F),
+        "sudden-death reset is deterministic across different regulation state");
 
     World scoring_cadence_world;
     scoring_cadence_world.units().clear();
@@ -553,6 +744,7 @@ int main() {
     frozen_world.units().clear();
     frozen_world.zones()[1].advance_capture(50.0F);
     frozen_world.zones()[1].set_owner(Team::team_a);
+    frozen_world.find_player(Team::team_a)->add_score(1);
     frozen_world.units().push_back(
         test_unit(1211, Team::team_a, {500.0F, 400.0F}, 270.0F));
     const Unit::Id frozen_unit_id = frozen_world.units().front().id();
