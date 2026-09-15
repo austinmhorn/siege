@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/ai_commander.hpp"
 #include "core/simulation.hpp"
 #include "world/world.hpp"
 
@@ -26,7 +27,7 @@ private:
     SDL_Renderer* renderer_{};
     World world_{};
     Simulation simulation_;
+    AiCommander red_commander_{Team::team_b};
 };
 
 } // namespace siege
-

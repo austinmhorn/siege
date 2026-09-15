@@ -3,6 +3,7 @@
 #include "client/local_control.hpp"
 #include "client/pointer_input.hpp"
 #include "client/unit_selection.hpp"
+#include "core/ai_commander.hpp"
 #include "core/deployment.hpp"
 #include "core/economy.hpp"
 #include "core/frontline.hpp"
@@ -113,6 +114,14 @@ void isolate_collision_units(siege::World& world) {
     units[9].set_position({700.0F, 900.0F});
     units[10].set_position({1400.0F, 900.0F});
     units[11].set_position({1500.0F, 900.0F});
+}
+
+void secure_objective(siege::World& world, const std::size_t zone_index,
+                      const siege::Team team) {
+    siege::Zone& zone = world.zones()[zone_index];
+    zone.advance_capture(team == siege::Team::team_a ? 100.0F : -100.0F);
+    zone.set_owner(team);
+    zone.update_security(2.0, 2.0);
 }
 
 } // namespace
@@ -526,6 +535,225 @@ int main() {
             red_deployment_world.find_player(Team::team_b)->score() ==
                 red_score,
         "switching local control does not alter units, ownership, or scores");
+
+    World ai_purchase_world;
+    ai_purchase_world.units().clear();
+    AiCommander red_commander{Team::team_b};
+    const Money ai_starting_cash =
+        ai_purchase_world.find_player(Team::team_b)->cash();
+    red_commander.update(ai_purchase_world, Team::team_a);
+    const auto first_ai_position = red_commander.last_deployment_position();
+    passed &= check(
+        red_commander.status() == AiCommanderStatus::enabled &&
+            red_commander.last_result() == AiDecisionResult::purchased &&
+            red_commander.last_troop_choice() == TroopType::rifle &&
+            first_ai_position.has_value() &&
+            is_valid_deployment_location(ai_purchase_world, Team::team_b,
+                                         *first_ai_position) &&
+            ai_purchase_world.find_player(Team::team_b)->cash() ==
+                ai_starting_cash - rifle_definition.purchase_cost &&
+            ai_purchase_world.pending_deployments().size() == 1 &&
+            ai_purchase_world.pending_deployments().front().team ==
+                Team::team_b &&
+            ai_purchase_world.pending_deployments().front().troop_type ==
+                TroopType::rifle &&
+            near(static_cast<float>(
+                     ai_purchase_world.pending_deployments().front()
+                         .remaining_seconds),
+                 static_cast<float>(rifle_definition.deployment_seconds)),
+        "RED AI uses normal deployment validation, cost, and pending timer");
+
+    update_pending_deployments(ai_purchase_world, 0.74);
+    passed &= check(ai_purchase_world.units().empty() &&
+                        ai_purchase_world.pending_deployments().size() == 1,
+                    "AI deployment does not bypass the normal pending timer");
+    update_pending_deployments(ai_purchase_world, 0.01);
+    passed &= check(
+        ai_purchase_world.pending_deployments().empty() &&
+            ai_purchase_world.units().size() == 1 &&
+            ai_purchase_world.units().front().team() == Team::team_b &&
+            ai_purchase_world.units().front().troop_type() == TroopType::rifle,
+        "AI pending deployment spawns the purchased RED troop normally");
+
+    World unaffordable_ai_world;
+    unaffordable_ai_world.units().clear();
+    unaffordable_ai_world.find_player(Team::team_b)->reset_cash(
+        rifle_definition.purchase_cost - 1);
+    AiCommander saving_commander{Team::team_b};
+    saving_commander.update(unaffordable_ai_world, Team::team_a);
+    passed &= check(
+        unaffordable_ai_world.pending_deployments().empty() &&
+            unaffordable_ai_world.find_player(Team::team_b)->cash() ==
+                rifle_definition.purchase_cost - 1 &&
+            saving_commander.last_result() ==
+                AiDecisionResult::no_affordable_troop,
+        "AI cannot overspend or create a free troop when none is affordable");
+
+    World ai_mix_world;
+    ai_mix_world.units().clear();
+    AiCommander mix_commander{Team::team_b};
+    mix_commander.update(ai_mix_world, Team::team_a, 361);
+    const std::array<TroopType, 4> expected_ai_mix{
+        TroopType::rifle, TroopType::machine_gun, TroopType::rifle,
+        TroopType::bazooka};
+    bool mixed_pending = ai_mix_world.pending_deployments().size() ==
+                         expected_ai_mix.size();
+    for (std::size_t index = 0;
+         mixed_pending && index < expected_ai_mix.size(); ++index) {
+        mixed_pending &= ai_mix_world.pending_deployments()[index].troop_type ==
+                         expected_ai_mix[index];
+    }
+    const bool mixed_y_positions =
+        mixed_pending &&
+        !near(ai_mix_world.pending_deployments()[0].position.y,
+              ai_mix_world.pending_deployments()[1].position.y) &&
+        !near(ai_mix_world.pending_deployments()[1].position.y,
+              ai_mix_world.pending_deployments()[2].position.y);
+    passed &= check(
+        mixed_pending && mixed_y_positions &&
+            mix_commander.successful_deployments() == 4 &&
+            ai_mix_world.find_player(Team::team_b)->cash() ==
+                default_economy_rules.starting_cash -
+                    rifle_definition.purchase_cost * 2 -
+                    machine_gun_definition.purchase_cost -
+                    bazooka_definition.purchase_cost,
+        "AI follows the centralized deterministic weighted troop mix");
+
+    World ai_front_world;
+    ai_front_world.units().clear();
+    secure_objective(ai_front_world, 3, Team::team_b);
+    secure_objective(ai_front_world, 2, Team::team_b);
+    AiCommander front_commander{Team::team_b};
+    front_commander.update(ai_front_world, Team::team_a);
+    const auto front_position = front_commander.last_deployment_position();
+    passed &= check(
+        front_position.has_value() &&
+            zone_index_for_position(ai_front_world, *front_position) == 2 &&
+            is_valid_deployment_location(ai_front_world, Team::team_b,
+                                         *front_position),
+        "RED AI prefers the map-defined frontmost contiguous deployment zone");
+
+    World ai_disconnected_world;
+    ai_disconnected_world.units().clear();
+    secure_objective(ai_disconnected_world, 2, Team::team_b);
+    AiCommander disconnected_commander{Team::team_b};
+    disconnected_commander.update(ai_disconnected_world, Team::team_a);
+    const auto disconnected_position =
+        disconnected_commander.last_deployment_position();
+    passed &= check(
+        disconnected_position.has_value() &&
+            zone_index_for_position(ai_disconnected_world,
+                                    *disconnected_position) == 4,
+        "AI cannot bypass a disconnected secured objective deployment gap");
+
+    World ai_sudden_world{MatchRules{60, 0}};
+    ai_sudden_world.units().clear();
+    secure_objective(ai_sudden_world, 3, Team::team_b);
+    AiCommander sudden_commander{Team::team_b};
+    sudden_commander.update(ai_sudden_world, Team::team_a);
+    const auto sudden_position = sudden_commander.last_deployment_position();
+    passed &= check(
+        ai_sudden_world.match_state().phase() == MatchPhase::sudden_death &&
+            sudden_position.has_value() &&
+            zone_index_for_position(ai_sudden_world, *sudden_position) == 4 &&
+            is_valid_deployment_location(ai_sudden_world, Team::team_b,
+                                         *sudden_position),
+        "AI respects sudden-death home-only deployment");
+
+    World ai_finished_world;
+    ai_finished_world.units().clear();
+    (void)ai_finished_world.match_state().advance(
+        default_match_rules.duration_ticks(), 1, 0);
+    AiCommander finished_commander{Team::team_b};
+    const Money finished_cash =
+        ai_finished_world.find_player(Team::team_b)->cash();
+    finished_commander.update(ai_finished_world, Team::team_a, 600);
+    passed &= check(
+        finished_commander.status() ==
+                AiCommanderStatus::stopped_match_finished &&
+            ai_finished_world.pending_deployments().empty() &&
+            ai_finished_world.find_player(Team::team_b)->cash() ==
+                finished_cash,
+        "finished matches stop AI purchasing and deployment actions");
+
+    World ai_control_world;
+    ai_control_world.units().clear();
+    LocalControlState ai_local_control;
+    AiCommander control_commander{Team::team_b};
+    control_commander.update(ai_control_world, ai_local_control.team());
+    const std::size_t before_pause =
+        ai_control_world.pending_deployments().size();
+    const std::uint64_t before_pause_ticks =
+        control_commander.ticks_until_next_decision();
+    (void)ai_local_control.toggle();
+    control_commander.update(ai_control_world, ai_local_control.team(), 600);
+    const bool paused_cleanly =
+        control_commander.status() ==
+            AiCommanderStatus::paused_local_control &&
+        ai_control_world.pending_deployments().size() == before_pause &&
+        control_commander.ticks_until_next_decision() == before_pause_ticks;
+    (void)ai_local_control.toggle();
+    control_commander.update(ai_control_world, ai_local_control.team(),
+                             before_pause_ticks);
+    passed &= check(
+        paused_cleanly &&
+            control_commander.status() == AiCommanderStatus::enabled &&
+            ai_control_world.pending_deployments().size() == before_pause + 1,
+        "F4 RED control pauses its AI clock and BLUE control resumes it");
+
+    World deterministic_ai_world_a;
+    World deterministic_ai_world_b;
+    deterministic_ai_world_a.units().clear();
+    deterministic_ai_world_b.units().clear();
+    AiCommander deterministic_commander_a{Team::team_b};
+    AiCommander deterministic_commander_b{Team::team_b};
+    Simulation deterministic_ai_simulation_a{deterministic_ai_world_a};
+    Simulation deterministic_ai_simulation_b{deterministic_ai_world_b};
+    for (int tick = 0; tick < 480; ++tick) {
+        deterministic_ai_simulation_a.update(1.0 / 60.0);
+        deterministic_commander_a.update(deterministic_ai_world_a,
+                                         Team::team_a);
+        deterministic_ai_simulation_b.update(1.0 / 60.0);
+        deterministic_commander_b.update(deterministic_ai_world_b,
+                                         Team::team_a);
+    }
+    bool deterministic_ai =
+        deterministic_ai_world_a.find_player(Team::team_b)->cash() ==
+            deterministic_ai_world_b.find_player(Team::team_b)->cash() &&
+        deterministic_ai_world_a.units().size() ==
+            deterministic_ai_world_b.units().size() &&
+        deterministic_ai_world_a.pending_deployments().size() ==
+            deterministic_ai_world_b.pending_deployments().size() &&
+        deterministic_commander_a.successful_deployments() ==
+            deterministic_commander_b.successful_deployments();
+    for (std::size_t index = 0;
+         deterministic_ai && index < deterministic_ai_world_a.units().size();
+         ++index) {
+        const Unit& left = deterministic_ai_world_a.units()[index];
+        const Unit& right = deterministic_ai_world_b.units()[index];
+        deterministic_ai &= left.id() == right.id() &&
+                            left.team() == right.team() &&
+                            left.troop_type() == right.troop_type() &&
+                            near(left.position().x, right.position().x) &&
+                            near(left.position().y, right.position().y);
+    }
+    for (std::size_t index = 0;
+         deterministic_ai &&
+         index < deterministic_ai_world_a.pending_deployments().size();
+         ++index) {
+        const PendingDeployment& left =
+            deterministic_ai_world_a.pending_deployments()[index];
+        const PendingDeployment& right =
+            deterministic_ai_world_b.pending_deployments()[index];
+        deterministic_ai &= left.id == right.id && left.team == right.team &&
+                            left.troop_type == right.troop_type &&
+                            near(left.position.x, right.position.x) &&
+                            near(left.position.y, right.position.y) &&
+                            std::abs(left.remaining_seconds -
+                                     right.remaining_seconds) < 1.0e-9;
+    }
+    passed &= check(deterministic_ai,
+                    "repeated fixed-timestep simulations produce identical AI decisions");
 
     World economy_world;
     economy_world.units().clear();

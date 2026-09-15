@@ -4,6 +4,7 @@
 #include "client/capture_bar.hpp"
 #include "client/ui_layout.hpp"
 #include "client/world_transform.hpp"
+#include "core/ai_commander.hpp"
 #include "core/deployment.hpp"
 #include "core/math.hpp"
 #include "core/movement_path.hpp"
@@ -648,6 +649,10 @@ void Renderer::toggle_controlled_team() noexcept {
     clear_local_interaction_state();
 }
 
+Team Renderer::controlled_team() const noexcept {
+    return local_control_.team();
+}
+
 void Renderer::clear_local_interaction_state() noexcept {
     selection_.clear();
     selection_drag_.reset();
@@ -838,7 +843,8 @@ void Renderer::handle_secondary_pointer_release(World& world,
     selection_drag_.reset();
 }
 
-bool Renderer::render(const World& world, const double interpolation_alpha,
+bool Renderer::render(const World& world, const AiCommander& ai_commander,
+                      const double interpolation_alpha,
                       const double render_fps) const {
     fonts_.begin_frame();
     int output_width = 0;
@@ -906,7 +912,7 @@ bool Renderer::render(const World& world, const double interpolation_alpha,
         !debug_renderer_.render(world, transform, render_fps, 60.0,
                                 corpses_.size(), firing_animations_.size(),
                                 explosions_.size(), selection_.size(),
-                                local_control_.team())) {
+                                local_control_.team(), ai_commander)) {
         return false;
     }
 

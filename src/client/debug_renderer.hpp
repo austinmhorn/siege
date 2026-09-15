@@ -8,6 +8,7 @@ struct SDL_Renderer;
 
 namespace siege {
 
+class AiCommander;
 class World;
 class WorldTransform;
 enum class Team;
@@ -22,7 +23,8 @@ public:
                               std::size_t firing_effect_count,
                               std::size_t explosion_effect_count,
                               std::size_t selected_unit_count,
-                              Team controlled_team) const;
+                              Team controlled_team,
+                              const AiCommander& ai_commander) const;
 
 private:
     SDL_Renderer* renderer_{};

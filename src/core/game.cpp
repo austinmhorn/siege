@@ -89,6 +89,8 @@ int Game::run() {
                        event.key.key == SDLK_F4) {
                 pointer_input.cancel();
                 client_renderer.toggle_controlled_team();
+                red_commander_.update(world_, client_renderer.controlled_team(),
+                                      0);
             } else if (event.type == SDL_EVENT_MOUSE_MOTION) {
                 if (SDL_ConvertEventToRenderCoordinates(renderer_, &event)) {
                     client_renderer.set_pointer_position(world_, event.motion.x,
@@ -148,6 +150,7 @@ int Game::run() {
         int update_count = 0;
         while (accumulator >= fixed_delta && update_count < maximum_updates_per_frame) {
             simulation_.update(fixed_delta);
+            red_commander_.update(world_, client_renderer.controlled_team());
             client_renderer.update(world_, fixed_delta);
             accumulator -= fixed_delta;
             ++update_count;
@@ -157,7 +160,8 @@ int Game::run() {
         }
 
         const double interpolation_alpha = accumulator / fixed_delta;
-        if (!client_renderer.render(world_, interpolation_alpha, render_fps)) {
+        if (!client_renderer.render(world_, red_commander_, interpolation_alpha,
+                                    render_fps)) {
             std::fprintf(stderr, "Rendering failed: %s\n", SDL_GetError());
             return 1;
         }

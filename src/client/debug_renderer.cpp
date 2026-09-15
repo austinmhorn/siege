@@ -4,6 +4,7 @@
 #include "client/local_control.hpp"
 #include "client/ui_layout.hpp"
 #include "client/world_transform.hpp"
+#include "core/ai_commander.hpp"
 #include "core/economy.hpp"
 #include "core/math.hpp"
 #include "core/scoring.hpp"
@@ -194,7 +195,8 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                            const std::size_t firing_effect_count,
                            const std::size_t explosion_effect_count,
                            const std::size_t selected_unit_count,
-                           const Team controlled_team) const {
+                           const Team controlled_team,
+                           const AiCommander& ai_commander) const {
     SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
     for (const auto& zone : world.zones()) {
         if (zone.type() != ZoneType::objective) {
@@ -372,6 +374,36 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
     global.format(FontRole::debug, debug_text, "passive: $%lld/s",
                   static_cast<long long>(
                       default_economy_rules.passive_income_per_second));
+    global.blank();
+
+    global.line(FontRole::debug_bold, debug_heading, "AI COMMANDER");
+    const auto ai_status = to_string(ai_commander.status());
+    const auto ai_team = team_color_name(ai_commander.team());
+    const auto ai_result = to_string(ai_commander.last_result());
+    const std::size_t ai_pending = static_cast<std::size_t>(std::count_if(
+        world.pending_deployments().begin(), world.pending_deployments().end(),
+        [&ai_commander](const auto& deployment) {
+            return deployment.team == ai_commander.team();
+        }));
+    global.format(FontRole::debug, debug_text, "%.*s: %.*s",
+                  static_cast<int>(ai_team.size()), ai_team.data(),
+                  static_cast<int>(ai_status.size()), ai_status.data());
+    global.format(FontRole::debug, debug_text, "next: %.2fs",
+                  static_cast<double>(
+                      ai_commander.ticks_until_next_decision()) /
+                      simulation_hz);
+    if (const auto troop = ai_commander.last_troop_choice()) {
+        const auto name = troop_display_name(*troop);
+        global.format(FontRole::debug, debug_text, "last: %.*s / %.*s",
+                      static_cast<int>(name.size()), name.data(),
+                      static_cast<int>(ai_result.size()), ai_result.data());
+    } else {
+        global.format(FontRole::debug, debug_text, "last: none / %.*s",
+                      static_cast<int>(ai_result.size()), ai_result.data());
+    }
+    global.format(FontRole::debug, debug_text, "pending: %zu  deployed: %llu",
+                  ai_pending, static_cast<unsigned long long>(
+                                  ai_commander.successful_deployments()));
     global.blank();
 
     global.line(FontRole::debug_bold, debug_heading, "REGULATION SCORE");

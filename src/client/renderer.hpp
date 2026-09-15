@@ -22,6 +22,7 @@ struct SDL_Renderer;
 namespace siege {
 
 class World;
+class AiCommander;
 
 class Renderer {
 public:
@@ -30,6 +31,7 @@ public:
     void update(const World& world, double fixed_delta_seconds);
     void toggle_debug_overlay() noexcept;
     void toggle_controlled_team() noexcept;
+    [[nodiscard]] Team controlled_team() const noexcept;
     [[nodiscard]] bool cancel_placement() noexcept;
     void set_pointer_position(const World& world, float drawable_x,
                               float drawable_y);
@@ -41,7 +43,9 @@ public:
                                         float drawable_y);
     void handle_secondary_pointer_release(World& world, float drawable_x,
                                           float drawable_y);
-    [[nodiscard]] bool render(const World& world, double interpolation_alpha,
+    [[nodiscard]] bool render(const World& world,
+                              const AiCommander& ai_commander,
+                              double interpolation_alpha,
                               double render_fps) const;
 
 private:
