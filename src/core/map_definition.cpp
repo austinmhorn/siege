@@ -147,6 +147,16 @@ const TeamForwardDefinition* team_forward_definition(
     return nullptr;
 }
 
+float team_forward_facing_angle(const MapDefinition& map,
+                                const Team team) noexcept {
+    const TeamForwardDefinition* forward =
+        team_forward_definition(map, team);
+    if (forward == nullptr) {
+        return 0.0F;
+    }
+    return facing_from_direction(Vec2{forward->x_direction, 0.0F});
+}
+
 const ZoneDefinition* zone_definition(const MapDefinition& map,
                                       const std::size_t ordered_index) noexcept {
     return ordered_index < map.zones.size() ? &map.zones[ordered_index]

@@ -110,6 +110,15 @@ Vec2 hold_velocity_for(const Unit& unit, const Vec2 desired_velocity,
     return lerp(desired_velocity, return_velocity, return_weight);
 }
 
+bool returning_to_hold_anchor(const Unit& unit) noexcept {
+    if (!unit.tactical_position().has_value()) {
+        return false;
+    }
+    const float return_start = default_tactical_rules.hold_leash_radius *
+                               default_tactical_rules.hold_return_start_fraction;
+    return length(*unit.tactical_position() - unit.position()) > return_start;
+}
+
 Vec2 constrain_to_hold_leash(const Unit& unit, const Vec2 position) noexcept {
     if (unit.tactical_order() != TacticalOrder::hold ||
         !unit.tactical_position().has_value()) {
@@ -275,7 +284,11 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
              unit.position().x >= world_.map().logical_width - world_margin) ||
             (team_direction < 0.0F && unit.position().x <= world_margin);
         Vec2 velocity{};
-        float desired_facing = unit.facing_angle();
+        const float forward_facing =
+            team_forward_facing_angle(world_.map(), unit.team());
+        float desired_facing = unit.team() == Team::none
+            ? unit.facing_angle()
+            : forward_facing;
         MovementState state = MovementState::idle;
         CombatMovementState combat_state = CombatMovementState::advancing;
         const Vec2 separation = separation_for(unit, units);
@@ -283,20 +296,22 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
             support_positioning_for(unit, units, world_.map());
         if (unit.team() != Team::none && !reached_edge) {
             const float y_error = unit.preferred_y() - unit.position().y;
-            Vec2 steering{
+            Vec2 primary_steering{
                 advance_x,
                 std::clamp(y_error / preferred_y_scale, -maximum_y_correction,
                            maximum_y_correction),
             };
-            steering = steering + separation + support.steering;
+            primary_steering = primary_steering + support.steering;
+            const Vec2 steering = primary_steering + separation;
             velocity = length_squared(support.steering) > 0.0001F
                            ? weighted_steering_velocity(steering,
                                                         unit.move_speed())
                            : velocity_from_steering(steering,
                                                     unit.move_speed());
             if (length_squared(velocity) > 0.0001F) {
-                const Vec2 direction = normalized(velocity);
-                desired_facing = facing_from_direction(direction);
+                if (length_squared(primary_steering) > 0.0001F) {
+                    desired_facing = facing_from_direction(velocity);
+                }
                 state = MovementState::moving;
             }
         }
@@ -352,6 +367,13 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
                 ? velocity
                 : soft_separation_velocity(separation, unit.move_speed());
             velocity = hold_velocity_for(unit, desired_velocity, separation);
+            if (!target_ids[index].has_value()) {
+                desired_facing = forward_facing;
+                if (returning_to_hold_anchor(unit) &&
+                    length_squared(velocity) > 0.0001F) {
+                    desired_facing = facing_from_direction(velocity);
+                }
+            }
             state = length_squared(velocity) > 0.0001F
                         ? MovementState::moving
                         : MovementState::idle;

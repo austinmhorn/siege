@@ -90,6 +90,8 @@ struct MapDefinition {
 [[nodiscard]] const MapDefinition& default_map_definition() noexcept;
 [[nodiscard]] const TeamForwardDefinition* team_forward_definition(
     const MapDefinition& map, Team team) noexcept;
+[[nodiscard]] float team_forward_facing_angle(
+    const MapDefinition& map, Team team) noexcept;
 [[nodiscard]] const ZoneDefinition* zone_definition(
     const MapDefinition& map, std::size_t ordered_index) noexcept;
 

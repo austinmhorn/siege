@@ -182,6 +182,15 @@ int main() {
             battlefield.team_b_forward.objective_order[0] == 3 &&
             battlefield.team_b_forward.objective_order[2] == 1,
         "map defines mirrored Team A and Team B forward traversal");
+    const Vec2 blue_forward = direction_from_facing(
+        team_forward_facing_angle(battlefield, Team::team_a));
+    const Vec2 red_forward = direction_from_facing(
+        team_forward_facing_angle(battlefield, Team::team_b));
+    passed &= check(near(blue_forward.x, 1.0F) &&
+                        near(blue_forward.y, 0.0F) &&
+                        near(red_forward.x, -1.0F) &&
+                        near(red_forward.y, 0.0F),
+                    "idle facing derives mirrored team-forward bearings from map traversal");
     passed &= check(
         map_zone_index_for_position(battlefield, {0.0F, 0.0F}) == 0 &&
             map_zone_index_for_position(battlefield, {383.999F, 500.0F}) == 0 &&
@@ -1801,6 +1810,20 @@ int main() {
                 default_tactical_rules.hold_leash_radius + 0.01F,
         "Hold stores the issue position and prevents long-distance pursuit");
 
+    World idle_hold_world;
+    idle_hold_world.units().clear();
+    idle_hold_world.units().push_back(
+        test_unit(5072, Team::team_a, {500.0F, 200.0F}, 0.0F));
+    const std::array<Unit::Id, 1> idle_hold_ids{5072};
+    (void)apply_tactical_order(idle_hold_world, idle_hold_ids,
+                               TacticalOrder::hold);
+    Simulation idle_hold_simulation{idle_hold_world};
+    idle_hold_simulation.update(1.0 / 60.0);
+    passed &= check(
+        near(idle_hold_world.units()[0].desired_facing_angle(), 270.0F) &&
+            near(idle_hold_world.units()[0].facing_angle(), 358.5F),
+        "an idle Hold unit gradually turns toward its map-defined forward direction");
+
     World hold_combat_world;
     hold_combat_world.units().clear();
     hold_combat_world.units().push_back(
@@ -1838,8 +1861,12 @@ int main() {
         length(regroup_world.units()[0].position() -
                regroup_world.units()[1].position());
     Simulation regroup_simulation{regroup_world};
+    regroup_simulation.update(1.0 / 60.0);
+    const bool regroup_uses_movement_heading =
+        near(regroup_world.units()[0].desired_facing_angle(), 90.0F) &&
+        near(regroup_world.units()[1].desired_facing_angle(), 270.0F);
     bool regroup_completed = false;
-    for (int tick = 0; tick < 240; ++tick) {
+    for (int tick = 1; tick < 240; ++tick) {
         regroup_simulation.update(1.0 / 60.0);
         if (regroup_world.units()[0].tactical_order() ==
                 TacticalOrder::automatic &&
@@ -1850,11 +1877,11 @@ int main() {
         }
     }
     passed &= check(
-        regroup_completed &&
+        regroup_uses_movement_heading && regroup_completed &&
             length(regroup_world.units()[0].position() -
                    regroup_world.units()[1].position()) <
                 initial_regroup_separation,
-        "Regroup consolidates dispersed units and completes back to auto");
+        "Regroup faces its movement direction, consolidates, and completes back to auto");
 
     World deterministic_regroup_world;
     deterministic_regroup_world.units().clear();
@@ -2021,6 +2048,53 @@ int main() {
             terminal_a_world.units()[0].position().x < 1536.0F,
         "owning every objective holds targetless Team A troops inside zone 3");
 
+    terminal_a_world.units().clear();
+    terminal_a_world.units().push_back(test_unit(
+        5141, Team::team_a, {terminal_a_frontline->hold_x, 300.0F}, 0.0F));
+    terminal_a_simulation.update(1.0 / 60.0);
+    const bool terminal_blue_faces_forward_gradually =
+        terminal_a_world.units()[0].movement_state() == MovementState::idle &&
+        near(terminal_a_world.units()[0].desired_facing_angle(), 270.0F) &&
+        near(terminal_a_world.units()[0].facing_angle(), 358.5F);
+    terminal_a_world.units()[0].set_tactical_order(
+        TacticalOrder::regroup, terminal_a_world.units()[0].position());
+    terminal_a_simulation.update(1.0 / 60.0);
+    passed &= check(
+        terminal_blue_faces_forward_gradually &&
+            terminal_a_world.units()[0].tactical_order() ==
+                TacticalOrder::automatic &&
+            near(terminal_a_world.units()[0].desired_facing_angle(), 270.0F),
+        "terminal Team A idle and completed Regroup both return to forward facing without snapping");
+
+    World idle_target_facing_world;
+    idle_target_facing_world.units().clear();
+    for (std::size_t index = 1; index <= 3; ++index) {
+        idle_target_facing_world.zones()[index].advance_capture(100.0F);
+    }
+    update_zone_capture(idle_target_facing_world, 0.0);
+    const auto idle_target_frontline =
+        frontline_objective(idle_target_facing_world, Team::team_a);
+    idle_target_facing_world.units().push_back(test_unit(
+        5142, Team::team_a, {idle_target_frontline->hold_x, 300.0F}, 270.0F));
+    idle_target_facing_world.units().push_back(test_unit(
+        5143, Team::team_b, {idle_target_frontline->hold_x, 380.0F}, 90.0F));
+    Simulation idle_target_facing_simulation{idle_target_facing_world};
+    idle_target_facing_simulation.update(1.0 / 60.0);
+    const bool target_overrode_idle_facing =
+        idle_target_facing_world.units()[0].target_id() == 5143 &&
+        near(idle_target_facing_world.units()[0].desired_facing_angle(), 0.0F);
+    idle_target_facing_world.units().erase(
+        idle_target_facing_world.units().begin() + 1);
+    for (int tick = 0; tick < 300; ++tick) {
+        idle_target_facing_simulation.update(1.0 / 60.0);
+    }
+    passed &= check(
+        target_overrode_idle_facing &&
+            !idle_target_facing_world.units()[0].target_id().has_value() &&
+            near(idle_target_facing_world.units()[0].desired_facing_angle(),
+                 270.0F),
+        "combat targeting overrides idle facing and target loss returns a settled unit forward");
+
     World terminal_b_world;
     terminal_b_world.units().clear();
     for (std::size_t index = 1; index <= 3; ++index) {
@@ -2039,6 +2113,16 @@ int main() {
             near(terminal_b_frontline->forward_boundary_x, 384.0F) &&
             terminal_b_world.units()[0].position().x > 384.0F,
         "Team B terminal frontline mirrors the opposing-home restriction");
+
+    terminal_b_world.units().clear();
+    terminal_b_world.units().push_back(test_unit(
+        5151, Team::team_b, {terminal_b_frontline->hold_x, 300.0F}, 0.0F));
+    terminal_b_simulation.update(1.0 / 60.0);
+    passed &= check(
+        terminal_b_world.units()[0].movement_state() == MovementState::idle &&
+            near(terminal_b_world.units()[0].desired_facing_angle(), 90.0F) &&
+            near(terminal_b_world.units()[0].facing_angle(), 1.5F),
+        "terminal Team B idle facing mirrors gradually toward Team A");
 
     passed &= check(near(capture_bar_fraction(100.0F), 0.0F) &&
                         near(capture_bar_fraction(0.0F), 0.5F) &&
