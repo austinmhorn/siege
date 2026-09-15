@@ -1,6 +1,7 @@
 #include "client/debug_renderer.hpp"
 
 #include "client/capture_bar.hpp"
+#include "client/local_control.hpp"
 #include "client/ui_layout.hpp"
 #include "client/world_transform.hpp"
 #include "core/economy.hpp"
@@ -192,7 +193,8 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                            const std::size_t corpse_count,
                            const std::size_t firing_effect_count,
                            const std::size_t explosion_effect_count,
-                           const std::size_t selected_unit_count) const {
+                           const std::size_t selected_unit_count,
+                           const Team controlled_team) const {
     SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
     for (const auto& zone : world.zones()) {
         if (zone.type() != ZoneType::objective) {
@@ -334,6 +336,11 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
     TextCursor global{fonts_, left_panel.x + panel_padding,
                       left_panel.y + panel_padding};
     global.line(FontRole::debug_bold, debug_heading, "SIEGE F3");
+    const auto controlled_name = team_color_name(controlled_team);
+    global.format(FontRole::debug_bold, debug_heading,
+                  "controlled team: %.*s",
+                  static_cast<int>(controlled_name.size()),
+                  controlled_name.data());
     global.format(FontRole::debug, debug_text, "simulation: %.0f Hz",
                   simulation_hz);
     global.format(FontRole::debug, debug_text, "render: %.0f FPS", render_fps);

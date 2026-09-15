@@ -19,22 +19,23 @@ bool inside_inclusive(const Vec2 position, const Vec2 first,
 
 } // namespace
 
-void UnitSelection::replace_from_rectangle(const World& world, const Vec2 first,
+void UnitSelection::replace_from_rectangle(const World& world, const Team team,
+                                           const Vec2 first,
                                            const Vec2 second) {
     ids_.clear();
     for (const Unit& unit : world.units()) {
-        if (unit.is_alive() && unit.team() == Team::team_a &&
+        if (unit.is_alive() && unit.team() == team &&
             inside_inclusive(unit.position(), first, second)) {
             ids_.push_back(unit.id());
         }
     }
 }
 
-void UnitSelection::prune(const World& world) {
-    std::erase_if(ids_, [&world](const Unit::Id id) {
+void UnitSelection::prune(const World& world, const Team team) {
+    std::erase_if(ids_, [&world, team](const Unit::Id id) {
         const Unit* unit = world.find_unit(id);
         return unit == nullptr || !unit->is_alive() ||
-               unit->team() != Team::team_a;
+               unit->team() != team;
     });
 }
 

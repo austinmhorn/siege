@@ -533,13 +533,7 @@ void Renderer::update(const World& world, const double fixed_delta_seconds) {
     const MatchPhase match_phase = world.match_state().phase();
     if (match_phase == MatchPhase::sudden_death &&
         observed_match_phase_ != MatchPhase::sudden_death) {
-        selection_.clear();
-        selection_drag_.reset();
-        path_drawing_.reset();
-        command_menu_position_.reset();
-        selected_troop_.reset();
-        deployment_feedback_ = DeploymentFeedback::none;
-        deployment_feedback_seconds_ = 0.0;
+        clear_local_interaction_state();
         leg_animations_.clear();
         firing_animations_.clear();
         corpses_.clear();
@@ -555,14 +549,14 @@ void Renderer::update(const World& world, const double fixed_delta_seconds) {
         deployment_feedback_ = DeploymentFeedback::none;
         deployment_feedback_seconds_ = 0.0;
     }
-    selection_.prune(world);
+    selection_.prune(world, local_control_.team());
     if (selection_.size() == 0) {
         command_menu_position_.reset();
     }
     if (path_drawing_.has_value()) {
         const Unit* unit = world.find_unit(path_drawing_->unit_id);
         if (unit == nullptr || !unit->is_alive() ||
-            unit->team() != Team::team_a) {
+            unit->team() != local_control_.team()) {
             path_drawing_.reset();
         }
     }
@@ -648,6 +642,21 @@ void Renderer::toggle_debug_overlay() noexcept {
     debug_overlay_enabled_ = !debug_overlay_enabled_;
 }
 
+void Renderer::toggle_controlled_team() noexcept {
+    (void)local_control_.toggle();
+    clear_local_interaction_state();
+}
+
+void Renderer::clear_local_interaction_state() noexcept {
+    selection_.clear();
+    selection_drag_.reset();
+    path_drawing_.reset();
+    command_menu_position_.reset();
+    selected_troop_.reset();
+    deployment_feedback_ = DeploymentFeedback::none;
+    deployment_feedback_seconds_ = 0.0;
+}
+
 bool Renderer::cancel_placement() noexcept {
     const bool was_active = selected_troop_.has_value();
     selected_troop_.reset();
@@ -694,9 +703,10 @@ void Renderer::handle_primary_pointer_press(World& world,
             *command_menu_position_, output_width, output_height);
         for (std::size_t index = 0; index < tactical_commands.size(); ++index) {
             if (contains(command_item_rect(menu, index), click)) {
-                selection_.prune(world);
+                selection_.prune(world, local_control_.team());
                 (void)apply_tactical_order(world, selection_.ids(),
-                                           tactical_commands[index]);
+                                           tactical_commands[index],
+                                           local_control_.team());
                 command_menu_position_.reset();
                 return;
             }
@@ -726,7 +736,7 @@ void Renderer::handle_primary_pointer_press(World& world,
         if (!world_point.has_value()) {
             return;
         }
-        const auto unit_id = pick_path_unit(world, Team::team_a,
+        const auto unit_id = pick_path_unit(world, local_control_.team(),
                                             Vec2{world_point->x, world_point->y});
         if (!should_begin_individual_path(PointerDispatch::primary, false,
                                           unit_id.has_value())) {
@@ -743,7 +753,7 @@ void Renderer::handle_primary_pointer_press(World& world,
         return;
     }
     const DeploymentResult result = request_deployment(
-        world, Team::team_a, *selected_troop_,
+        world, local_control_.team(), *selected_troop_,
         Vec2{world_point->x, world_point->y});
     if (result == DeploymentResult::accepted) {
         selected_troop_.reset();
@@ -771,10 +781,12 @@ void Renderer::handle_primary_pointer_release(World& world,
                                  path_drawing_->origin, *endpoint, true);
     }
     Unit* unit = world.find_unit(path_drawing_->unit_id);
-    if (unit != nullptr && unit->is_alive() && unit->team() == Team::team_a &&
+    if (unit != nullptr && unit->is_alive() &&
+        unit->team() == local_control_.team() &&
         !path_drawing_->sampled_points.empty()) {
         (void)assign_movement_path(
-            world, unit->id(), std::move(path_drawing_->sampled_points));
+            world, unit->id(), std::move(path_drawing_->sampled_points),
+            local_control_.team());
     }
     path_drawing_.reset();
 }
@@ -808,11 +820,12 @@ void Renderer::handle_secondary_pointer_release(World& world,
     if (classify_secondary_gesture(selection_drag_->drawable_start,
                                    selection_drag_->drawable_current) ==
         SecondaryGesture::drag) {
-        selection_.replace_from_rectangle(world, selection_drag_->start,
+        selection_.replace_from_rectangle(world, local_control_.team(),
+                                          selection_drag_->start,
                                           selection_drag_->current);
         command_menu_position_.reset();
     } else {
-        selection_.prune(world);
+        selection_.prune(world, local_control_.team());
         command_menu_position_ = selection_.size() > 0
             ? std::optional<Point>{drawable_release}
             : std::nullopt;
@@ -846,7 +859,7 @@ bool Renderer::render(const World& world, const double interpolation_alpha,
         }
         for (const auto& zone : world.zones()) {
             const auto deployment =
-                deployment_bounds(world, zone, Team::team_a);
+                deployment_bounds(world, zone, local_control_.team());
             if (!deployment.has_value()) {
                 continue;
             }
@@ -885,7 +898,8 @@ bool Renderer::render(const World& world, const double interpolation_alpha,
     if (debug_overlay_enabled_ &&
         !debug_renderer_.render(world, transform, render_fps, 60.0,
                                 corpses_.size(), firing_animations_.size(),
-                                explosions_.size(), selection_.size())) {
+                                explosions_.size(), selection_.size(),
+                                local_control_.team())) {
         return false;
     }
 
@@ -1068,7 +1082,7 @@ bool Renderer::render_selection(const World& world,
     for (const Unit::Id id : selection_.ids()) {
         const Unit* unit = world.find_unit(id);
         if (unit == nullptr || !unit->is_alive() ||
-            unit->team() != Team::team_a) {
+            unit->team() != local_control_.team()) {
             continue;
         }
         const Vec2 position =
@@ -1166,7 +1180,7 @@ bool Renderer::render_deployment_ui(const World& world,
         return false;
     }
 
-    const PlayerState* player = world.find_player(Team::team_a);
+    const PlayerState* player = world.find_player(local_control_.team());
     for (std::size_t index = 0; index < purchasable_troops.size(); ++index) {
         const TroopType troop = purchasable_troops[index];
         const TroopDefinition* definition = troop_definition_for(troop);
@@ -1243,7 +1257,7 @@ bool Renderer::render_deployment_ui(const World& world,
     }
     const Vec2 position{world_point->x, world_point->y};
     const bool valid =
-        is_valid_deployment_location(world, Team::team_a, position);
+        is_valid_deployment_location(world, local_control_.team(), position);
     set_color(renderer_, valid ? Color{120, 255, 160, 235}
                                : Color{255, 100, 100, 235});
     const auto marker = transform.world_to_drawable(*world_point);

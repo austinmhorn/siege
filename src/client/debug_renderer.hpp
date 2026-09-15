@@ -10,6 +10,7 @@ namespace siege {
 
 class World;
 class WorldTransform;
+enum class Team;
 
 class DebugRenderer {
 public:
@@ -20,7 +21,8 @@ public:
                               std::size_t corpse_count,
                               std::size_t firing_effect_count,
                               std::size_t explosion_effect_count,
-                              std::size_t selected_unit_count) const;
+                              std::size_t selected_unit_count,
+                              Team controlled_team) const;
 
 private:
     SDL_Renderer* renderer_{};

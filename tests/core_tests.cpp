@@ -1,5 +1,6 @@
 #include "core/combat_behavior.hpp"
 #include "client/capture_bar.hpp"
+#include "client/local_control.hpp"
 #include "client/pointer_input.hpp"
 #include "client/unit_selection.hpp"
 #include "core/deployment.hpp"
@@ -135,7 +136,8 @@ int main() {
     selection_world.units().back().apply_damage(100.0F);
 
     UnitSelection selection;
-    selection.replace_from_rectangle(selection_world, {200.0F, 200.0F},
+    selection.replace_from_rectangle(selection_world, Team::team_a,
+                                     {200.0F, 200.0F},
                                      {50.0F, 50.0F});
     passed &= check(
         selection.ids() == std::vector<Unit::Id>{101, 102},
@@ -143,6 +145,21 @@ int main() {
     passed &= check(!selection.contains(103) && !selection.contains(104) &&
                         !selection.contains(105),
                     "selection ignores outside, enemy, and dead units");
+
+    LocalControlState local_control;
+    passed &= check(local_control.team() == Team::team_a &&
+                        team_color_name(local_control.team()) == "BLUE" &&
+                        local_control.toggle() == Team::team_b &&
+                        team_color_name(local_control.team()) == "RED" &&
+                        local_control.toggle() == Team::team_a,
+                    "local control defaults BLUE and toggles A to B to A");
+
+    UnitSelection red_selection;
+    red_selection.replace_from_rectangle(selection_world, Team::team_b,
+                                         {50.0F, 50.0F},
+                                         {200.0F, 200.0F});
+    passed &= check(red_selection.ids() == std::vector<Unit::Id>{104},
+                    "RED selection includes only living Team B units");
 
     UnitSelection rmb_selection;
     PointerInputRouter rmb_input;
@@ -152,7 +169,8 @@ int main() {
         rmb_input.release(PointerButton::secondary);
     if (rmb_press == PointerDispatch::secondary &&
         rmb_release == PointerDispatch::secondary) {
-        rmb_selection.replace_from_rectangle(selection_world, {50.0F, 50.0F},
+        rmb_selection.replace_from_rectangle(selection_world, Team::team_a,
+                                              {50.0F, 50.0F},
                                               {200.0F, 200.0F});
     }
 
@@ -165,7 +183,8 @@ int main() {
     if (control_lmb_press == PointerDispatch::secondary &&
         control_lmb_release == PointerDispatch::secondary) {
         control_lmb_selection.replace_from_rectangle(
-            selection_world, {200.0F, 200.0F}, {50.0F, 50.0F});
+            selection_world, Team::team_a, {200.0F, 200.0F},
+            {50.0F, 50.0F});
     }
     passed &= check(
         rmb_selection.ids() == std::vector<Unit::Id>{101, 102} &&
@@ -180,6 +199,18 @@ int main() {
             normal_lmb_input.release(PointerButton::primary) ==
                 PointerDispatch::primary,
         "normal LMB remains a primary action and cannot trigger selection");
+
+    PointerInputRouter cancelled_input;
+    UnitSelection cleared_on_switch;
+    cleared_on_switch.replace_from_rectangle(
+        selection_world, Team::team_a, {50.0F, 50.0F}, {200.0F, 200.0F});
+    (void)cancelled_input.press(PointerButton::secondary, false);
+    (void)local_control.toggle();
+    cleared_on_switch.clear();
+    cancelled_input.cancel();
+    passed &= check(cleared_on_switch.ids().empty() &&
+                        !cancelled_input.secondary_active(),
+                    "team switching clears selection and active pointer input");
     int normal_lmb_action_count = 0;
     PointerInputRouter exclusive_control_lmb;
     if (exclusive_control_lmb.press(PointerButton::primary, true) ==
@@ -248,19 +279,21 @@ int main() {
             near(sampled_path[2].y, 12.0F),
         "waypoint sampling is distance-limited, ordered, endpoint-preserving, and deterministic");
 
-    selection.replace_from_rectangle(selection_world, {300.0F, 300.0F},
+    selection.replace_from_rectangle(selection_world, Team::team_a,
+                                     {300.0F, 300.0F},
                                      {400.0F, 400.0F});
     passed &= check(selection.ids() == std::vector<Unit::Id>{103},
                     "a new rectangle replaces the previous selection");
     selection_world.units()[2].apply_damage(100.0F);
-    selection.prune(selection_world);
+    selection.prune(selection_world, Team::team_a);
     passed &= check(selection.ids().empty(),
                     "dead selected unit IDs are pruned safely");
 
-    selection.replace_from_rectangle(selection_world, {90.0F, 90.0F},
+    selection.replace_from_rectangle(selection_world, Team::team_a,
+                                     {90.0F, 90.0F},
                                      {110.0F, 110.0F});
     selection_world.units().erase(selection_world.units().begin());
-    selection.prune(selection_world);
+    selection.prune(selection_world, Team::team_a);
     passed &= check(selection.ids().empty(),
                     "missing selected unit IDs are pruned safely");
 
@@ -287,6 +320,63 @@ int main() {
             command_filter_world.units()[2].tactical_order() ==
                 TacticalOrder::automatic,
         "commands affect selected living friendlies and safely ignore stale, dead, enemy, and duplicate IDs");
+
+    const std::array<Unit::Id, 2> red_command_ids{201, 203};
+    passed &= check(
+        apply_tactical_order(command_filter_world, red_command_ids,
+                             TacticalOrder::advance, Team::team_b) == 1 &&
+            command_filter_world.units()[0].tactical_order() ==
+                TacticalOrder::hold &&
+            command_filter_world.units()[2].tactical_order() ==
+                TacticalOrder::advance,
+        "RED tactical commands apply only to living Team B units");
+
+    passed &= check(
+        assign_movement_path(command_filter_world, 203,
+                             {{280.0F, 220.0F}, {240.0F, 240.0F}},
+                             Team::team_b) &&
+            command_filter_world.units()[2].has_movement_path() &&
+            !assign_movement_path(command_filter_world, 201,
+                                  {{180.0F, 220.0F}}, Team::team_b),
+        "RED individual paths apply only to living Team B units");
+
+    World red_deployment_world;
+    red_deployment_world.units().clear();
+    const Money red_cash_before =
+        red_deployment_world.find_player(Team::team_b)->cash();
+    passed &= check(
+        request_deployment(red_deployment_world, Team::team_b,
+                           TroopType::rifle, {1800.0F, 500.0F}) ==
+                DeploymentResult::accepted &&
+            red_deployment_world.find_player(Team::team_b)->cash() ==
+                red_cash_before - rifle_definition.purchase_cost &&
+            red_deployment_world.pending_deployments().size() == 1 &&
+            red_deployment_world.pending_deployments().front().team ==
+                Team::team_b,
+        "RED deployment charges Team B and creates a Team B pending unit");
+
+    red_deployment_world.units().push_back(
+        test_unit(204, Team::team_a, {300.0F, 300.0F}, 270.0F));
+    const Team existing_blue_team =
+        red_deployment_world.units().front().team();
+    const Team home_a_owner = red_deployment_world.zones()[0].owner();
+    const Team home_b_owner = red_deployment_world.zones()[4].owner();
+    const Score blue_score =
+        red_deployment_world.find_player(Team::team_a)->score();
+    const Score red_score =
+        red_deployment_world.find_player(Team::team_b)->score();
+    LocalControlState isolated_control;
+    (void)isolated_control.toggle();
+    passed &= check(
+        existing_blue_team == Team::team_a &&
+            red_deployment_world.units().front().team() == existing_blue_team &&
+            red_deployment_world.zones()[0].owner() == home_a_owner &&
+            red_deployment_world.zones()[4].owner() == home_b_owner &&
+            red_deployment_world.find_player(Team::team_a)->score() ==
+                blue_score &&
+            red_deployment_world.find_player(Team::team_b)->score() ==
+                red_score,
+        "switching local control does not alter units, ownership, or scores");
 
     World economy_world;
     economy_world.units().clear();

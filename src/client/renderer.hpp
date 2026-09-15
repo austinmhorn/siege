@@ -2,6 +2,7 @@
 
 #include "client/frame_animation.hpp"
 #include "client/font_system.hpp"
+#include "client/local_control.hpp"
 #include "client/pointer_input.hpp"
 #include "client/texture_cache.hpp"
 #include "client/debug_renderer.hpp"
@@ -27,6 +28,7 @@ public:
 
     void update(const World& world, double fixed_delta_seconds);
     void toggle_debug_overlay() noexcept;
+    void toggle_controlled_team() noexcept;
     [[nodiscard]] bool cancel_placement() noexcept;
     void set_pointer_position(float drawable_x, float drawable_y);
     void handle_primary_pointer_press(World& world, float drawable_x,
@@ -98,6 +100,7 @@ private:
                                         int output_width) const;
     [[nodiscard]] bool render_match_result(const World& world, int output_width,
                                            int output_height) const;
+    void clear_local_interaction_state() noexcept;
 
     SDL_Renderer* renderer_{};
     mutable TextureCache textures_;
@@ -107,6 +110,7 @@ private:
     std::unordered_map<unsigned int, FrameAnimation> firing_animations_;
     std::vector<CorpseVisual> corpses_;
     std::vector<ExplosionVisual> explosions_;
+    LocalControlState local_control_;
     UnitSelection selection_;
     std::optional<SelectionDrag> selection_drag_;
     std::optional<PathDrawing> path_drawing_;

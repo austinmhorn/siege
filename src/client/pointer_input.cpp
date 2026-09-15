@@ -51,4 +51,8 @@ bool PointerInputRouter::secondary_active() const noexcept {
     return secondary_source_.has_value();
 }
 
+void PointerInputRouter::cancel() noexcept {
+    secondary_source_.reset();
+}
+
 } // namespace siege

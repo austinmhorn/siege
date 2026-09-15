@@ -40,6 +40,7 @@ public:
                                         bool control_held) noexcept;
     [[nodiscard]] PointerDispatch release(PointerButton button) noexcept;
     [[nodiscard]] bool secondary_active() const noexcept;
+    void cancel() noexcept;
 
 private:
     std::optional<PointerButton> secondary_source_;

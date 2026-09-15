@@ -85,6 +85,10 @@ int Game::run() {
             } else if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
                        (event.key.key == SDLK_F3 || event.key.key == SDLK_D)) {
                 client_renderer.toggle_debug_overlay();
+            } else if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
+                       event.key.key == SDLK_F4) {
+                pointer_input.cancel();
+                client_renderer.toggle_controlled_team();
             } else if (event.type == SDL_EVENT_MOUSE_MOTION) {
                 if (SDL_ConvertEventToRenderCoordinates(renderer_, &event)) {
                     client_renderer.set_pointer_position(event.motion.x,

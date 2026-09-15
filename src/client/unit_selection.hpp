@@ -15,8 +15,9 @@ class World;
 // deterministic without introducing SDL types into the query.
 class UnitSelection {
 public:
-    void replace_from_rectangle(const World& world, Vec2 first, Vec2 second);
-    void prune(const World& world);
+    void replace_from_rectangle(const World& world, Team team, Vec2 first,
+                                Vec2 second);
+    void prune(const World& world, Team team);
     void clear() noexcept;
 
     [[nodiscard]] bool contains(Unit::Id id) const noexcept;
