@@ -300,10 +300,41 @@ void set_color(SDL_Renderer* renderer, const Color color) {
     SDL_SetRenderDrawColor(renderer, color.red, color.green, color.blue, color.alpha);
 }
 
-std::filesystem::path frame_path(const std::string_view layer,
-                                 const std::string_view prefix,
-                                 const std::size_t frame) {
-    return std::filesystem::path{"soldiers/color1/soldier1"} / layer /
+struct TeamVisualVariant {
+    std::string_view asset_palette;
+    Color modulation;
+};
+
+constexpr TeamVisualVariant blue_soldier_variant{
+    .asset_palette = "color2",
+    .modulation = {255, 255, 255, 255},
+};
+
+// The CraftPix pack has green, blue, yellow, and navy authored palettes but no
+// red one. Its blue-gray palette has enough neutral luminance to produce a
+// readable red team variant through a single centralized texture modulation.
+constexpr TeamVisualVariant red_soldier_variant{
+    .asset_palette = "color2",
+    .modulation = {255, 105, 95, 255},
+};
+
+const TeamVisualVariant& team_visual_variant(const Team team) noexcept {
+    return team == Team::team_b ? red_soldier_variant : blue_soldier_variant;
+}
+
+std::filesystem::path body_frame_path(const Team team,
+                                      const std::string_view layer,
+                                      const std::string_view prefix,
+                                      const std::size_t frame) {
+    return std::filesystem::path{"soldiers"} /
+           team_visual_variant(team).asset_palette / "soldier1" / layer /
+           (std::string{prefix} + std::to_string(frame) + ".png");
+}
+
+std::filesystem::path shadow_frame_path(const std::string_view layer,
+                                        const std::string_view prefix,
+                                        const std::size_t frame) {
+    return std::filesystem::path{"soldiers/shared/shadows"} / layer /
            (std::string{prefix} + std::to_string(frame) + ".png");
 }
 
@@ -312,10 +343,19 @@ bool render_soldier_layer(SDL_Renderer* renderer, TextureCache& textures,
                           const std::filesystem::path& path,
                           const Vec2 position, const float facing,
                           const float canvas_size, const Vec2 anchor,
-                          const float opacity = 1.0F) {
+                          const float opacity = 1.0F,
+                          const Color modulation = {255, 255, 255, 255}) {
     SDL_Texture* texture = textures.get(path);
-    if (texture == nullptr ||
-        !SDL_SetTextureAlphaModFloat(texture, std::clamp(opacity, 0.0F, 1.0F))) {
+    if (texture == nullptr) {
+        return false;
+    }
+    const bool color_set = SDL_SetTextureColorMod(
+        texture, modulation.red, modulation.green, modulation.blue);
+    const bool alpha_set = SDL_SetTextureAlphaModFloat(
+        texture, std::clamp(opacity, 0.0F, 1.0F));
+    if (!color_set || !alpha_set) {
+        SDL_SetTextureColorMod(texture, 255, 255, 255);
+        SDL_SetTextureAlphaModFloat(texture, 1.0F);
         return false;
     }
 
@@ -335,8 +375,9 @@ bool render_soldier_layer(SDL_Renderer* renderer, TextureCache& textures,
                            destination.h * anchor.y / canvas_size};
     const bool rendered = SDL_RenderTextureRotated(
         renderer, texture, nullptr, &destination, facing, &pivot, SDL_FLIP_NONE);
-    const bool restored = SDL_SetTextureAlphaModFloat(texture, 1.0F);
-    return rendered && restored;
+    const bool alpha_restored = SDL_SetTextureAlphaModFloat(texture, 1.0F);
+    const bool color_restored = SDL_SetTextureColorMod(texture, 255, 255, 255);
+    return rendered && alpha_restored && color_restored;
 }
 
 bool render_world_circle(SDL_Renderer* renderer, const WorldTransform& transform,
@@ -474,10 +515,12 @@ bool render_soldier_layer(SDL_Renderer* renderer, TextureCache& textures,
                           const WorldTransform& transform,
                           const std::filesystem::path& path,
                           const Vec2 position, const float facing,
-                          const float canvas_size, const float opacity = 1.0F) {
+                          const float canvas_size, const float opacity = 1.0F,
+                          const Color modulation = {255, 255, 255, 255}) {
     const Vec2 centered_anchor{canvas_size * 0.5F, canvas_size * 0.5F};
     return render_soldier_layer(renderer, textures, transform, path, position,
-                                facing, canvas_size, centered_anchor, opacity);
+                                facing, canvas_size, centered_anchor, opacity,
+                                modulation);
 }
 
 } // namespace
@@ -1314,14 +1357,15 @@ bool Renderer::render_corpses(const WorldTransform& transform) const {
             1.0 - std::clamp(corpse.fade_elapsed / corpse_fade_seconds, 0.0, 1.0));
         if (!render_soldier_layer(
                 renderer_, textures_, transform,
-                frame_path("shadows/death1", "death1_", frame),
+                shadow_frame_path("death1", "death1_", frame),
                 corpse.death.position, corpse.death.facing_angle,
                 soldier_layout.death_canvas_size, opacity) ||
             !render_soldier_layer(
                 renderer_, textures_, transform,
-                frame_path("death1", "death1_", frame),
+                body_frame_path(corpse.death.team, "death1", "death1_", frame),
                 corpse.death.position, corpse.death.facing_angle,
-                soldier_layout.death_canvas_size, opacity)) {
+                soldier_layout.death_canvas_size, opacity,
+                team_visual_variant(corpse.death.team).modulation)) {
             return false;
         }
     }
@@ -1359,29 +1403,35 @@ bool Renderer::render_units(const World& world, const WorldTransform& transform,
             firing ? visual->firing_body_shadow_anchor
                    : visual->body_shadow_anchor;
 
-        const std::string shadow_layer =
-            std::string{"shadows/"} + std::string{visual->layer};
-
         struct Layer {
             std::filesystem::path path;
             float canvas_size;
             Vec2 anchor;
+            Color modulation;
         };
+        constexpr Color no_modulation{255, 255, 255, 255};
+        const Color team_modulation =
+            team_visual_variant(unit.team()).modulation;
         const std::array layers{
-            Layer{frame_path("shadows/legs", "legs", leg_frame),
+            Layer{shadow_frame_path("legs", "legs", leg_frame),
                   soldier_layout.legs_canvas_size,
-                  soldier_layout.legs_shadow_anchor},
-            Layer{frame_path(shadow_layer, visual->frame_prefix, upper_frame),
-                  visual->upper_canvas_size, body_shadow_anchor},
-            Layer{frame_path("legs", "legs", leg_frame),
-                  soldier_layout.legs_canvas_size, soldier_layout.legs_anchor},
-            Layer{frame_path(visual->layer, visual->frame_prefix, upper_frame),
-                  visual->upper_canvas_size, body_anchor},
+                  soldier_layout.legs_shadow_anchor, no_modulation},
+            Layer{shadow_frame_path(visual->layer, visual->frame_prefix,
+                                    upper_frame),
+                  visual->upper_canvas_size, body_shadow_anchor,
+                  no_modulation},
+            Layer{body_frame_path(unit.team(), "legs", "legs", leg_frame),
+                  soldier_layout.legs_canvas_size, soldier_layout.legs_anchor,
+                  team_modulation},
+            Layer{body_frame_path(unit.team(), visual->layer,
+                                  visual->frame_prefix, upper_frame),
+                  visual->upper_canvas_size, body_anchor, team_modulation},
         };
 
-        for (const auto& [path, canvas_size, anchor] : layers) {
+        for (const auto& [path, canvas_size, anchor, modulation] : layers) {
             if (!render_soldier_layer(renderer_, textures_, transform, path,
-                                      position, facing, canvas_size, anchor)) {
+                                      position, facing, canvas_size, anchor,
+                                      1.0F, modulation)) {
                 return false;
             }
         }

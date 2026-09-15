@@ -6,9 +6,10 @@ project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source_root="${1:-$project_root/.local_assets/soldiers}"
 font_source_root="${2:-$project_root/.local_assets/fonts/dogica}"
 pack_root="${source_root%/}/PNG"
-soldier_source="$pack_root/soldiers_color1/soldier1"
+soldier_source="$pack_root/soldiers_color2/soldier1"
 shadow_source="$pack_root/Shadows"
-destination="$project_root/assets/soldiers/color1/soldier1"
+destination="$project_root/assets/soldiers/color2/soldier1"
+shadow_destination="$project_root/assets/soldiers/shared/shadows"
 font_destination="$project_root/assets/fonts/dogica"
 
 required_files=()
@@ -72,38 +73,38 @@ mkdir -p \
     "$destination/machine_gun" \
     "$destination/bazooka" \
     "$destination/death1" \
-    "$destination/shadows/legs" \
-    "$destination/shadows/rifle" \
-    "$destination/shadows/machine_gun" \
-    "$destination/shadows/bazooka" \
-    "$destination/shadows/death1"
+    "$shadow_destination/legs" \
+    "$shadow_destination/rifle" \
+    "$shadow_destination/machine_gun" \
+    "$shadow_destination/bazooka" \
+    "$shadow_destination/death1"
 mkdir -p "$font_destination"
 
 for index in 1 2 3 4 5 6 7; do
     cp "$soldier_source/legs/legs${index}.png" "$destination/legs/legs${index}.png"
-    cp "$shadow_source/legs${index}.png" "$destination/shadows/legs/legs${index}.png"
+    cp "$shadow_source/legs${index}.png" "$shadow_destination/legs/legs${index}.png"
 done
 for index in 1 2 3 4 5 6 7 8 9; do
     cp "$soldier_source/rifle/rifle${index}.png" "$destination/rifle/rifle${index}.png"
-    cp "$shadow_source/rifle${index}.png" "$destination/shadows/rifle/rifle${index}.png"
+    cp "$shadow_source/rifle${index}.png" "$shadow_destination/rifle/rifle${index}.png"
 done
 for index in 1 2 3 4; do
     cp "$soldier_source/death1/death1_${index}.png" \
         "$destination/death1/death1_${index}.png"
     cp "$shadow_source/death1_${index}.png" \
-        "$destination/shadows/death1/death1_${index}.png"
+        "$shadow_destination/death1/death1_${index}.png"
 done
 for index in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do
     cp "$soldier_source/machine_gun/machine_gun${index}.png" \
         "$destination/machine_gun/machine_gun${index}.png"
     cp "$shadow_source/machine_gun${index}.png" \
-        "$destination/shadows/machine_gun/machine_gun${index}.png"
+        "$shadow_destination/machine_gun/machine_gun${index}.png"
 done
 for index in 1 2 3 4 5 6 7 8 9 10 11 12 13; do
     cp "$soldier_source/bazooka/bazooka${index}.png" \
         "$destination/bazooka/bazooka${index}.png"
     cp "$shadow_source/bazooka${index}.png" \
-        "$destination/shadows/bazooka/bazooka${index}.png"
+        "$shadow_destination/bazooka/bazooka${index}.png"
 done
 
 cp "$font_source_root/TTF/dogicapixel.ttf" \
@@ -113,5 +114,6 @@ cp "$font_source_root/TTF/dogicapixelbold.ttf" \
 cp "$font_source_root/dogica_pixel_license.txt" \
     "$font_destination/LICENSE.txt"
 
-echo "Synced 98 rifle, machine-gun, and bazooka soldier PNG files to: $destination"
+echo "Synced authored blue soldier PNG files to: $destination"
+echo "Synced shared shadow PNG files to: $shadow_destination"
 echo "Synced Dogica Pixel regular, bold, and license files to: $font_destination"
