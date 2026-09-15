@@ -963,7 +963,7 @@ int main() {
                         initial_team_b->cash() == 25'000,
                     "both players start with 25000 cash");
     passed &= check(
-        default_economy_rules.passive_income_per_second == 100 &&
+        default_economy_rules.passive_income_per_second == 200 &&
             kill_reward_for(TroopType::rifle) == 250 &&
             kill_reward_for(TroopType::machine_gun) == 400 &&
             kill_reward_for(TroopType::bazooka) == 600 &&
@@ -974,9 +974,9 @@ int main() {
     for (int tick = 0; tick < 60; ++tick) {
         economy_simulation.update(1.0 / 60.0);
     }
-    passed &= check(economy_world.find_player(Team::team_a)->cash() == 25'100 &&
-                        economy_world.find_player(Team::team_b)->cash() == 25'100,
-                    "one fixed-step second awards 100 passive cash equally");
+    passed &= check(economy_world.find_player(Team::team_a)->cash() == 25'200 &&
+                        economy_world.find_player(Team::team_b)->cash() == 25'200,
+                    "one fixed-step second awards 200 passive cash equally");
 
     World batched_economy_world;
     batched_economy_world.units().clear();
@@ -1005,7 +1005,7 @@ int main() {
     }
     passed &= check(
         render_snapshot_checksum > 0 &&
-            render_rate_a.find_player(Team::team_a)->cash() == 25'200 &&
+            render_rate_a.find_player(Team::team_a)->cash() == 25'400 &&
             render_rate_a.find_player(Team::team_a)->cash() ==
                 render_rate_b.find_player(Team::team_a)->cash() &&
             render_rate_a.find_player(Team::team_b)->cash() ==
@@ -1147,8 +1147,8 @@ int main() {
     passed &= check(
         sudden_reset_world.match_state().phase() ==
                 MatchPhase::sudden_death &&
-            sudden_reset_world.find_player(Team::team_a)->cash() == 25'100 &&
-            sudden_reset_world.find_player(Team::team_b)->cash() == 25'100 &&
+            sudden_reset_world.find_player(Team::team_a)->cash() == 25'200 &&
+            sudden_reset_world.find_player(Team::team_b)->cash() == 25'200 &&
             sudden_reset_world.find_player(Team::team_a)->score() == 3 &&
             sudden_reset_world.find_player(Team::team_b)->score() == 3,
         "sudden death has no timer, keeps passive income, and freezes regulation scores");
