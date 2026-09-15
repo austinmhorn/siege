@@ -1,5 +1,6 @@
 #include "client/renderer.hpp"
 
+#include "client/battlefield_renderer.hpp"
 #include "client/capture_bar.hpp"
 #include "client/ui_layout.hpp"
 #include "client/world_transform.hpp"
@@ -34,12 +35,6 @@ struct Color {
 };
 
 constexpr Color letterbox{12, 15, 20, 255};
-constexpr Color neutral{66, 72, 78, 255};
-constexpr Color team_a{46, 91, 132, 255};
-constexpr Color team_b{132, 55, 50, 255};
-constexpr Color objective_team_a{57, 76, 94, 255};
-constexpr Color objective_team_b{88, 62, 61, 255};
-constexpr Color divider{196, 203, 207, 255};
 constexpr Color team_a_projectile{126, 218, 255, 255};
 constexpr Color team_b_projectile{255, 174, 102, 255};
 constexpr Color rocket_core{255, 244, 132, 255};
@@ -303,18 +298,6 @@ std::optional<Vec2> selection_world_point(SDL_Renderer* renderer,
 
 void set_color(SDL_Renderer* renderer, const Color color) {
     SDL_SetRenderDrawColor(renderer, color.red, color.green, color.blue, color.alpha);
-}
-
-Color color_for(const Zone& zone) {
-    switch (zone.owner()) {
-    case Team::team_a:
-        return zone.type() == ZoneType::home ? team_a : objective_team_a;
-    case Team::team_b:
-        return zone.type() == ZoneType::home ? team_b : objective_team_b;
-    case Team::none:
-        return neutral;
-    }
-    return neutral;
 }
 
 std::filesystem::path frame_path(const std::string_view layer,
@@ -810,25 +793,8 @@ bool Renderer::render(const World& world, const double interpolation_alpha,
         return false;
     }
 
-    for (const auto& zone : world.zones()) {
-        const auto bounds = transform.world_to_drawable(zone.bounds());
-        const SDL_FRect rectangle{bounds.x, bounds.y, bounds.width, bounds.height};
-        set_color(renderer_, color_for(zone));
-        if (!SDL_RenderFillRect(renderer_, &rectangle)) {
-            return false;
-        }
-    }
-
-    set_color(renderer_, divider);
-    const float line_width = std::max(1.0F, 3.0F * transform.scale());
-    for (std::size_t index = 1; index < world.zones().size(); ++index) {
-        const auto& bounds = world.zones()[index].bounds();
-        const auto top = transform.world_to_drawable(Point{bounds.x, 0.0F});
-        const SDL_FRect divider_rectangle{top.x - line_width * 0.5F, top.y, line_width,
-                                          transform.viewport().height};
-        if (!SDL_RenderFillRect(renderer_, &divider_rectangle)) {
-            return false;
-        }
+    if (!render_battlefield(renderer_, world, transform)) {
+        return false;
     }
 
     if (selected_troop_.has_value()) {
