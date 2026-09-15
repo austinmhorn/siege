@@ -57,6 +57,9 @@ constexpr int capture_marker_segments = 20;
 constexpr float command_menu_width = 184.0F;
 constexpr float command_menu_item_height = 30.0F;
 constexpr float command_menu_padding = 4.0F;
+constexpr float score_panel_width = 300.0F;
+constexpr float score_panel_height = 34.0F;
+constexpr float score_panel_y = 42.0F;
 
 constexpr std::array<TacticalOrder, 4> tactical_commands{
     TacticalOrder::advance,
@@ -790,6 +793,10 @@ bool Renderer::render(const World& world, const double interpolation_alpha,
         return false;
     }
 
+    if (!render_score_ui(world, output_width)) {
+        return false;
+    }
+
     if (!render_corpses(transform) ||
         !render_projectiles(world, transform, interpolation_alpha) ||
         !render_explosions(transform) ||
@@ -816,6 +823,50 @@ bool Renderer::render(const World& world, const double interpolation_alpha,
     }
 
     return SDL_RenderPresent(renderer_);
+}
+
+bool Renderer::render_score_ui(const World& world, const int output_width) const {
+    const PlayerState* team_a_player = world.find_player(Team::team_a);
+    const PlayerState* team_b_player = world.find_player(Team::team_b);
+    const Score team_a_score = team_a_player == nullptr ? 0 : team_a_player->score();
+    const Score team_b_score = team_b_player == nullptr ? 0 : team_b_player->score();
+    const float panel_x =
+        (static_cast<float>(output_width) - score_panel_width) * 0.5F;
+    const SDL_FRect panel{panel_x, score_panel_y, score_panel_width,
+                          score_panel_height};
+    if (!SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND)) {
+        return false;
+    }
+    set_color(renderer_, Color{10, 14, 18, 205});
+    if (!SDL_RenderFillRect(renderer_, &panel)) {
+        return false;
+    }
+    set_color(renderer_, Color{190, 198, 204, 225});
+    if (!SDL_RenderRect(renderer_, &panel)) {
+        return false;
+    }
+
+    const auto draw_centered = [&](const float center_x,
+                                   const std::string& text,
+                                   const FontColor color) {
+        float width = 0.0F;
+        float height = 0.0F;
+        if (!fonts_.measure(text, FontRole::heading_bold, width, height)) {
+            return false;
+        }
+        return fonts_.draw(center_x - width * 0.5F,
+                           panel.y + (panel.h - height) * 0.5F, text,
+                           FontRole::heading_bold, color);
+    };
+
+    return draw_centered(panel.x + 38.0F, "BLUE",
+                         FontColor{116, 194, 255, 255}) &&
+           draw_centered(panel.x + 106.0F, std::to_string(team_a_score),
+                         FontColor{245, 248, 250, 255}) &&
+           draw_centered(panel.x + 194.0F, std::to_string(team_b_score),
+                         FontColor{245, 248, 250, 255}) &&
+           draw_centered(panel.x + 262.0F, "RED",
+                         FontColor{255, 132, 122, 255});
 }
 
 bool Renderer::render_movement_paths(

@@ -11,6 +11,8 @@ Team PlayerState::team() const noexcept { return team_; }
 
 Money PlayerState::cash() const noexcept { return cash_; }
 
+Score PlayerState::score() const noexcept { return score_; }
+
 bool PlayerState::can_afford(const Money amount) const noexcept {
     return amount >= 0 && cash_ >= amount;
 }
@@ -26,6 +28,12 @@ bool PlayerState::try_spend(const Money amount) noexcept {
 void PlayerState::credit(const Money amount) noexcept {
     if (amount > 0) {
         cash_ += amount;
+    }
+}
+
+void PlayerState::add_score(const Score points) noexcept {
+    if (points > 0) {
+        score_ += points;
     }
 }
 

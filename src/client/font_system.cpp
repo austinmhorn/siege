@@ -128,6 +128,25 @@ bool FontSystem::draw(const float x, const float y, const std::string_view text,
     return SDL_RenderTexture(renderer_, cached->texture, nullptr, &destination);
 }
 
+bool FontSystem::measure(const std::string_view text, const FontRole role,
+                         float& width, float& height) const noexcept {
+    TTF_Font* font = font_for(role);
+    if (font == nullptr) {
+        width = static_cast<float>(text.size()) * 8.0F;
+        height = 8.0F;
+        return true;
+    }
+    int measured_width = 0;
+    int measured_height = 0;
+    if (!TTF_GetStringSize(font, text.data(), text.size(), &measured_width,
+                           &measured_height)) {
+        return false;
+    }
+    width = static_cast<float>(measured_width);
+    height = static_cast<float>(measured_height);
+    return true;
+}
+
 void FontSystem::prune_cache() {
     if (cache_.size() <= maximum_cached_textures) {
         return;

@@ -93,6 +93,7 @@ private:
         int output_width, int output_height) const;
     [[nodiscard]] bool render_command_menu(int output_width,
                                            int output_height) const;
+    [[nodiscard]] bool render_score_ui(const World& world, int output_width) const;
 
     SDL_Renderer* renderer_{};
     mutable TextureCache textures_;

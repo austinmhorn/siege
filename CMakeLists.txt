@@ -60,6 +60,7 @@ add_executable(siege
     src/core/movement_path.cpp
     src/core/perception.cpp
     src/core/projectile_collision.cpp
+    src/core/scoring.cpp
     src/core/weapon.cpp
     src/core/targeting.cpp
     src/core/simulation.cpp
@@ -111,6 +112,7 @@ if(BUILD_TESTING)
         src/core/movement_path.cpp
         src/core/perception.cpp
         src/core/projectile_collision.cpp
+        src/core/scoring.cpp
         src/core/weapon.cpp
         src/core/targeting.cpp
         src/core/simulation.cpp

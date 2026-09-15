@@ -5,6 +5,7 @@
 #include "client/world_transform.hpp"
 #include "core/economy.hpp"
 #include "core/math.hpp"
+#include "core/scoring.hpp"
 #include "core/tactical_command.hpp"
 #include "core/troop_definition.hpp"
 #include "core/zone_capture.hpp"
@@ -363,6 +364,24 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
     global.format(FontRole::debug, debug_text, "passive: $%lld/s",
                   static_cast<long long>(
                       default_economy_rules.passive_income_per_second));
+    global.blank();
+
+    global.line(FontRole::debug_bold, debug_heading, "SCORE");
+    global.format(FontRole::debug, debug_text, "Team A score: %lld",
+                  static_cast<long long>(team_a_player == nullptr
+                                             ? 0
+                                             : team_a_player->score()));
+    global.format(FontRole::debug, debug_text, "Team B score: %lld",
+                  static_cast<long long>(team_b_player == nullptr
+                                             ? 0
+                                             : team_b_player->score()));
+    global.format(FontRole::debug, debug_text, "score tick: %llu / %u",
+                  static_cast<unsigned long long>(
+                      world.scoring_tick_progress()),
+                  default_scoring_rules.interval_ticks);
+    global.format(FontRole::debug, debug_text, "interval: %.1fs",
+                  static_cast<double>(default_scoring_rules.interval_ticks) /
+                      simulation_hz);
     global.blank();
 
     global.line(FontRole::debug_bold, debug_heading, "OBJECTIVES");

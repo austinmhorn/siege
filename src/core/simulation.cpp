@@ -6,6 +6,7 @@
 #include "core/frontline.hpp"
 #include "core/movement_path.hpp"
 #include "core/projectile_collision.hpp"
+#include "core/scoring.hpp"
 #include "core/support_positioning.hpp"
 #include "core/tactical_command.hpp"
 #include "core/targeting.hpp"
@@ -414,6 +415,7 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
 
     update_zone_capture(world_, fixed_delta_seconds);
     award_zone_capture_rewards(world_);
+    update_objective_scoring(world_);
     update_passive_income(world_);
 
     for (auto& unit : units) {

@@ -52,6 +52,8 @@ public:
     [[nodiscard]] bool using_dogica_pixel() const noexcept;
     [[nodiscard]] bool draw(float x, float y, std::string_view text,
                             FontRole role, FontColor color) const;
+    [[nodiscard]] bool measure(std::string_view text, FontRole role,
+                               float& width, float& height) const noexcept;
 
     template <typename... Args>
     [[nodiscard]] bool draw_format(float x, float y, FontRole role,

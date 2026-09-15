@@ -58,6 +58,24 @@ PlayerState* World::find_player(const Team team) noexcept {
     return nullptr;
 }
 
+std::uint64_t World::scoring_tick_progress() const noexcept {
+    return scoring_tick_progress_;
+}
+
+std::uint64_t World::advance_scoring_clock(
+    const std::uint64_t tick_count,
+    const std::uint32_t interval_ticks) noexcept {
+    if (interval_ticks == 0) {
+        return 0;
+    }
+    std::uint64_t completed_intervals = tick_count / interval_ticks;
+    const std::uint64_t total =
+        scoring_tick_progress_ + tick_count % interval_ticks;
+    scoring_tick_progress_ = total % interval_ticks;
+    completed_intervals += total / interval_ticks;
+    return completed_intervals;
+}
+
 const std::vector<Unit>& World::units() const noexcept {
     return units_;
 }

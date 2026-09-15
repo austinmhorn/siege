@@ -9,6 +9,7 @@
 #include "core/movement_path.hpp"
 #include "core/perception.hpp"
 #include "core/projectile_collision.hpp"
+#include "core/scoring.hpp"
 #include "core/simulation.hpp"
 #include "core/support_positioning.hpp"
 #include "core/tactical_command.hpp"
@@ -380,6 +381,115 @@ int main() {
         team_b_capture_reward_world.find_player(Team::team_b)->cash() ==
             team_b_capture_cash + 1'000,
         "neutral objective capture rewards Team B exactly once");
+
+    World scoring_cadence_world;
+    scoring_cadence_world.units().clear();
+    scoring_cadence_world.zones()[1].advance_capture(100.0F);
+    scoring_cadence_world.zones()[1].set_owner(Team::team_a);
+    scoring_cadence_world.units().push_back(
+        test_unit(1200, Team::team_a, {500.0F, 200.0F}, 0.0F));
+    update_zone_capture(scoring_cadence_world, 0.0);
+    update_objective_scoring(scoring_cadence_world, 59);
+    passed &= check(
+        scoring_cadence_world.find_player(Team::team_a)->score() == 0 &&
+            scoring_cadence_world.scoring_tick_progress() == 59,
+        "owned and occupied objective waits for the exact one-second score tick");
+    update_objective_scoring(scoring_cadence_world, 1);
+    passed &= check(
+        scoring_cadence_world.find_player(Team::team_a)->score() == 1 &&
+            scoring_cadence_world.scoring_tick_progress() == 0,
+        "fully owned objective with a living owner occupant scores at one second");
+    update_objective_scoring(scoring_cadence_world, 59);
+    passed &= check(
+        scoring_cadence_world.find_player(Team::team_a)->score() == 1,
+        "objective cannot award a duplicate point within one scoring interval");
+    scoring_cadence_world.units().push_back(
+        test_unit(1207, Team::team_b, {550.0F, 200.0F}, 0.0F));
+    update_zone_capture(scoring_cadence_world, 0.0);
+    update_objective_scoring(scoring_cadence_world, 1);
+    passed &= check(
+        scoring_cadence_world.zones()[1].contested() &&
+            scoring_cadence_world.find_player(Team::team_a)->score() == 2,
+        "contested fully owned objective still scores when its owner is present");
+
+    World partial_owned_scoring_world;
+    partial_owned_scoring_world.units().clear();
+    partial_owned_scoring_world.zones()[1].advance_capture(50.0F);
+    partial_owned_scoring_world.zones()[1].set_owner(Team::team_a);
+    partial_owned_scoring_world.units().push_back(
+        test_unit(1208, Team::team_a, {500.0F, 200.0F}, 0.0F));
+    update_zone_capture(partial_owned_scoring_world, 0.0);
+    update_objective_scoring(partial_owned_scoring_world, 60);
+    passed &= check(
+        partial_owned_scoring_world.find_player(Team::team_a)->score() == 0,
+        "owned objective below full capture does not score");
+
+    World empty_scoring_world;
+    empty_scoring_world.units().clear();
+    empty_scoring_world.zones()[1].advance_capture(100.0F);
+    empty_scoring_world.zones()[1].set_owner(Team::team_a);
+    update_zone_capture(empty_scoring_world, 0.0);
+    update_objective_scoring(empty_scoring_world, 60);
+    passed &= check(empty_scoring_world.find_player(Team::team_a)->score() == 0,
+                    "owned but empty objective does not score");
+    empty_scoring_world.units().push_back(
+        test_unit(1209, Team::team_a, {500.0F, 200.0F}, 0.0F));
+    update_zone_capture(empty_scoring_world, 0.0);
+    update_objective_scoring(empty_scoring_world, 60);
+    passed &= check(empty_scoring_world.find_player(Team::team_a)->score() == 1,
+                    "owner re-entering an owned objective resumes scoring");
+
+    World enemy_only_scoring_world;
+    enemy_only_scoring_world.units().clear();
+    enemy_only_scoring_world.zones()[1].advance_capture(100.0F);
+    enemy_only_scoring_world.zones()[1].set_owner(Team::team_a);
+    enemy_only_scoring_world.units().push_back(
+        test_unit(1201, Team::team_b, {500.0F, 200.0F}, 0.0F));
+    update_zone_capture(enemy_only_scoring_world, 0.0);
+    update_objective_scoring(enemy_only_scoring_world, 60);
+    passed &= check(
+        enemy_only_scoring_world.find_player(Team::team_a)->score() == 0 &&
+            enemy_only_scoring_world.find_player(Team::team_b)->score() == 0,
+        "enemy-only occupation of an owned objective does not score");
+
+    World neutral_scoring_world;
+    neutral_scoring_world.units().clear();
+    neutral_scoring_world.units().push_back(
+        test_unit(1202, Team::team_a, {500.0F, 200.0F}, 0.0F));
+    update_zone_capture(neutral_scoring_world, 0.0);
+    update_objective_scoring(neutral_scoring_world, 60);
+    passed &= check(neutral_scoring_world.find_player(Team::team_a)->score() == 0,
+                    "neutral objective does not score despite occupation");
+
+    World multi_objective_scoring_world;
+    multi_objective_scoring_world.units().clear();
+    multi_objective_scoring_world.zones()[1].advance_capture(100.0F);
+    multi_objective_scoring_world.zones()[1].set_owner(Team::team_a);
+    multi_objective_scoring_world.zones()[2].advance_capture(-100.0F);
+    multi_objective_scoring_world.zones()[2].set_owner(Team::team_b);
+    multi_objective_scoring_world.zones()[3].advance_capture(100.0F);
+    multi_objective_scoring_world.zones()[3].set_owner(Team::team_a);
+    multi_objective_scoring_world.units().push_back(
+        test_unit(1203, Team::team_a, {500.0F, 200.0F}, 0.0F));
+    multi_objective_scoring_world.units().push_back(
+        test_unit(1204, Team::team_b, {900.0F, 200.0F}, 0.0F));
+    multi_objective_scoring_world.units().push_back(
+        test_unit(1205, Team::team_a, {1300.0F, 200.0F}, 0.0F));
+    update_zone_capture(multi_objective_scoring_world, 0.0);
+    update_objective_scoring(multi_objective_scoring_world, 60);
+    passed &= check(
+        multi_objective_scoring_world.find_player(Team::team_a)->score() == 2 &&
+            multi_objective_scoring_world.find_player(Team::team_b)->score() == 1,
+        "all three objectives score independently and can award on the same tick");
+
+    World home_scoring_world;
+    home_scoring_world.units().clear();
+    home_scoring_world.units().push_back(
+        test_unit(1206, Team::team_a, {100.0F, 200.0F}, 0.0F));
+    update_zone_capture(home_scoring_world, 0.0);
+    update_objective_scoring(home_scoring_world, 60);
+    passed &= check(home_scoring_world.find_player(Team::team_a)->score() == 0,
+                    "permanently owned home zones never score");
 
     World purchase_world;
     purchase_world.units().clear();

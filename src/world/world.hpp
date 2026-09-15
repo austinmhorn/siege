@@ -9,6 +9,7 @@
 #include "world/unit.hpp"
 
 #include <array>
+#include <cstdint>
 #include <vector>
 
 namespace siege {
@@ -27,6 +28,9 @@ public:
     [[nodiscard]] std::array<PlayerState, 2>& players() noexcept;
     [[nodiscard]] const PlayerState* find_player(Team team) const noexcept;
     [[nodiscard]] PlayerState* find_player(Team team) noexcept;
+    [[nodiscard]] std::uint64_t scoring_tick_progress() const noexcept;
+    [[nodiscard]] std::uint64_t advance_scoring_clock(
+        std::uint64_t tick_count, std::uint32_t interval_ticks) noexcept;
     [[nodiscard]] const std::vector<Unit>& units() const noexcept;
     [[nodiscard]] std::vector<Unit>& units() noexcept;
     [[nodiscard]] const Unit* find_unit(Unit::Id id) const noexcept;
@@ -73,6 +77,7 @@ private:
     Unit::Id next_unit_id_{1};
     PendingDeployment::Id next_pending_deployment_id_{1};
     Projectile::Id next_projectile_id_{1};
+    std::uint64_t scoring_tick_progress_{};
 };
 
 } // namespace siege

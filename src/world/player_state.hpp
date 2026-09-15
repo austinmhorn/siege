@@ -7,6 +7,7 @@
 namespace siege {
 
 using Money = std::int64_t;
+using Score = std::int64_t;
 
 class PlayerState {
 public:
@@ -14,9 +15,11 @@ public:
 
     [[nodiscard]] Team team() const noexcept;
     [[nodiscard]] Money cash() const noexcept;
+    [[nodiscard]] Score score() const noexcept;
     [[nodiscard]] bool can_afford(Money amount) const noexcept;
     [[nodiscard]] bool try_spend(Money amount) noexcept;
     void credit(Money amount) noexcept;
+    void add_score(Score points) noexcept;
 
     void accrue_passive_income(Money cash_per_second,
                                std::uint32_t fixed_ticks_per_second,
@@ -26,6 +29,7 @@ private:
     Team team_{Team::none};
     Money cash_{};
     Money passive_income_remainder_{};
+    Score score_{};
 };
 
 } // namespace siege
