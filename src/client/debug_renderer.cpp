@@ -406,9 +406,14 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
     global.format(FontRole::debug, debug_text, "result: %.*s",
                   static_cast<int>(match_result.size()), match_result.data());
     if (world.match_state().phase() == MatchPhase::sudden_death) {
-        const Zone& center = world.zones()[2];
-        global.format(FontRole::debug, debug_text, "center: %s / %+.1f",
-                      short_team_name(center.owner()), center.capture_value());
+        const std::size_t center_index =
+            world.map().center_objective_zone_index;
+        if (center_index < world.zones().size()) {
+            const Zone& center = world.zones()[center_index];
+            global.format(FontRole::debug, debug_text, "center: %s / %+.1f",
+                          short_team_name(center.owner()),
+                          center.capture_value());
+        }
         global.line(FontRole::debug, debug_text,
                     "deployment: home only");
     }

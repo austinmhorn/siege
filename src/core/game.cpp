@@ -91,7 +91,7 @@ int Game::run() {
                 client_renderer.toggle_controlled_team();
             } else if (event.type == SDL_EVENT_MOUSE_MOTION) {
                 if (SDL_ConvertEventToRenderCoordinates(renderer_, &event)) {
-                    client_renderer.set_pointer_position(event.motion.x,
+                    client_renderer.set_pointer_position(world_, event.motion.x,
                                                          event.motion.y);
                 }
             } else if ((event.type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
@@ -100,7 +100,7 @@ int Game::run() {
                 if (!SDL_ConvertEventToRenderCoordinates(renderer_, &event)) {
                     continue;
                 }
-                client_renderer.set_pointer_position(event.button.x,
+                client_renderer.set_pointer_position(world_, event.button.x,
                                                      event.button.y);
                 const PointerButton button =
                     *pointer_button_for(event.button.button);
@@ -114,7 +114,7 @@ int Game::run() {
                     }
                     if (dispatch == PointerDispatch::secondary) {
                         client_renderer.handle_secondary_pointer_press(
-                            event.button.x, event.button.y);
+                            world_, event.button.x, event.button.y);
                     } else if (dispatch == PointerDispatch::primary) {
                         client_renderer.handle_primary_pointer_press(
                             world_, event.button.x, event.button.y);

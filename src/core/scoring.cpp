@@ -33,9 +33,12 @@ void update_objective_scoring(World& world,
         return;
     }
 
-    for (const auto& zone : world.zones()) {
-        if (zone.type() != ZoneType::objective || !fully_owned(zone) ||
-            !zone.occupied()) {
+    for (const std::size_t index : world.map().objective_zone_indices) {
+        if (index >= world.zones().size()) {
+            continue;
+        }
+        const Zone& zone = world.zones()[index];
+        if (!fully_owned(zone) || !zone.occupied()) {
             continue;
         }
         if (PlayerState* player = world.find_player(zone.owner())) {

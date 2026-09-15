@@ -12,26 +12,20 @@ std::optional<std::size_t> deployment_front_index(
     if (team == Team::none) {
         return std::nullopt;
     }
-
-    if (team == Team::team_a) {
-        std::size_t front = 0;
-        if (world.match_state().phase() == MatchPhase::sudden_death) {
-            return front;
-        }
-        for (std::size_t index = 1; index + 1 < world.zones().size(); ++index) {
-            if (!is_zone_deployable(world.zones()[index], team)) {
-                break;
-            }
-            front = index;
-        }
-        return front;
+    const TeamForwardDefinition* forward =
+        team_forward_definition(world.map(), team);
+    if (forward == nullptr || forward->home_zone_index >= world.zones().size()) {
+        return std::nullopt;
     }
 
-    std::size_t front = world.zones().size() - 1;
+    std::size_t front = forward->home_zone_index;
     if (world.match_state().phase() == MatchPhase::sudden_death) {
         return front;
     }
-    for (std::size_t index = world.zones().size() - 2; index > 0; --index) {
+    for (const std::size_t index : forward->objective_order) {
+        if (index >= world.zones().size()) {
+            break;
+        }
         if (!is_zone_deployable(world.zones()[index], team)) {
             break;
         }
@@ -70,14 +64,7 @@ void transition_ownership(World& world, Zone& zone) {
 
 std::optional<std::size_t> zone_index_for_position(
     const World& world, const Vec2 position) noexcept {
-    for (const auto& zone : world.zones()) {
-        const Bounds& bounds = zone.bounds();
-        if (position.x >= bounds.x && position.x < bounds.x + bounds.width &&
-            position.y >= bounds.y && position.y < bounds.y + bounds.height) {
-            return zone.index();
-        }
-    }
-    return std::nullopt;
+    return map_zone_index_for_position(world.map(), position);
 }
 
 void update_zone_capture(World& world, const double fixed_delta_seconds,
@@ -109,10 +96,11 @@ void update_zone_capture(World& world, const double fixed_delta_seconds,
 
     const float delta_seconds =
         static_cast<float>(std::max(0.0, fixed_delta_seconds));
-    for (auto& zone : world.zones()) {
-        if (zone.type() != ZoneType::objective) {
+    for (const std::size_t index : world.map().objective_zone_indices) {
+        if (index >= world.zones().size()) {
             continue;
         }
+        Zone& zone = world.zones()[index];
         const int effective_pressure = std::clamp(
             zone.pressure(), -rules.maximum_effective_pressure,
             rules.maximum_effective_pressure);
@@ -133,14 +121,33 @@ bool is_zone_deployable(const Zone& zone, const Team team) noexcept {
 
 bool is_zone_deployable(const World& world, const Zone& zone,
                         const Team team) noexcept {
+    if (!is_zone_deployable(zone, team)) {
+        return false;
+    }
     const auto front = deployment_front_index(world, team);
     if (!front.has_value()) {
         return false;
     }
-    if (team == Team::team_a) {
-        return zone.index() <= *front;
+    const TeamForwardDefinition* forward =
+        team_forward_definition(world.map(), team);
+    if (forward == nullptr) {
+        return false;
     }
-    return zone.index() >= *front;
+    if (zone.index() == forward->home_zone_index) {
+        return true;
+    }
+    if (*front == forward->home_zone_index) {
+        return false;
+    }
+    for (const std::size_t index : forward->objective_order) {
+        if (index == zone.index()) {
+            return true;
+        }
+        if (index == *front) {
+            break;
+        }
+    }
+    return false;
 }
 
 std::optional<Bounds> deployment_bounds(
@@ -152,7 +159,9 @@ std::optional<Bounds> deployment_bounds(
     const float rear_fraction =
         std::clamp(rules.deployment_rear_fraction, 0.0F, 1.0F);
     const float deployment_width = bounds.width * rear_fraction;
-    const float deployment_x = team == Team::team_a
+    const TeamForwardDefinition* forward =
+        team_forward_definition(default_map_definition(), team);
+    const float deployment_x = forward != nullptr && forward->x_direction > 0.0F
         ? bounds.x
         : bounds.x + bounds.width - deployment_width;
     return Bounds{deployment_x, bounds.y, deployment_width, bounds.height};
@@ -171,7 +180,19 @@ std::optional<Bounds> deployment_bounds(
     if (zone.index() != *front) {
         return zone.bounds();
     }
-    return deployment_bounds(zone, team, rules);
+    const Bounds& bounds = zone.bounds();
+    const float rear_fraction =
+        std::clamp(rules.deployment_rear_fraction, 0.0F, 1.0F);
+    const float deployment_width = bounds.width * rear_fraction;
+    const TeamForwardDefinition* forward =
+        team_forward_definition(world.map(), team);
+    if (forward == nullptr) {
+        return std::nullopt;
+    }
+    const float deployment_x = forward->x_direction > 0.0F
+        ? bounds.x
+        : bounds.x + bounds.width - deployment_width;
+    return Bounds{deployment_x, bounds.y, deployment_width, bounds.height};
 }
 
 } // namespace siege

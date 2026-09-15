@@ -1,6 +1,7 @@
 #include "world/world.hpp"
 
 #include "core/economy.hpp"
+#include "core/math.hpp"
 #include "core/troop_definition.hpp"
 
 #include <algorithm>
@@ -8,32 +9,31 @@
 namespace siege {
 namespace {
 
-constexpr float zone_width = World::width / static_cast<float>(World::zone_count);
-
-constexpr Bounds zone_bounds(const std::size_t index) noexcept {
-    return Bounds{static_cast<float>(index) * zone_width, 0.0F, zone_width,
-                  World::height};
+std::vector<Zone> make_zones(const MapDefinition& map) {
+    std::vector<Zone> zones;
+    zones.reserve(map.zones.size());
+    for (const ZoneDefinition& definition : map.zones) {
+        zones.emplace_back(definition.id, definition.bounds, definition.type,
+                           definition.home_team);
+    }
+    return zones;
 }
 
 } // namespace
 
-World::World(const MatchRules match_rules)
-    : zones_{Zone{0, zone_bounds(0), ZoneType::home, Team::team_a},
-             Zone{1, zone_bounds(1), ZoneType::objective, Team::none},
-             Zone{2, zone_bounds(2), ZoneType::objective, Team::none},
-             Zone{3, zone_bounds(3), ZoneType::objective, Team::none},
-             Zone{4, zone_bounds(4), ZoneType::home, Team::team_b}},
+World::World(const MatchRules match_rules, const MapDefinition& map)
+    : map_{&map}, zones_{make_zones(map)},
       players_{PlayerState{Team::team_a, default_economy_rules.starting_cash},
                PlayerState{Team::team_b, default_economy_rules.starting_cash}},
       match_state_{match_rules} {
     spawn_test_units();
 }
 
-const std::array<Zone, World::zone_count>& World::zones() const noexcept {
-    return zones_;
-}
+const MapDefinition& World::map() const noexcept { return *map_; }
 
-std::array<Zone, World::zone_count>& World::zones() noexcept { return zones_; }
+std::span<const Zone> World::zones() const noexcept { return zones_; }
+
+std::span<Zone> World::zones() noexcept { return zones_; }
 
 const std::array<PlayerState, 2>& World::players() const noexcept {
     return players_;
@@ -137,7 +137,11 @@ Unit& World::spawn_unit(const TroopType troop_type, const Team team,
     if (definition == nullptr) {
         definition = &rifle_definition;
     }
-    const float initial_facing = team == Team::team_b ? 90.0F : 270.0F;
+    const TeamForwardDefinition* forward =
+        team_forward_definition(*map_, team);
+    const float initial_facing = forward == nullptr
+        ? 0.0F
+        : facing_from_direction({forward->x_direction, 0.0F});
     return units_.emplace_back(
         next_unit_id_++, definition->type, team, position,
         definition->move_speed, definition->rotation_speed,
@@ -192,8 +196,10 @@ void World::reset_for_sudden_death() noexcept {
     projectiles_.clear();
     pending_deployments_.clear();
     clear_transient_events();
-    for (auto& zone : zones_) {
-        zone.reset_objective();
+    for (const std::size_t index : map_->objective_zone_indices) {
+        if (index < zones_.size()) {
+            zones_[index].reset_objective();
+        }
     }
     for (auto& player : players_) {
         player.reset_cash(default_economy_rules.starting_cash);

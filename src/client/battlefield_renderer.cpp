@@ -97,21 +97,23 @@ bool fill_world_rect(SDL_Renderer* renderer, const WorldTransform& transform,
     return SDL_RenderFillRect(renderer, &rectangle);
 }
 
-bool render_terrain(SDL_Renderer* renderer,
+bool render_terrain(SDL_Renderer* renderer, const World& world,
                     const WorldTransform& transform) noexcept {
+    const MapDefinition& map = world.map();
     const float tile = battlefield_theme.terrain_tile_size;
     const std::uint32_t columns =
-        static_cast<std::uint32_t>(std::ceil(World::width / tile));
+        static_cast<std::uint32_t>(std::ceil(map.logical_width / tile));
     const std::uint32_t rows =
-        static_cast<std::uint32_t>(std::ceil(World::height / tile));
+        static_cast<std::uint32_t>(std::ceil(map.logical_height / tile));
 
     for (std::uint32_t row = 0; row < rows; ++row) {
         for (std::uint32_t column = 0; column < columns; ++column) {
             const std::uint32_t hash = terrain_hash(column, row);
             const float x = static_cast<float>(column) * tile;
             const float y = static_cast<float>(row) * tile;
-            const Bounds tile_bounds{x, y, std::min(tile, World::width - x),
-                                     std::min(tile, World::height - y)};
+            const Bounds tile_bounds{
+                x, y, std::min(tile, map.logical_width - x),
+                std::min(tile, map.logical_height - y)};
             const Color grass =
                 battlefield_theme.grass[hash % battlefield_theme.grass.size()];
             if (!fill_world_rect(renderer, transform, tile_bounds, grass)) {
@@ -158,7 +160,7 @@ bool render_terrain(SDL_Renderer* renderer,
             if (!fill_world_rect(
                     renderer, transform,
                     Bounds{x, worn_lanes[lane] + offset - height * 0.5F,
-                           std::min(tile, World::width - x), height},
+                           std::min(tile, map.logical_width - x), height},
                     battlefield_theme.dirt)) {
                 return false;
             }
@@ -177,8 +179,13 @@ bool render_terrain(SDL_Renderer* renderer,
 bool render_zone_boundaries(SDL_Renderer* renderer, const World& world,
                             const WorldTransform& transform) noexcept {
     const float line_width = std::max(1.0F, std::round(transform.scale()));
-    for (std::size_t index = 1; index < world.zones().size(); ++index) {
-        const float boundary_x = world.zones()[index].bounds().x;
+    bool first_zone = true;
+    for (const ZoneDefinition& zone : world.map().zones) {
+        if (first_zone) {
+            first_zone = false;
+            continue;
+        }
+        const float boundary_x = zone.bounds.x;
         const auto top =
             transform.world_to_drawable(Point{boundary_x, 0.0F});
         const SDL_FRect line{std::round(top.x - line_width * 0.5F),
@@ -192,14 +199,18 @@ bool render_zone_boundaries(SDL_Renderer* renderer, const World& world,
     return true;
 }
 
-bool render_home_zone(SDL_Renderer* renderer, const Zone& zone,
+bool render_home_zone(SDL_Renderer* renderer, const MapDefinition& map,
+                      const Zone& zone,
                       const WorldTransform& transform) noexcept {
     const Bounds bounds = zone.bounds();
     const bool team_a = zone.owner() == Team::team_a;
     const Color accent = team_a ? battlefield_theme.home_team_a
                                 : battlefield_theme.home_team_b;
-    const float edge_x = team_a ? bounds.x + bounds.width - battlefield_theme.home_edge_width
-                                : bounds.x;
+    const TeamForwardDefinition* forward =
+        team_forward_definition(map, zone.owner());
+    const float edge_x = forward != nullptr && forward->x_direction > 0.0F
+        ? bounds.x + bounds.width - battlefield_theme.home_edge_width
+        : bounds.x;
     if (!fill_world_rect(renderer, transform,
                          Bounds{edge_x, bounds.y,
                                 battlefield_theme.home_edge_width,
@@ -243,7 +254,8 @@ bool render_frontline(SDL_Renderer* renderer, const World& world,
             renderer, transform,
             Bounds{frontline->forward_boundary_x -
                        battlefield_theme.frontline_band_width * 0.5F,
-                   0.0F, battlefield_theme.frontline_band_width, World::height},
+                   0.0F, battlefield_theme.frontline_band_width,
+                   world.map().logical_height},
             Color{accent.red, accent.green, accent.blue, 22})) {
         return false;
     }
@@ -251,12 +263,13 @@ bool render_frontline(SDL_Renderer* renderer, const World& world,
     const float stride = battlefield_theme.frontline_dash_length +
                          battlefield_theme.frontline_dash_gap;
     const float line_width = std::max(1.0F, std::round(2.0F * transform.scale()));
-    for (float y = 0.0F; y < World::height; y += stride) {
+    for (float y = 0.0F; y < world.map().logical_height; y += stride) {
         const auto top = transform.world_to_drawable(
             Point{frontline->forward_boundary_x, y});
         const auto bottom = transform.world_to_drawable(Point{
             frontline->forward_boundary_x,
-            std::min(World::height, y + battlefield_theme.frontline_dash_length)});
+            std::min(world.map().logical_height,
+                     y + battlefield_theme.frontline_dash_length)});
         const SDL_FRect dash{std::round(top.x - line_width * 0.5F),
                              std::round(top.y), line_width,
                              std::max(1.0F, std::round(bottom.y - top.y))};
@@ -273,14 +286,14 @@ bool render_frontline(SDL_Renderer* renderer, const World& world,
 bool render_battlefield(SDL_Renderer* renderer, const World& world,
                         const WorldTransform& transform) noexcept {
     if (!SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND) ||
-        !render_terrain(renderer, transform) ||
+        !render_terrain(renderer, world, transform) ||
         !render_zone_boundaries(renderer, world, transform)) {
         return false;
     }
 
     for (const Zone& zone : world.zones()) {
         if (zone.type() == ZoneType::home) {
-            if (!render_home_zone(renderer, zone, transform)) {
+            if (!render_home_zone(renderer, world.map(), zone, transform)) {
                 return false;
             }
         } else if (!render_objective_owner(renderer, zone, transform)) {

@@ -11,52 +11,41 @@ std::optional<FrontlineObjective> frontline_objective(
     if (team == Team::none) {
         return std::nullopt;
     }
+    const TeamForwardDefinition* forward =
+        team_forward_definition(world.map(), team);
+    if (forward == nullptr || forward->objective_order.empty()) {
+        return std::nullopt;
+    }
 
     rules.hold_depth_fraction =
         std::clamp(rules.hold_depth_fraction, 0.0F, 1.0F);
-    if (team == Team::team_a) {
-        for (std::size_t index = 1; index + 1 < world.zones().size(); ++index) {
-            const Zone& zone = world.zones()[index];
-            if (zone.owner() == team) {
-                continue;
-            }
-            const Bounds& bounds = zone.bounds();
-            return FrontlineObjective{
-                index, bounds.x + bounds.width,
-                bounds.x + bounds.width * rules.hold_depth_fraction};
+    std::size_t frontline_index = forward->objective_order.back();
+    for (const std::size_t index : forward->objective_order) {
+        if (index >= world.zones().size()) {
+            continue;
         }
-        const std::size_t terminal_index = world.zones().size() - 2;
-        const Bounds& bounds = world.zones()[terminal_index].bounds();
-        return FrontlineObjective{
-            terminal_index, bounds.x + bounds.width,
-            bounds.x + bounds.width * rules.hold_depth_fraction};
-    } else {
-        for (std::size_t index = world.zones().size() - 2; index > 0; --index) {
-            const Zone& zone = world.zones()[index];
-            if (zone.owner() == team) {
-                continue;
-            }
-            const Bounds& bounds = zone.bounds();
-            return FrontlineObjective{
-                index, bounds.x,
-                bounds.x + bounds.width *
-                               (1.0F - rules.hold_depth_fraction)};
+        if (world.zones()[index].owner() != team) {
+            frontline_index = index;
+            break;
         }
-        constexpr std::size_t terminal_index = 1;
-        const Bounds& bounds = world.zones()[terminal_index].bounds();
-        return FrontlineObjective{
-            terminal_index, bounds.x,
-            bounds.x + bounds.width *
-                           (1.0F - rules.hold_depth_fraction)};
     }
+
+    const Bounds& bounds = world.zones()[frontline_index].bounds();
+    const bool advances_right = forward->x_direction > 0.0F;
+    return FrontlineObjective{
+        frontline_index,
+        advances_right ? bounds.x + bounds.width : bounds.x,
+        advances_right
+            ? bounds.x + bounds.width * rules.hold_depth_fraction
+            : bounds.x + bounds.width * (1.0F - rules.hold_depth_fraction)};
 }
 
 float autonomous_advance_x(const World& world, const Team team,
                            const Vec2 position,
                            FrontlineRules rules) noexcept {
-    const float advance = team == Team::team_a
-        ? 1.0F
-        : team == Team::team_b ? -1.0F : 0.0F;
+    const TeamForwardDefinition* forward =
+        team_forward_definition(world.map(), team);
+    const float advance = forward == nullptr ? 0.0F : forward->x_direction;
     const auto frontline = frontline_objective(world, team, rules);
     if (!frontline.has_value() || advance == 0.0F) {
         return advance;
@@ -83,11 +72,16 @@ Vec2 constrain_to_frontline(const World& world, const Team team,
     }
 
     const float inset = std::max(0.0F, rules.boundary_inset);
-    if (team == Team::team_a) {
+    const TeamForwardDefinition* forward =
+        team_forward_definition(world.map(), team);
+    if (forward == nullptr) {
+        return proposed_position;
+    }
+    if (forward->x_direction > 0.0F) {
         const float limit = frontline->forward_boundary_x - inset;
         proposed_position.x =
             std::min(proposed_position.x, std::max(current_position.x, limit));
-    } else if (team == Team::team_b) {
+    } else if (forward->x_direction < 0.0F) {
         const float limit = frontline->forward_boundary_x + inset;
         proposed_position.x =
             std::max(proposed_position.x, std::min(current_position.x, limit));

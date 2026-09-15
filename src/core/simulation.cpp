@@ -83,8 +83,10 @@ Vec2 separation_for(const Unit& unit, const std::vector<Unit>& units) noexcept {
     return separation * separation_weight;
 }
 
-float team_advance_direction(const Team team) noexcept {
-    return team == Team::team_a ? 1.0F : team == Team::team_b ? -1.0F : 0.0F;
+float team_advance_direction(const World& world, const Team team) noexcept {
+    const TeamForwardDefinition* forward =
+        team_forward_definition(world.map(), team);
+    return forward == nullptr ? 0.0F : forward->x_direction;
 }
 
 Vec2 hold_velocity_for(const Unit& unit, const Vec2 desired_velocity,
@@ -175,9 +177,9 @@ void apply_explosion(World& world, const Projectile& projectile,
     }
 }
 
-bool outside_world(const Vec2 position) noexcept {
-    return position.x < 0.0F || position.x > World::width ||
-           position.y < 0.0F || position.y > World::height;
+bool outside_world(const World& world, const Vec2 position) noexcept {
+    return position.x < 0.0F || position.x > world.map().logical_width ||
+           position.y < 0.0F || position.y > world.map().logical_height;
 }
 
 } // namespace
@@ -218,7 +220,7 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
             }
             projectile = projectiles.erase(projectile);
         } else if (projectile->expired() ||
-                   outside_world(projectile->position())) {
+                   outside_world(world_, projectile->position())) {
             projectile = projectiles.erase(projectile);
         } else {
             ++projectile;
@@ -265,17 +267,20 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
         }
 
         const float advance_x = unit.tactical_order() == TacticalOrder::advance
-            ? team_advance_direction(unit.team())
+            ? team_advance_direction(world_, unit.team())
             : autonomous_advance_x(world_, unit.team(), unit.position());
+        const float team_direction = team_advance_direction(world_, unit.team());
         const bool reached_edge =
-            (unit.team() == Team::team_a && unit.position().x >= World::width - world_margin) ||
-            (unit.team() == Team::team_b && unit.position().x <= world_margin);
+            (team_direction > 0.0F &&
+             unit.position().x >= world_.map().logical_width - world_margin) ||
+            (team_direction < 0.0F && unit.position().x <= world_margin);
         Vec2 velocity{};
         float desired_facing = unit.facing_angle();
         MovementState state = MovementState::idle;
         CombatMovementState combat_state = CombatMovementState::advancing;
         const Vec2 separation = separation_for(unit, units);
-        SupportPositioning support = support_positioning_for(unit, units);
+        SupportPositioning support =
+            support_positioning_for(unit, units, world_.map());
         if (unit.team() != Team::none && !reached_edge) {
             const float y_error = unit.preferred_y() - unit.position().y;
             Vec2 steering{
@@ -398,8 +403,10 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
             world_, unit.team(), unit.position(), unconstrained_position);
         const auto next_position = constrain_to_hold_leash(unit, frontline_position);
         const Vec2 final_position{
-            std::clamp(next_position.x, world_margin, World::width - world_margin),
-            std::clamp(next_position.y, world_margin, World::height - world_margin),
+            std::clamp(next_position.x, world_margin,
+                       world_.map().logical_width - world_margin),
+            std::clamp(next_position.y, world_margin,
+                       world_.map().logical_height - world_margin),
         };
         const bool moved =
             length_squared(final_position - unit.position()) > 0.0001F;

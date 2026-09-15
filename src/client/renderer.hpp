@@ -30,12 +30,14 @@ public:
     void toggle_debug_overlay() noexcept;
     void toggle_controlled_team() noexcept;
     [[nodiscard]] bool cancel_placement() noexcept;
-    void set_pointer_position(float drawable_x, float drawable_y);
+    void set_pointer_position(const World& world, float drawable_x,
+                              float drawable_y);
     void handle_primary_pointer_press(World& world, float drawable_x,
                                       float drawable_y);
     void handle_primary_pointer_release(World& world, float drawable_x,
                                         float drawable_y);
-    void handle_secondary_pointer_press(float drawable_x, float drawable_y);
+    void handle_secondary_pointer_press(const World& world, float drawable_x,
+                                        float drawable_y);
     void handle_secondary_pointer_release(World& world, float drawable_x,
                                           float drawable_y);
     [[nodiscard]] bool render(const World& world, double interpolation_alpha,

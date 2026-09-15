@@ -6,6 +6,7 @@
 #include "core/deployment.hpp"
 #include "core/economy.hpp"
 #include "core/frontline.hpp"
+#include "core/map_definition.hpp"
 #include "core/match.hpp"
 #include "core/math.hpp"
 #include "core/movement_path.hpp"
@@ -120,6 +121,83 @@ int main() {
     using namespace siege;
 
     bool passed = true;
+
+    const MapDefinition& battlefield = default_map_definition();
+    const MapDefinition* looked_up_battlefield =
+        map_definition("battlefield_01");
+    passed &= check(
+        looked_up_battlefield == &battlefield &&
+            map_definition("missing_map") == nullptr &&
+            battlefield.id == "battlefield_01",
+        "battlefield_01 lookup is deterministic and rejects unknown IDs");
+    passed &= check(near(battlefield.logical_width, 1'920.0F) &&
+                        near(battlefield.logical_height, 1'080.0F) &&
+                        battlefield.zones.size() == 5,
+                    "battlefield_01 defines the exact logical dimensions and five zones");
+    bool exact_zone_geometry = true;
+    for (std::size_t index = 0; index < battlefield.zones.size(); ++index) {
+        const ZoneDefinition& zone = battlefield.zones[index];
+        exact_zone_geometry &= zone.id == index &&
+                               near(zone.bounds.x,
+                                    static_cast<float>(index) * 384.0F) &&
+                               near(zone.bounds.y, 0.0F) &&
+                               near(zone.bounds.width, 384.0F) &&
+                               near(zone.bounds.height, 1'080.0F);
+    }
+    passed &= check(exact_zone_geometry,
+                    "battlefield_01 zones are ordered with exact 384-unit bounds");
+    passed &= check(
+        battlefield.zones[0].type == ZoneType::home &&
+            battlefield.zones[0].home_team == Team::team_a &&
+            battlefield.zones[4].type == ZoneType::home &&
+            battlefield.zones[4].home_team == Team::team_b &&
+            battlefield.objective_zone_indices.size() == 3 &&
+            battlefield.objective_zone_indices[0] == 1 &&
+            battlefield.objective_zone_indices[1] == 2 &&
+            battlefield.objective_zone_indices[2] == 3 &&
+            battlefield.zones[1].type == ZoneType::objective &&
+            battlefield.zones[2].type == ZoneType::objective &&
+            battlefield.zones[3].type == ZoneType::objective &&
+            battlefield.center_objective_zone_index == 2,
+        "map classifies homes, objectives, and the center objective");
+    passed &= check(
+        battlefield.team_a_forward.home_zone_index == 0 &&
+            battlefield.team_a_forward.opposing_home_zone_index == 4 &&
+            battlefield.team_a_forward.x_direction == 1.0F &&
+            battlefield.team_a_forward.objective_order[0] == 1 &&
+            battlefield.team_a_forward.objective_order[2] == 3 &&
+            battlefield.team_b_forward.home_zone_index == 4 &&
+            battlefield.team_b_forward.opposing_home_zone_index == 0 &&
+            battlefield.team_b_forward.x_direction == -1.0F &&
+            battlefield.team_b_forward.objective_order[0] == 3 &&
+            battlefield.team_b_forward.objective_order[2] == 1,
+        "map defines mirrored Team A and Team B forward traversal");
+    passed &= check(
+        map_zone_index_for_position(battlefield, {0.0F, 0.0F}) == 0 &&
+            map_zone_index_for_position(battlefield, {383.999F, 500.0F}) == 0 &&
+            map_zone_index_for_position(battlefield, {384.0F, 500.0F}) == 1 &&
+            map_zone_index_for_position(battlefield, {768.0F, 500.0F}) == 2 &&
+            map_zone_index_for_position(battlefield, {1'920.0F, 500.0F}) ==
+                std::nullopt &&
+            map_zone_index_for_position(battlefield, {500.0F, 1'080.0F}) ==
+                std::nullopt,
+        "map point lookup has deterministic lower-inclusive upper-exclusive boundaries");
+    World map_world;
+    bool world_uses_map_geometry = &map_world.map() == &battlefield &&
+                                   map_world.zones().size() ==
+                                       battlefield.zones.size();
+    for (std::size_t index = 0; index < map_world.zones().size(); ++index) {
+        const Bounds& actual = map_world.zones()[index].bounds();
+        const Bounds& defined = battlefield.zones[index].bounds;
+        world_uses_map_geometry &= near(actual.x, defined.x) &&
+                                   near(actual.y, defined.y) &&
+                                   near(actual.width, defined.width) &&
+                                   near(actual.height, defined.height) &&
+                                   map_world.zones()[index].type() ==
+                                       battlefield.zones[index].type;
+    }
+    passed &= check(world_uses_map_geometry,
+                    "World zone and render/deployment geometry derives from its map");
 
     World selection_world;
     selection_world.units().clear();
@@ -604,6 +682,17 @@ int main() {
         .fixed_ticks_per_second = 60,
         .duration_seconds = 0,
     };
+    MapDefinition alternate_center_map = battlefield;
+    alternate_center_map.center_objective_zone_index = 1;
+    World map_center_world{immediate_sudden_death, alternate_center_map};
+    map_center_world.reset_for_sudden_death();
+    map_center_world.emit_zone_ownership_event(
+        1, Team::none, Team::team_a, ZoneTransitionType::captured);
+    passed &= check(
+        resolve_sudden_death_center_capture(map_center_world) &&
+            map_center_world.match_state().result() == MatchResult::team_a,
+        "sudden-death victory resolves from the map-defined center objective");
+
     World partial_center_world{immediate_sudden_death};
     partial_center_world.reset_for_sudden_death();
     partial_center_world.zones()[2].advance_capture(50.0F);
@@ -1759,7 +1848,8 @@ int main() {
     passed &= check(team_a_deployment.has_value() &&
                         near(team_a_deployment->x, 384.0F) &&
                         near(team_a_deployment->width, 288.0F) &&
-                        near(team_a_deployment->height, World::height),
+                        near(team_a_deployment->height,
+                             occupation_world.map().logical_height),
                     "Team A deployment uses the left/rear 75 percent");
 
     World team_b_deployment_world;
@@ -1772,7 +1862,8 @@ int main() {
     passed &= check(team_b_deployment.has_value() &&
                         near(team_b_deployment->x, 1248.0F) &&
                         near(team_b_deployment->width, 288.0F) &&
-                        near(team_b_deployment->height, World::height),
+                        near(team_b_deployment->height,
+                             team_b_deployment_world.map().logical_height),
                     "Team B deployment mirrors into the right/rear 75 percent");
 
     World contiguous_a_world;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/map_definition.hpp"
 #include "world/unit.hpp"
 
 #include <optional>
@@ -13,6 +14,7 @@ struct SupportPositioning {
 };
 
 [[nodiscard]] SupportPositioning support_positioning_for(
-    const Unit& unit, const std::vector<Unit>& units) noexcept;
+    const Unit& unit, const std::vector<Unit>& units,
+    const MapDefinition& map = default_map_definition()) noexcept;
 
 } // namespace siege

@@ -5,7 +5,8 @@
 namespace siege {
 
 SupportPositioning support_positioning_for(
-    const Unit& unit, const std::vector<Unit>& units) noexcept {
+    const Unit& unit, const std::vector<Unit>& units,
+    const MapDefinition& map) noexcept {
     if (!unit.is_alive() || unit.team() == Team::none ||
         unit.support_positioning_bias() <= 0.0F ||
         unit.support_search_radius() <= 0.0F) {
@@ -40,10 +41,14 @@ SupportPositioning support_positioning_for(
         return {};
     }
 
-    const float advance_x = unit.team() == Team::team_a ? 1.0F : -1.0F;
+    const TeamForwardDefinition* forward =
+        team_forward_definition(map, unit.team());
+    if (forward == nullptr) {
+        return {};
+    }
     const Vec2 desired_position{
         nearest_screen->position().x -
-            advance_x * unit.support_rear_distance(),
+            forward->x_direction * unit.support_rear_distance(),
         nearest_screen->position().y,
     };
     const Vec2 offset = desired_position - unit.position();

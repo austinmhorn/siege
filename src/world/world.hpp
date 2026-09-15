@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/map_definition.hpp"
 #include "core/match.hpp"
 #include "world/combat_event.hpp"
 #include "world/player_state.hpp"
@@ -17,14 +18,12 @@ namespace siege {
 
 class World {
 public:
-    static constexpr float width = 1920.0F;
-    static constexpr float height = 1080.0F;
-    static constexpr std::size_t zone_count = 5;
+    explicit World(MatchRules match_rules = default_match_rules,
+                   const MapDefinition& map = default_map_definition());
 
-    explicit World(MatchRules match_rules = default_match_rules);
-
-    [[nodiscard]] const std::array<Zone, zone_count>& zones() const noexcept;
-    [[nodiscard]] std::array<Zone, zone_count>& zones() noexcept;
+    [[nodiscard]] const MapDefinition& map() const noexcept;
+    [[nodiscard]] std::span<const Zone> zones() const noexcept;
+    [[nodiscard]] std::span<Zone> zones() noexcept;
     [[nodiscard]] const std::array<PlayerState, 2>& players() const noexcept;
     [[nodiscard]] std::array<PlayerState, 2>& players() noexcept;
     [[nodiscard]] const PlayerState* find_player(Team team) const noexcept;
@@ -69,7 +68,8 @@ public:
 private:
     void spawn_test_units();
 
-    std::array<Zone, zone_count> zones_;
+    const MapDefinition* map_;
+    std::vector<Zone> zones_;
     std::array<PlayerState, 2> players_;
     MatchState match_state_;
     std::vector<Unit> units_;

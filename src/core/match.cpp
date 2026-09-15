@@ -98,8 +98,11 @@ bool resolve_sudden_death_center_capture(World& world) noexcept {
     if (world.match_state().phase() != MatchPhase::sudden_death) {
         return false;
     }
+    const std::size_t center_index =
+        world.map().center_objective_zone_index;
     for (const auto& event : world.zone_ownership_events()) {
-        if (event.zone_id == 2 && event.type == ZoneTransitionType::captured &&
+        if (event.zone_id == center_index &&
+            event.type == ZoneTransitionType::captured &&
             world.match_state().resolve_sudden_death(event.new_owner)) {
             return true;
         }

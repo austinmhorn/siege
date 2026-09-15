@@ -263,6 +263,7 @@ bool contains(const SDL_FRect& rectangle, const Point point) noexcept {
 }
 
 std::optional<Vec2> selection_world_point(SDL_Renderer* renderer,
+                                          const MapDefinition& map,
                                           Point drawable,
                                           const bool clamp_to_battlefield) {
     int output_width = 0;
@@ -271,8 +272,8 @@ std::optional<Vec2> selection_world_point(SDL_Renderer* renderer,
         return std::nullopt;
     }
 
-    const WorldTransform transform{World::width, World::height, output_width,
-                                   output_height};
+    const WorldTransform transform{map.logical_width, map.logical_height,
+                                   output_width, output_height};
     const Bounds& viewport = transform.viewport();
     const float right = viewport.x + viewport.width;
     const float bottom = std::min(
@@ -665,22 +666,23 @@ bool Renderer::cancel_placement() noexcept {
     return was_active;
 }
 
-void Renderer::set_pointer_position(const float drawable_x,
+void Renderer::set_pointer_position(const World& world,
+                                    const float drawable_x,
                                     const float drawable_y) {
     pointer_drawable_ = Point{drawable_x, drawable_y};
     if (selection_drag_.has_value()) {
         selection_drag_->drawable_current = pointer_drawable_;
-        if (const auto world = selection_world_point(
-                renderer_, pointer_drawable_, true)) {
-            selection_drag_->current = *world;
+        if (const auto world_point = selection_world_point(
+                renderer_, world.map(), pointer_drawable_, true)) {
+            selection_drag_->current = *world_point;
         }
     }
     if (path_drawing_.has_value()) {
-        if (const auto world = selection_world_point(
-                renderer_, pointer_drawable_, true)) {
-            path_drawing_->current = *world;
+        if (const auto world_point = selection_world_point(
+                renderer_, world.map(), pointer_drawable_, true)) {
+            path_drawing_->current = *world_point;
             (void)append_path_sample(path_drawing_->sampled_points,
-                                     path_drawing_->origin, *world, false);
+                                     path_drawing_->origin, *world_point, false);
         }
     }
 }
@@ -729,7 +731,8 @@ void Renderer::handle_primary_pointer_press(World& world,
         return;
     }
 
-    const WorldTransform transform{World::width, World::height, output_width,
+    const WorldTransform transform{world.map().logical_width,
+                                   world.map().logical_height, output_width,
                                    output_height};
     const auto world_point = transform.drawable_to_world(click);
     if (!selected_troop_.has_value()) {
@@ -775,7 +778,7 @@ void Renderer::handle_primary_pointer_release(World& world,
         return;
     }
     if (const auto endpoint = selection_world_point(
-            renderer_, Point{drawable_x, drawable_y}, true)) {
+            renderer_, world.map(), Point{drawable_x, drawable_y}, true)) {
         path_drawing_->current = *endpoint;
         (void)append_path_sample(path_drawing_->sampled_points,
                                  path_drawing_->origin, *endpoint, true);
@@ -791,18 +794,20 @@ void Renderer::handle_primary_pointer_release(World& world,
     path_drawing_.reset();
 }
 
-void Renderer::handle_secondary_pointer_press(const float drawable_x,
+void Renderer::handle_secondary_pointer_press(const World& world,
+                                              const float drawable_x,
                                               const float drawable_y) {
     if (selected_troop_.has_value()) {
         return;
     }
-    const auto world = selection_world_point(
-        renderer_, Point{drawable_x, drawable_y}, false);
-    if (!world.has_value()) {
+    const auto world_point = selection_world_point(
+        renderer_, world.map(), Point{drawable_x, drawable_y}, false);
+    if (!world_point.has_value()) {
         return;
     }
     const Point drawable{drawable_x, drawable_y};
-    selection_drag_ = SelectionDrag{*world, *world, drawable, drawable};
+    selection_drag_ =
+        SelectionDrag{*world_point, *world_point, drawable, drawable};
 }
 
 void Renderer::handle_secondary_pointer_release(World& world,
@@ -814,7 +819,7 @@ void Renderer::handle_secondary_pointer_release(World& world,
     const Point drawable_release{drawable_x, drawable_y};
     selection_drag_->drawable_current = drawable_release;
     if (const auto release = selection_world_point(
-            renderer_, Point{drawable_x, drawable_y}, true)) {
+            renderer_, world.map(), Point{drawable_x, drawable_y}, true)) {
         selection_drag_->current = *release;
     }
     if (classify_secondary_gesture(selection_drag_->drawable_start,
@@ -842,7 +847,9 @@ bool Renderer::render(const World& world, const double interpolation_alpha,
         return false;
     }
 
-    const WorldTransform transform{World::width, World::height, output_width, output_height};
+    const WorldTransform transform{world.map().logical_width,
+                                   world.map().logical_height, output_width,
+                                   output_height};
 
     set_color(renderer_, letterbox);
     if (!SDL_RenderClear(renderer_)) {
