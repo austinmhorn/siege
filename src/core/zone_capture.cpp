@@ -7,6 +7,39 @@
 namespace siege {
 namespace {
 
+std::optional<std::size_t> deployment_front_index(
+    const World& world, const Team team) noexcept {
+    if (team == Team::none) {
+        return std::nullopt;
+    }
+
+    if (team == Team::team_a) {
+        std::size_t front = 0;
+        if (world.match_state().phase() == MatchPhase::sudden_death) {
+            return front;
+        }
+        for (std::size_t index = 1; index + 1 < world.zones().size(); ++index) {
+            if (!is_zone_deployable(world.zones()[index], team)) {
+                break;
+            }
+            front = index;
+        }
+        return front;
+    }
+
+    std::size_t front = world.zones().size() - 1;
+    if (world.match_state().phase() == MatchPhase::sudden_death) {
+        return front;
+    }
+    for (std::size_t index = world.zones().size() - 2; index > 0; --index) {
+        if (!is_zone_deployable(world.zones()[index], team)) {
+            break;
+        }
+        front = index;
+    }
+    return front;
+}
+
 void transition_ownership(World& world, Zone& zone) {
     const Team previous_owner = zone.owner();
 
@@ -100,11 +133,14 @@ bool is_zone_deployable(const Zone& zone, const Team team) noexcept {
 
 bool is_zone_deployable(const World& world, const Zone& zone,
                         const Team team) noexcept {
-    if (world.match_state().phase() == MatchPhase::sudden_death &&
-        zone.type() != ZoneType::home) {
+    const auto front = deployment_front_index(world, team);
+    if (!front.has_value()) {
         return false;
     }
-    return is_zone_deployable(zone, team);
+    if (team == Team::team_a) {
+        return zone.index() <= *front;
+    }
+    return zone.index() >= *front;
 }
 
 std::optional<Bounds> deployment_bounds(
@@ -112,10 +148,6 @@ std::optional<Bounds> deployment_bounds(
     if (!is_zone_deployable(zone, team)) {
         return std::nullopt;
     }
-    if (zone.type() == ZoneType::home) {
-        return zone.bounds();
-    }
-
     const Bounds& bounds = zone.bounds();
     const float rear_fraction =
         std::clamp(rules.deployment_rear_fraction, 0.0F, 1.0F);
@@ -131,6 +163,13 @@ std::optional<Bounds> deployment_bounds(
     const ZoneSecurityRules rules) noexcept {
     if (!is_zone_deployable(world, zone, team)) {
         return std::nullopt;
+    }
+    const auto front = deployment_front_index(world, team);
+    if (!front.has_value()) {
+        return std::nullopt;
+    }
+    if (zone.index() != *front) {
+        return zone.bounds();
     }
     return deployment_bounds(zone, team, rules);
 }

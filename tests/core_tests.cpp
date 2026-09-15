@@ -1271,6 +1271,73 @@ int main() {
                  900.0F),
         "individual paths cannot bypass the uncaptured frontline and retain the blocked waypoint");
 
+    World terminal_a_world;
+    terminal_a_world.units().clear();
+    for (std::size_t index = 1; index <= 3; ++index) {
+        terminal_a_world.zones()[index].advance_capture(100.0F);
+    }
+    update_zone_capture(terminal_a_world, 0.0);
+    const auto terminal_a_frontline =
+        frontline_objective(terminal_a_world, Team::team_a);
+    terminal_a_world.units().push_back(
+        test_unit(5140, Team::team_a, {1535.5F, 300.0F}, 270.0F));
+    Simulation terminal_a_simulation{terminal_a_world};
+    terminal_a_simulation.update(1.0);
+    passed &= check(
+        terminal_a_frontline.has_value() &&
+            terminal_a_frontline->zone_index == 3 &&
+            near(terminal_a_frontline->forward_boundary_x, 1536.0F) &&
+            terminal_a_world.units()[0].position().x < 1536.0F,
+        "Team A terminal frontline prevents autonomous entry into Team B home");
+
+    terminal_a_world.units()[0].set_position({1535.5F, 300.0F});
+    const std::array<Unit::Id, 1> terminal_advance_ids{5140};
+    (void)apply_tactical_order(terminal_a_world, terminal_advance_ids,
+                               TacticalOrder::advance);
+    terminal_a_simulation.update(1.0);
+    const bool terminal_advance_blocked =
+        terminal_a_world.units()[0].position().x < 1536.0F;
+    terminal_a_world.units()[0].set_position({1535.5F, 300.0F});
+    terminal_a_world.units()[0].replace_movement_path({{1800.0F, 300.0F}});
+    terminal_a_simulation.update(1.0);
+    passed &= check(
+        terminal_advance_blocked &&
+            terminal_a_world.units()[0].position().x < 1536.0F &&
+            terminal_a_world.units()[0].has_movement_path(),
+        "Tactical Advance and individual paths share Team A terminal home boundary");
+
+    terminal_a_world.units()[0].clear_movement_path();
+    terminal_a_world.units()[0].set_tactical_order(TacticalOrder::automatic);
+    terminal_a_world.units()[0].set_position(
+        {terminal_a_frontline->hold_x, 300.0F});
+    for (int tick = 0; tick < 120; ++tick) {
+        terminal_a_simulation.update(1.0 / 60.0);
+    }
+    passed &= check(
+        std::abs(terminal_a_world.units()[0].position().x -
+                 terminal_a_frontline->hold_x) < 1.0F &&
+            terminal_a_world.units()[0].position().x < 1536.0F,
+        "owning every objective holds targetless Team A troops inside zone 3");
+
+    World terminal_b_world;
+    terminal_b_world.units().clear();
+    for (std::size_t index = 1; index <= 3; ++index) {
+        terminal_b_world.zones()[index].advance_capture(-100.0F);
+    }
+    update_zone_capture(terminal_b_world, 0.0);
+    const auto terminal_b_frontline =
+        frontline_objective(terminal_b_world, Team::team_b);
+    terminal_b_world.units().push_back(
+        test_unit(5150, Team::team_b, {384.5F, 300.0F}, 90.0F));
+    Simulation terminal_b_simulation{terminal_b_world};
+    terminal_b_simulation.update(1.0);
+    passed &= check(
+        terminal_b_frontline.has_value() &&
+            terminal_b_frontline->zone_index == 1 &&
+            near(terminal_b_frontline->forward_boundary_x, 384.0F) &&
+            terminal_b_world.units()[0].position().x > 384.0F,
+        "Team B terminal frontline mirrors the opposing-home restriction");
+
     passed &= check(near(capture_bar_fraction(100.0F), 0.0F) &&
                         near(capture_bar_fraction(0.0F), 0.5F) &&
                         near(capture_bar_fraction(-100.0F), 1.0F),
@@ -1617,6 +1684,126 @@ int main() {
                         near(team_b_deployment->width, 288.0F) &&
                         near(team_b_deployment->height, World::height),
                     "Team B deployment mirrors into the right/rear 75 percent");
+
+    World contiguous_a_world;
+    contiguous_a_world.units().clear();
+    const auto home_only_a = deployment_bounds(
+        contiguous_a_world, contiguous_a_world.zones()[0], Team::team_a);
+    const auto home_only_b = deployment_bounds(
+        contiguous_a_world, contiguous_a_world.zones()[4], Team::team_b);
+    passed &= check(
+        home_only_a.has_value() && near(home_only_a->x, 0.0F) &&
+            near(home_only_a->width, 288.0F) && home_only_b.has_value() &&
+            near(home_only_b->x, 1632.0F) &&
+            near(home_only_b->width, 288.0F),
+        "home-only deployment keeps the mirrored rear-75-percent safety restriction");
+
+    contiguous_a_world.zones()[1].advance_capture(100.0F);
+    update_zone_capture(contiguous_a_world, 0.0);
+    update_zone_capture(contiguous_a_world, 2.0);
+    const auto full_a_home = deployment_bounds(
+        contiguous_a_world, contiguous_a_world.zones()[0], Team::team_a);
+    const auto restricted_a_zone_1 = deployment_bounds(
+        contiguous_a_world, contiguous_a_world.zones()[1], Team::team_a);
+    passed &= check(
+        full_a_home.has_value() && near(full_a_home->width, 384.0F) &&
+            restricted_a_zone_1.has_value() &&
+            near(restricted_a_zone_1->x, 384.0F) &&
+            near(restricted_a_zone_1->width, 288.0F) &&
+            is_valid_deployment_location(contiguous_a_world, Team::team_a,
+                                         {350.0F, 400.0F}) &&
+            !is_valid_deployment_location(contiguous_a_world, Team::team_a,
+                                          {700.0F, 400.0F}),
+        "one secured Team A objective fills the old home gap and retains its front buffer");
+
+    contiguous_a_world.zones()[2].advance_capture(100.0F);
+    update_zone_capture(contiguous_a_world, 0.0);
+    update_zone_capture(contiguous_a_world, 2.0);
+    const auto full_a_zone_1 = deployment_bounds(
+        contiguous_a_world, contiguous_a_world.zones()[1], Team::team_a);
+    const auto restricted_a_zone_2 = deployment_bounds(
+        contiguous_a_world, contiguous_a_world.zones()[2], Team::team_a);
+    passed &= check(
+        full_a_zone_1.has_value() && near(full_a_zone_1->width, 384.0F) &&
+            restricted_a_zone_2.has_value() &&
+            near(restricted_a_zone_2->x, 768.0F) &&
+            near(restricted_a_zone_2->width, 288.0F) &&
+            is_valid_deployment_location(contiguous_a_world, Team::team_a,
+                                         {750.0F, 400.0F}) &&
+            !is_valid_deployment_location(contiguous_a_world, Team::team_a,
+                                          {1100.0F, 400.0F}),
+        "advancing Team A deployment makes each previous connected zone fully deployable");
+
+    contiguous_a_world.zones()[3].advance_capture(100.0F);
+    update_zone_capture(contiguous_a_world, 0.0);
+    update_zone_capture(contiguous_a_world, 2.0);
+    const auto full_a_zone_2 = deployment_bounds(
+        contiguous_a_world, contiguous_a_world.zones()[2], Team::team_a);
+    const auto restricted_a_zone_3 = deployment_bounds(
+        contiguous_a_world, contiguous_a_world.zones()[3], Team::team_a);
+    passed &= check(
+        full_a_zone_2.has_value() && near(full_a_zone_2->width, 384.0F) &&
+            restricted_a_zone_3.has_value() &&
+            near(restricted_a_zone_3->x, 1152.0F) &&
+            near(restricted_a_zone_3->width, 288.0F),
+        "frontmost Team A secured objective alone retains the forward 25-percent buffer");
+
+    World contiguous_b_world;
+    contiguous_b_world.units().clear();
+    contiguous_b_world.zones()[3].advance_capture(-100.0F);
+    update_zone_capture(contiguous_b_world, 0.0);
+    update_zone_capture(contiguous_b_world, 2.0);
+    const auto full_b_home = deployment_bounds(
+        contiguous_b_world, contiguous_b_world.zones()[4], Team::team_b);
+    const auto restricted_b_zone_3 = deployment_bounds(
+        contiguous_b_world, contiguous_b_world.zones()[3], Team::team_b);
+    passed &= check(
+        full_b_home.has_value() && near(full_b_home->x, 1536.0F) &&
+            near(full_b_home->width, 384.0F) &&
+            restricted_b_zone_3.has_value() &&
+            near(restricted_b_zone_3->x, 1248.0F) &&
+            near(restricted_b_zone_3->width, 288.0F) &&
+            is_valid_deployment_location(contiguous_b_world, Team::team_b,
+                                         {1570.0F, 400.0F}) &&
+            !is_valid_deployment_location(contiguous_b_world, Team::team_b,
+                                          {1200.0F, 400.0F}),
+        "Team B contiguous deployment and front safety buffer mirror Team A");
+
+    World disconnected_deployment_world;
+    disconnected_deployment_world.units().clear();
+    disconnected_deployment_world.zones()[2].advance_capture(100.0F);
+    update_zone_capture(disconnected_deployment_world, 0.0);
+    update_zone_capture(disconnected_deployment_world, 2.0);
+    passed &= check(
+        !deployment_bounds(disconnected_deployment_world,
+                           disconnected_deployment_world.zones()[2],
+                           Team::team_a)
+             .has_value() &&
+            !is_valid_deployment_location(disconnected_deployment_world,
+                                          Team::team_a,
+                                          {800.0F, 400.0F}),
+        "disconnected secured ownership cannot bridge an unsecured objective gap");
+
+    World sudden_deployment_corridor_world{MatchRules{60, 1}};
+    sudden_deployment_corridor_world.units().clear();
+    (void)sudden_deployment_corridor_world.match_state().advance(60, 0, 0);
+    sudden_deployment_corridor_world.reset_for_sudden_death();
+    sudden_deployment_corridor_world.zones()[1].advance_capture(100.0F);
+    update_zone_capture(sudden_deployment_corridor_world, 0.0);
+    update_zone_capture(sudden_deployment_corridor_world, 2.0);
+    const auto sudden_home = deployment_bounds(
+        sudden_deployment_corridor_world,
+        sudden_deployment_corridor_world.zones()[0], Team::team_a);
+    passed &= check(
+        sudden_home.has_value() && near(sudden_home->width, 288.0F) &&
+            !deployment_bounds(sudden_deployment_corridor_world,
+                               sudden_deployment_corridor_world.zones()[1],
+                               Team::team_a)
+                 .has_value() &&
+            !is_valid_deployment_location(sudden_deployment_corridor_world,
+                                          Team::team_a,
+                                          {500.0F, 400.0F}),
+        "sudden death remains home-only with its home safety buffer");
 
     Unit machine_gun_rotation = unit_from_definition(
         99, Team::team_a, {}, 0.0F, machine_gun_definition);

@@ -25,6 +25,11 @@ std::optional<FrontlineObjective> frontline_objective(
                 index, bounds.x + bounds.width,
                 bounds.x + bounds.width * rules.hold_depth_fraction};
         }
+        const std::size_t terminal_index = world.zones().size() - 2;
+        const Bounds& bounds = world.zones()[terminal_index].bounds();
+        return FrontlineObjective{
+            terminal_index, bounds.x + bounds.width,
+            bounds.x + bounds.width * rules.hold_depth_fraction};
     } else {
         for (std::size_t index = world.zones().size() - 2; index > 0; --index) {
             const Zone& zone = world.zones()[index];
@@ -37,8 +42,13 @@ std::optional<FrontlineObjective> frontline_objective(
                 bounds.x + bounds.width *
                                (1.0F - rules.hold_depth_fraction)};
         }
+        constexpr std::size_t terminal_index = 1;
+        const Bounds& bounds = world.zones()[terminal_index].bounds();
+        return FrontlineObjective{
+            terminal_index, bounds.x,
+            bounds.x + bounds.width *
+                           (1.0F - rules.hold_depth_fraction)};
     }
-    return std::nullopt;
 }
 
 float autonomous_advance_x(const World& world, const Team team,
