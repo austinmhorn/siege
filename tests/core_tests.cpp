@@ -685,21 +685,31 @@ int main() {
         ai_control_world.pending_deployments().size();
     const std::uint64_t before_pause_ticks =
         control_commander.ticks_until_next_decision();
+    const std::uint64_t before_pause_strategy_ticks =
+        control_commander.ticks_until_next_strategy_evaluation();
+    const std::uint64_t before_pause_strategy_evaluations =
+        control_commander.strategy_evaluation_count();
     (void)ai_local_control.toggle();
     control_commander.update(ai_control_world, ai_local_control.team(), 600);
     const bool paused_cleanly =
         control_commander.status() ==
             AiCommanderStatus::paused_local_control &&
         ai_control_world.pending_deployments().size() == before_pause &&
-        control_commander.ticks_until_next_decision() == before_pause_ticks;
+        control_commander.ticks_until_next_decision() == before_pause_ticks &&
+        control_commander.ticks_until_next_strategy_evaluation() ==
+            before_pause_strategy_ticks &&
+        control_commander.strategy_evaluation_count() ==
+            before_pause_strategy_evaluations;
     (void)ai_local_control.toggle();
     control_commander.update(ai_control_world, ai_local_control.team(),
                              before_pause_ticks);
     passed &= check(
         paused_cleanly &&
             control_commander.status() == AiCommanderStatus::enabled &&
-            ai_control_world.pending_deployments().size() == before_pause + 1,
-        "F4 RED control pauses its AI clock and BLUE control resumes it");
+            ai_control_world.pending_deployments().size() == before_pause + 1 &&
+            control_commander.strategy_evaluation_count() >
+                before_pause_strategy_evaluations,
+        "F4 RED control pauses purchasing and strategy clocks, then BLUE control resumes both");
 
     World deterministic_ai_world_a;
     World deterministic_ai_world_b;
@@ -725,7 +735,18 @@ int main() {
         deterministic_ai_world_a.pending_deployments().size() ==
             deterministic_ai_world_b.pending_deployments().size() &&
         deterministic_commander_a.successful_deployments() ==
-            deterministic_commander_b.successful_deployments();
+            deterministic_commander_b.successful_deployments() &&
+        deterministic_commander_a.strategy() ==
+            deterministic_commander_b.strategy() &&
+        deterministic_commander_a.target_objective() ==
+            deterministic_commander_b.target_objective() &&
+        deterministic_commander_a.last_tactical_command() ==
+            deterministic_commander_b.last_tactical_command() &&
+        std::ranges::equal(
+            deterministic_commander_a.last_commanded_unit_ids(),
+            deterministic_commander_b.last_commanded_unit_ids()) &&
+        deterministic_commander_a.tactical_command_issue_count() ==
+            deterministic_commander_b.tactical_command_issue_count();
     for (std::size_t index = 0;
          deterministic_ai && index < deterministic_ai_world_a.units().size();
          ++index) {
@@ -734,6 +755,7 @@ int main() {
         deterministic_ai &= left.id() == right.id() &&
                             left.team() == right.team() &&
                             left.troop_type() == right.troop_type() &&
+                            left.tactical_order() == right.tactical_order() &&
                             near(left.position().x, right.position().x) &&
                             near(left.position().y, right.position().y);
     }
@@ -754,6 +776,182 @@ int main() {
     }
     passed &= check(deterministic_ai,
                     "repeated fixed-timestep simulations produce identical AI decisions");
+
+    World ai_attack_world;
+    ai_attack_world.units().clear();
+    ai_attack_world.find_player(Team::team_b)->reset_cash(0);
+    ai_attack_world.units().push_back(
+        test_unit(520, Team::team_b, {1'440.0F, 300.0F}, 90.0F));
+    ai_attack_world.units().push_back(
+        unit_from_definition(510, Team::team_b, {1'620.0F, 700.0F}, 90.0F,
+                             machine_gun_definition));
+    ai_attack_world.units().push_back(
+        test_unit(530, Team::team_b, {1'820.0F, 500.0F}, 90.0F));
+    ai_attack_world.units().push_back(
+        test_unit(540, Team::team_a, {300.0F, 500.0F}, 270.0F));
+    ai_attack_world.units().push_back(
+        test_unit(550, Team::team_b, {1'430.0F, 500.0F}, 90.0F));
+    ai_attack_world.units().back().apply_damage(
+        ai_attack_world.units().back().max_health());
+    update_zone_capture(ai_attack_world, 0.0);
+    AiCommander attack_commander{Team::team_b};
+    attack_commander.update(ai_attack_world, Team::team_a);
+    const std::array<Unit::Id, 2> expected_local_attack_ids{510, 520};
+    passed &= check(
+        attack_commander.strategy() == AiStrategy::attack &&
+            attack_commander.target_objective() == 3 &&
+            attack_commander.last_tactical_command() ==
+                TacticalOrder::advance &&
+            std::ranges::equal(attack_commander.last_commanded_unit_ids(),
+                               expected_local_attack_ids) &&
+            ai_attack_world.find_unit(510)->tactical_order() ==
+                TacticalOrder::advance &&
+            ai_attack_world.find_unit(520)->tactical_order() ==
+                TacticalOrder::advance &&
+            ai_attack_world.find_unit(530)->tactical_order() ==
+                TacticalOrder::automatic &&
+            ai_attack_world.find_unit(540)->tactical_order() ==
+                TacticalOrder::automatic &&
+            ai_attack_world.find_unit(550)->tactical_order() ==
+                TacticalOrder::automatic,
+        "unthreatened RED frontline deterministically advances only its local living force");
+
+    const std::uint64_t attack_issue_count =
+        attack_commander.tactical_command_issue_count();
+    attack_commander.update(ai_attack_world, Team::team_a, 59);
+    passed &= check(
+        attack_commander.strategy_evaluation_count() == 2 &&
+            attack_commander.tactical_command_issue_count() ==
+                attack_issue_count,
+        "repeated strategy evaluation does not reissue an identical order");
+
+    World ai_defend_world;
+    ai_defend_world.units().clear();
+    ai_defend_world.find_player(Team::team_b)->reset_cash(0);
+    secure_objective(ai_defend_world, 3, Team::team_b);
+    ai_defend_world.units().push_back(
+        test_unit(610, Team::team_b, {1'620.0F, 260.0F}, 90.0F));
+    ai_defend_world.units().push_back(
+        unit_from_definition(620, Team::team_b, {1'420.0F, 760.0F}, 90.0F,
+                             bazooka_definition));
+    ai_defend_world.units().push_back(
+        test_unit(630, Team::team_a, {1'360.0F, 260.0F}, 270.0F));
+    ai_defend_world.units().push_back(
+        test_unit(640, Team::team_a, {300.0F, 760.0F}, 270.0F));
+    update_zone_capture(ai_defend_world, 0.0);
+    AiCommander defend_commander{Team::team_b};
+    defend_commander.update(ai_defend_world, Team::team_a);
+    const Bounds defended_bounds = ai_defend_world.zones()[3].bounds();
+    const Unit* outside_defender = ai_defend_world.find_unit(610);
+    const Unit* inside_defender = ai_defend_world.find_unit(620);
+    const auto anchor_inside = [&defended_bounds](const Unit* unit) {
+        return unit != nullptr && unit->tactical_position().has_value() &&
+               unit->tactical_position()->x >= defended_bounds.x &&
+               unit->tactical_position()->x <
+                   defended_bounds.x + defended_bounds.width &&
+               unit->tactical_position()->y >= defended_bounds.y &&
+               unit->tactical_position()->y <
+                   defended_bounds.y + defended_bounds.height;
+    };
+    passed &= check(
+        defend_commander.strategy() == AiStrategy::defend &&
+            defend_commander.target_objective() == 3 &&
+            defend_commander.relevant_enemy_strength() == 1 &&
+            outside_defender->tactical_order() == TacticalOrder::hold &&
+            inside_defender->tactical_order() == TacticalOrder::hold &&
+            anchor_inside(outside_defender) && anchor_inside(inside_defender) &&
+            ai_defend_world.find_unit(630)->tactical_order() ==
+                TacticalOrder::automatic &&
+            ai_defend_world.find_unit(640)->tactical_order() ==
+                TacticalOrder::automatic,
+        "an actively threatened owned objective takes priority and holds RED anchors inside its bounds");
+
+    World ai_regroup_world;
+    ai_regroup_world.units().clear();
+    ai_regroup_world.find_player(Team::team_b)->reset_cash(0);
+    ai_regroup_world.units().push_back(
+        test_unit(710, Team::team_b, {950.0F, 300.0F}, 90.0F));
+    ai_regroup_world.units().push_back(
+        test_unit(720, Team::team_b, {1'500.0F, 700.0F}, 90.0F));
+    ai_regroup_world.units().push_back(
+        test_unit(730, Team::team_a, {1'180.0F, 200.0F}, 270.0F));
+    ai_regroup_world.units().push_back(
+        test_unit(740, Team::team_a, {1'280.0F, 400.0F}, 270.0F));
+    ai_regroup_world.units().push_back(
+        test_unit(750, Team::team_a, {1'380.0F, 600.0F}, 270.0F));
+    ai_regroup_world.units().push_back(
+        test_unit(760, Team::team_a, {1'480.0F, 800.0F}, 270.0F));
+    update_zone_capture(ai_regroup_world, 0.0);
+    AiCommander regroup_commander{Team::team_b};
+    regroup_commander.update(ai_regroup_world, Team::team_a);
+    const auto regroup_target =
+        ai_regroup_world.find_unit(710)->tactical_position();
+    const auto second_regroup_target =
+        ai_regroup_world.find_unit(720)->tactical_position();
+    passed &= check(
+        regroup_commander.strategy() == AiStrategy::regroup &&
+            regroup_commander.relevant_friendly_strength() == 2 &&
+            regroup_commander.relevant_enemy_strength() == 4 &&
+            regroup_commander.last_tactical_command() ==
+                TacticalOrder::regroup &&
+            regroup_target.has_value() && second_regroup_target.has_value() &&
+            near(second_regroup_target->x, regroup_target->x) &&
+            near(second_regroup_target->y, regroup_target->y) &&
+            near(regroup_target->x, 1'225.0F) &&
+            near(regroup_target->y, 500.0F),
+        "scattered and substantially outnumbered RED forces regroup around one deterministic center");
+    const std::uint64_t regroup_issue_count =
+        regroup_commander.tactical_command_issue_count();
+    regroup_commander.update(ai_regroup_world, Team::team_a, 59);
+    passed &= check(
+        regroup_commander.tactical_command_issue_count() ==
+            regroup_issue_count,
+        "active regroup orders continue without strategy-tick command spam");
+
+    std::erase_if(ai_regroup_world.units(), [](const Unit& unit) {
+        return unit.team() == Team::team_a;
+    });
+    Simulation regroup_completion_simulation{ai_regroup_world};
+    for (int tick = 0; tick < 900; ++tick) {
+        regroup_completion_simulation.update(1.0 / 60.0);
+    }
+    passed &= check(
+        ai_regroup_world.find_unit(710)->tactical_order() ==
+                TacticalOrder::automatic &&
+            ai_regroup_world.find_unit(720)->tactical_order() ==
+                TacticalOrder::automatic,
+        "AI-issued Regroup uses normal consolidation and automatic completion");
+    regroup_commander.update(ai_regroup_world, Team::team_a, 60);
+    passed &= check(
+        regroup_commander.strategy() == AiStrategy::attack &&
+            ai_regroup_world.find_unit(710)->tactical_order() ==
+                TacticalOrder::advance &&
+            ai_regroup_world.find_unit(720)->tactical_order() ==
+                TacticalOrder::advance,
+        "a consolidated AI regroup resumes the normal frontline attack");
+
+    World ai_frontline_limit_world;
+    ai_frontline_limit_world.units().clear();
+    ai_frontline_limit_world.find_player(Team::team_b)->reset_cash(0);
+    ai_frontline_limit_world.units().push_back(
+        test_unit(810, Team::team_b, {1'300.0F, 500.0F}, 90.0F));
+    update_zone_capture(ai_frontline_limit_world, 0.0);
+    AiCommander frontline_limit_commander{Team::team_b};
+    frontline_limit_commander.update(ai_frontline_limit_world, Team::team_a);
+    Simulation frontline_limit_simulation{ai_frontline_limit_world};
+    for (int tick = 0; tick < 240; ++tick) {
+        frontline_limit_simulation.update(1.0 / 60.0);
+    }
+    passed &= check(
+        ai_frontline_limit_world.find_unit(810)->position().x >= 1'151.99F &&
+            ai_frontline_limit_world.zones()[3].owner() == Team::none,
+        "AI Advance remains constrained by the uncaptured RED frontline");
+
+    passed &= check(
+        sudden_commander.strategy() == AiStrategy::attack &&
+            sudden_commander.target_objective() ==
+                battlefield.center_objective_zone_index,
+        "sudden-death strategy explicitly prioritizes center progression");
 
     World economy_world;
     economy_world.units().clear();

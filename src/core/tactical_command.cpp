@@ -6,11 +6,28 @@
 #include <vector>
 
 namespace siege {
+namespace {
+
+Vec2 hold_anchor_in_bounds(const Vec2 position, const Bounds& bounds) noexcept {
+    const float maximum_inset =
+        std::max(0.0F, std::min(bounds.width, bounds.height) * 0.5F);
+    const float inset =
+        std::min(default_tactical_rules.hold_anchor_inset, maximum_inset);
+    const float minimum_x = bounds.x + inset;
+    const float maximum_x = bounds.x + bounds.width - inset;
+    const float minimum_y = bounds.y + inset;
+    const float maximum_y = bounds.y + bounds.height - inset;
+    return Vec2{std::clamp(position.x, minimum_x, maximum_x),
+                std::clamp(position.y, minimum_y, maximum_y)};
+}
+
+} // namespace
 
 std::size_t apply_tactical_order(World& world,
                                  const std::span<const Unit::Id> unit_ids,
                                  const TacticalOrder order,
-                                 const Team commanding_team) {
+                                 const Team commanding_team,
+                                 const std::optional<Bounds> hold_bounds) {
     if (!world.match_state().active()) {
         return 0;
     }
@@ -46,7 +63,10 @@ std::size_t apply_tactical_order(World& world,
 
     for (Unit* unit : units) {
         if (order == TacticalOrder::hold) {
-            unit->set_tactical_order(order, unit->position());
+            const Vec2 anchor = hold_bounds.has_value()
+                ? hold_anchor_in_bounds(unit->position(), *hold_bounds)
+                : unit->position();
+            unit->set_tactical_order(order, anchor);
         } else if (order == TacticalOrder::regroup) {
             unit->set_tactical_order(order, shared_target);
         } else {

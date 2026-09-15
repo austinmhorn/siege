@@ -404,6 +404,31 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
     global.format(FontRole::debug, debug_text, "pending: %zu  deployed: %llu",
                   ai_pending, static_cast<unsigned long long>(
                                   ai_commander.successful_deployments()));
+    const auto ai_strategy = to_string(ai_commander.strategy());
+    if (const auto objective = ai_commander.target_objective()) {
+        global.format(FontRole::debug, debug_text, "strategy: %.*s -> Z%zu",
+                      static_cast<int>(ai_strategy.size()), ai_strategy.data(),
+                      *objective);
+    } else {
+        global.format(FontRole::debug, debug_text, "strategy: %.*s -> none",
+                      static_cast<int>(ai_strategy.size()), ai_strategy.data());
+    }
+    global.format(FontRole::debug, debug_text, "strength: %d friendly / %d enemy",
+                  ai_commander.relevant_friendly_strength(),
+                  ai_commander.relevant_enemy_strength());
+    if (const auto command = ai_commander.last_tactical_command()) {
+        const auto command_name = to_string(*command);
+        global.format(FontRole::debug, debug_text, "command: %.*s x%zu",
+                      static_cast<int>(command_name.size()),
+                      command_name.data(),
+                      ai_commander.last_commanded_unit_count());
+    } else {
+        global.line(FontRole::debug, debug_text, "command: none");
+    }
+    global.format(FontRole::debug, debug_text, "strategy next: %.2fs",
+                  static_cast<double>(
+                      ai_commander.ticks_until_next_strategy_evaluation()) /
+                      simulation_hz);
     global.blank();
 
     global.line(FontRole::debug_bold, debug_heading, "REGULATION SCORE");
