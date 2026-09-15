@@ -28,13 +28,15 @@ optional (`brew install sdl3`). Before building, sync the locally purchased art:
 ./scripts/sync_assets.sh
 ```
 
-The script defaults to `.local_assets/soldiers/` and
-`.local_assets/fonts/dogica/` at the repository root. The first directory
-contains the developer's private purchased CraftPix source pack; the second
-contains the local Dogica Pixel distribution. Pass alternate soldier and font
-roots as the first and second arguments when needed. The script copies only the
-required `soldiers_color1/soldier1` layers and shadows into `assets/soldiers/`,
-plus `dogicapixel.ttf`, `dogicapixelbold.ttf`, and the SIL Open Font License into
+The script defaults to `.local_assets/soldiers/`,
+`.local_assets/fonts/dogica/`, and `.local_assets/terrain/tilesets/` at the
+repository root. These contain the developer's private purchased CraftPix
+source packs and local Dogica Pixel distribution. Pass alternate soldier, font,
+and terrain roots as the first, second, and third arguments when needed. The
+script copies only the required `soldiers_color2/soldier1` layers and shared
+shadows into `assets/soldiers/`, the selected `battlefield_01` tiles, objects,
+and shadows into `assets/terrain/battlefield/`, plus `dogicapixel.ttf`,
+`dogicapixelbold.ttf`, and the SIL Open Font License into
 `assets/fonts/dogica/`.
 
 ```sh
@@ -137,7 +139,7 @@ runtime fonts. Tracked copies of the attribution and exact license text are in
   both balances and the passive rate; purchasing and rewards are not implemented.
 
 The private source inputs under `.local_assets/` and generated runtime content
-under `assets/soldiers/` and `assets/fonts/` are intentionally excluded from
-Git. The sync script only reads source inputs, and local builds copy the runtime
-subset beside the executable. Development happens on `dev`; reviewed stable work
-is promoted to `main` by the repository owner.
+under `assets/soldiers/`, `assets/fonts/`, and `assets/terrain/` are
+intentionally excluded from Git. The sync script only reads source inputs, and
+local builds copy the runtime subset beside the executable. Development happens
+on `dev`; reviewed stable work is promoted to `main` by the repository owner.

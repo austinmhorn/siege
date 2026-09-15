@@ -1,5 +1,6 @@
 #pragma once
 
+#include "client/battlefield_renderer.hpp"
 #include "client/frame_animation.hpp"
 #include "client/font_system.hpp"
 #include "client/local_control.hpp"
@@ -106,6 +107,7 @@ private:
 
     SDL_Renderer* renderer_{};
     mutable TextureCache textures_;
+    mutable BattlefieldRenderer battlefield_renderer_;
     mutable FontSystem fonts_;
     DebugRenderer debug_renderer_;
     std::unordered_map<unsigned int, FrameAnimation> leg_animations_;

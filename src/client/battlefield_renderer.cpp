@@ -1,5 +1,6 @@
 #include "client/battlefield_renderer.hpp"
 
+#include "client/texture_cache.hpp"
 #include "client/world_transform.hpp"
 #include "core/frontline.hpp"
 #include "world/world.hpp"
@@ -9,7 +10,12 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdio>
 #include <cstdint>
+#include <filesystem>
+#include <string_view>
+#include <system_error>
+#include <vector>
 
 namespace siege {
 namespace {
@@ -79,6 +85,74 @@ std::uint32_t terrain_hash(const std::uint32_t x,
     return value;
 }
 
+std::filesystem::path terrain_asset_path(const TerrainType terrain) {
+    std::string_view name;
+    switch (terrain) {
+    case TerrainType::grass:
+        name = "grass.png";
+        break;
+    case TerrainType::dirt:
+        name = "dirt.png";
+        break;
+    case TerrainType::asphalt:
+        name = "asphalt.png";
+        break;
+    case TerrainType::sand:
+        name = "sand.png";
+        break;
+    case TerrainType::water:
+        name = "water.png";
+        break;
+    }
+    return std::filesystem::path{"terrain/battlefield/tiles"} / name;
+}
+
+struct EnvironmentVisualAsset {
+    EnvironmentAsset asset;
+    std::string_view image;
+    std::string_view shadow;
+};
+
+constexpr std::array environment_visual_assets{
+    EnvironmentVisualAsset{EnvironmentAsset::house_01, "house_01.png",
+                           "house_01.png"},
+    EnvironmentVisualAsset{EnvironmentAsset::rock_02, "rock_02.png",
+                           "rock_02.png"},
+    EnvironmentVisualAsset{EnvironmentAsset::sandbags_01, "sandbags_01.png",
+                           "sandbags_01.png"},
+    EnvironmentVisualAsset{EnvironmentAsset::tree_02, "tree_02.png",
+                           "tree_02.png"},
+    EnvironmentVisualAsset{EnvironmentAsset::bush_02, "bush_02.png",
+                           "bush_02.png"},
+    EnvironmentVisualAsset{EnvironmentAsset::watchtower_01,
+                           "watchtower_01.png", "watchtower_01.png"},
+    EnvironmentVisualAsset{EnvironmentAsset::crate_02, "crate_02.png",
+                           "crate_02.png"},
+    EnvironmentVisualAsset{EnvironmentAsset::barrel_01, "barrel_01.png",
+                           "barrel_01.png"},
+};
+
+const EnvironmentVisualAsset* environment_visual(
+    const EnvironmentAsset asset) noexcept {
+    for (const auto& visual : environment_visual_assets) {
+        if (visual.asset == asset) {
+            return &visual;
+        }
+    }
+    return nullptr;
+}
+
+std::filesystem::path environment_asset_path(
+    const EnvironmentAsset asset, const bool shadow) {
+    const EnvironmentVisualAsset* visual = environment_visual(asset);
+    if (visual == nullptr) {
+        return {};
+    }
+    return std::filesystem::path{shadow ? "terrain/battlefield/shadows"
+                                       : "terrain/battlefield/objects"} /
+           (shadow ? visual->shadow : visual->image);
+}
+
 SDL_FRect drawable_rect(const WorldTransform& transform,
                         const Bounds bounds) noexcept {
     const Bounds transformed = transform.world_to_drawable(bounds);
@@ -97,8 +171,8 @@ bool fill_world_rect(SDL_Renderer* renderer, const WorldTransform& transform,
     return SDL_RenderFillRect(renderer, &rectangle);
 }
 
-bool render_terrain(SDL_Renderer* renderer, const World& world,
-                    const WorldTransform& transform) noexcept {
+bool render_procedural_terrain(SDL_Renderer* renderer, const World& world,
+                               const WorldTransform& transform) noexcept {
     const MapDefinition& map = world.map();
     const float tile = battlefield_theme.terrain_tile_size;
     const std::uint32_t columns =
@@ -171,6 +245,109 @@ bool render_terrain(SDL_Renderer* renderer, const World& world,
                                  battlefield_theme.dirt_detail)) {
                 return false;
             }
+        }
+    }
+    return true;
+}
+
+bool render_authored_terrain(SDL_Renderer* renderer, TextureCache& textures,
+                             const MapDefinition& map,
+                             const WorldTransform& transform) {
+    const float tile_size = std::max(1.0F, map.terrain_tile_size);
+    for (const TerrainRegionDefinition& region : map.terrain_regions) {
+        SDL_Texture* texture = textures.get(terrain_asset_path(region.terrain));
+        if (texture == nullptr) {
+            return false;
+        }
+
+        std::uint32_t row = 0;
+        for (float y = region.bounds.y;
+             y < region.bounds.y + region.bounds.height; y += tile_size, ++row) {
+            std::uint32_t column = 0;
+            for (float x = region.bounds.x;
+                 x < region.bounds.x + region.bounds.width;
+                 x += tile_size, ++column) {
+                const float world_width = std::min(
+                    tile_size, region.bounds.x + region.bounds.width - x);
+                const float world_height = std::min(
+                    tile_size, region.bounds.y + region.bounds.height - y);
+                const Bounds drawable = transform.world_to_drawable(
+                    Bounds{x, y, world_width, world_height});
+                const SDL_FRect destination{drawable.x, drawable.y,
+                                            drawable.width, drawable.height};
+                const SDL_FRect source{
+                    0.0F, 0.0F, 64.0F * world_width / tile_size,
+                    64.0F * world_height / tile_size};
+
+                const std::uint32_t hash = terrain_hash(
+                    column + region.variant_seed, row + region.variant_seed * 3U);
+                const bool complete_tile = world_width == tile_size &&
+                                           world_height == tile_size;
+                const double angle = complete_tile
+                    ? static_cast<double>((hash & 3U) * 90U)
+                    : 0.0;
+                const SDL_FlipMode flip = complete_tile && (hash & 4U) != 0U
+                    ? SDL_FLIP_HORIZONTAL
+                    : SDL_FLIP_NONE;
+                if (!SDL_RenderTextureRotated(renderer, texture, &source,
+                                              &destination, angle, nullptr,
+                                              flip)) {
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
+bool render_environment_texture(SDL_Renderer* renderer, TextureCache& textures,
+                                const EnvironmentObjectDefinition& object,
+                                const WorldTransform& transform,
+                                const bool shadow) {
+    const std::filesystem::path path =
+        environment_asset_path(object.asset, shadow);
+    SDL_Texture* texture = textures.get(path);
+    if (texture == nullptr) {
+        return false;
+    }
+    float width = 0.0F;
+    float height = 0.0F;
+    if (!SDL_GetTextureSize(texture, &width, &height)) {
+        return false;
+    }
+    const Bounds drawable = transform.world_to_drawable(
+        Bounds{object.position.x, object.position.y, width, height});
+    const SDL_FRect destination{drawable.x, drawable.y, drawable.width,
+                                drawable.height};
+    return SDL_RenderTexture(renderer, texture, nullptr, &destination);
+}
+
+bool render_environment(SDL_Renderer* renderer, TextureCache& textures,
+                        const MapDefinition& map,
+                        const WorldTransform& transform) {
+    std::vector<const EnvironmentObjectDefinition*> ordered;
+    ordered.reserve(map.environment_objects.size());
+    for (const auto& object : map.environment_objects) {
+        ordered.push_back(&object);
+    }
+    std::stable_sort(ordered.begin(), ordered.end(), [](const auto* left,
+                                                        const auto* right) {
+        const float left_y = left->footprint.y + left->footprint.height;
+        const float right_y = right->footprint.y + right->footprint.height;
+        return left_y < right_y ||
+               (left_y == right_y && left->id < right->id);
+    });
+
+    for (const auto* object : ordered) {
+        if (!render_environment_texture(renderer, textures, *object, transform,
+                                        true)) {
+            return false;
+        }
+    }
+    for (const auto* object : ordered) {
+        if (!render_environment_texture(renderer, textures, *object, transform,
+                                        false)) {
+            return false;
         }
     }
     return true;
@@ -283,11 +460,54 @@ bool render_frontline(SDL_Renderer* renderer, const World& world,
 
 } // namespace
 
-bool render_battlefield(SDL_Renderer* renderer, const World& world,
-                        const WorldTransform& transform) noexcept {
-    if (!SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND) ||
-        !render_terrain(renderer, world, transform) ||
-        !render_zone_boundaries(renderer, world, transform)) {
+bool BattlefieldRenderer::authored_assets_available(
+    const TextureCache& textures, const World& world) noexcept {
+    if (asset_check_complete_) {
+        return authored_assets_available_;
+    }
+    asset_check_complete_ = true;
+    authored_assets_available_ = !world.map().terrain_regions.empty();
+    const auto exists = [&textures](const std::filesystem::path& relative) {
+        std::error_code error;
+        return !relative.empty() &&
+               std::filesystem::is_regular_file(
+                   textures.asset_root() / relative, error) &&
+               !error;
+    };
+    for (const auto& region : world.map().terrain_regions) {
+        authored_assets_available_ &= exists(terrain_asset_path(region.terrain));
+    }
+    for (const auto& object : world.map().environment_objects) {
+        authored_assets_available_ &=
+            exists(environment_asset_path(object.asset, false)) &&
+            exists(environment_asset_path(object.asset, true));
+    }
+    if (!authored_assets_available_) {
+        std::fprintf(stderr,
+                     "Terrain assets for map '%.*s' are incomplete under '%s'; "
+                     "using the procedural battlefield fallback. Run "
+                     "scripts/sync_assets.sh to populate them.\n",
+                     static_cast<int>(world.map().id.size()),
+                     world.map().id.data(), textures.asset_root().string().c_str());
+    }
+    return authored_assets_available_;
+}
+
+bool BattlefieldRenderer::render(SDL_Renderer* renderer, TextureCache& textures,
+                                 const World& world,
+                                 const WorldTransform& transform) noexcept {
+    if (!SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND)) {
+        return false;
+    }
+    if (authored_assets_available(textures, world)) {
+        if (!render_authored_terrain(renderer, textures, world.map(), transform) ||
+            !render_environment(renderer, textures, world.map(), transform)) {
+            return false;
+        }
+    } else if (!render_procedural_terrain(renderer, world, transform)) {
+        return false;
+    }
+    if (!render_zone_boundaries(renderer, world, transform)) {
         return false;
     }
 

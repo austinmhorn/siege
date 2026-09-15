@@ -856,7 +856,7 @@ bool Renderer::render(const World& world, const double interpolation_alpha,
         return false;
     }
 
-    if (!render_battlefield(renderer_, world, transform)) {
+    if (!battlefield_renderer_.render(renderer_, textures_, world, transform)) {
         return false;
     }
 

@@ -199,6 +199,77 @@ int main() {
     passed &= check(world_uses_map_geometry,
                     "World zone and render/deployment geometry derives from its map");
 
+    std::array<bool, 5> terrain_types_seen{};
+    bool terrain_bounds_valid = near(battlefield.terrain_tile_size, 64.0F) &&
+                                !battlefield.terrain_regions.empty();
+    for (const auto& region : battlefield.terrain_regions) {
+        terrain_types_seen[static_cast<std::size_t>(region.terrain)] = true;
+        terrain_bounds_valid &= !region.id.empty() && region.bounds.x >= 0.0F &&
+                                region.bounds.y >= 0.0F &&
+                                region.bounds.width > 0.0F &&
+                                region.bounds.height > 0.0F &&
+                                region.bounds.x + region.bounds.width <=
+                                    battlefield.logical_width &&
+                                region.bounds.y + region.bounds.height <=
+                                    battlefield.logical_height;
+    }
+    passed &= check(
+        terrain_bounds_valid &&
+            std::ranges::all_of(terrain_types_seen, [](const bool seen) {
+                return seen;
+            }),
+        "battlefield terrain deterministically covers all authored terrain types inside the map");
+
+    bool environment_bounds_valid = !battlefield.environment_objects.empty();
+    bool environment_ids_unique = true;
+    for (std::size_t index = 0;
+         index < battlefield.environment_objects.size(); ++index) {
+        const auto& object = battlefield.environment_objects[index];
+        environment_bounds_valid &=
+            !object.id.empty() && object.position.x >= 0.0F &&
+            object.position.y >= 0.0F && object.footprint.x >= 0.0F &&
+            object.footprint.y >= 0.0F && object.footprint.width > 0.0F &&
+            object.footprint.height > 0.0F &&
+            object.footprint.x + object.footprint.width <=
+                battlefield.logical_width &&
+            object.footprint.y + object.footprint.height <=
+                battlefield.logical_height;
+        for (std::size_t other = index + 1;
+             other < battlefield.environment_objects.size(); ++other) {
+            environment_ids_unique &=
+                object.id != battlefield.environment_objects[other].id;
+        }
+    }
+    passed &= check(environment_bounds_valid && environment_ids_unique &&
+                        battlefield.environment_objects.front().id ==
+                            "blue_home_house" &&
+                        battlefield.environment_objects.back().id ==
+                            "east_bush",
+                    "environment objects have deterministic unique IDs and in-map footprints");
+
+    MapDefinition environment_free_map = battlefield;
+    environment_free_map.environment_objects = {};
+    World environment_world{default_match_rules, battlefield};
+    World environment_free_world{default_match_rules, environment_free_map};
+    environment_world.units().clear();
+    environment_free_world.units().clear();
+    const Vec2 environment_start{140.0F, 216.0F};
+    environment_world.units().push_back(
+        test_unit(90, Team::team_a, environment_start, 270.0F));
+    environment_free_world.units().push_back(
+        test_unit(90, Team::team_a, environment_start, 270.0F));
+    Simulation environment_simulation{environment_world};
+    Simulation environment_free_simulation{environment_free_world};
+    environment_simulation.update(0.5);
+    environment_free_simulation.update(0.5);
+    passed &= check(
+        environment_world.units()[0].position().x > environment_start.x &&
+            near(environment_world.units()[0].position().x,
+                 environment_free_world.units()[0].position().x) &&
+            near(environment_world.units()[0].position().y,
+                 environment_free_world.units()[0].position().y),
+        "environment metadata is SDL-free visual data and does not block simulation movement");
+
     World selection_world;
     selection_world.units().clear();
     selection_world.units().push_back(
