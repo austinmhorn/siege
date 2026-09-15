@@ -22,7 +22,7 @@ struct EconomyRules {
 
 inline constexpr EconomyRules default_economy_rules{
     .starting_cash = 25'000,
-    .passive_income_per_second = 100,
+    .passive_income_per_second = 200,
     .fixed_ticks_per_second = 60,
     .rifle_kill_reward = 250,
     .machine_gun_kill_reward = 400,
