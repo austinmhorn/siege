@@ -105,6 +105,9 @@ int Game::run() {
                         (SDL_GetModState() & SDL_KMOD_CTRL) != 0;
                     const PointerDispatch dispatch =
                         pointer_input.press(button, control_held);
+                    if (!world_.match_state().active()) {
+                        continue;
+                    }
                     if (dispatch == PointerDispatch::secondary) {
                         client_renderer.handle_secondary_pointer_press(
                             event.button.x, event.button.y);
@@ -114,6 +117,9 @@ int Game::run() {
                     }
                 } else {
                     const PointerDispatch dispatch = pointer_input.release(button);
+                    if (!world_.match_state().active()) {
+                        continue;
+                    }
                     if (dispatch == PointerDispatch::secondary) {
                         client_renderer.handle_secondary_pointer_release(
                             world_, event.button.x, event.button.y);

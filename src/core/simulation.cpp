@@ -186,6 +186,9 @@ Simulation::Simulation(World& world) noexcept : world_(world) {}
 
 void Simulation::update(const double fixed_delta_seconds) noexcept {
     world_.clear_transient_events();
+    if (!world_.match_state().active()) {
+        return;
+    }
     auto& units = world_.units();
     for (auto& unit : units) {
         unit.begin_simulation_step();
@@ -440,6 +443,12 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
     }
 
     update_pending_deployments(world_, fixed_delta_seconds);
+
+    const PlayerState* team_a = world_.find_player(Team::team_a);
+    const PlayerState* team_b = world_.find_player(Team::team_b);
+    const Score team_a_score = team_a == nullptr ? 0 : team_a->score();
+    const Score team_b_score = team_b == nullptr ? 0 : team_b->score();
+    (void)world_.match_state().advance(1, team_a_score, team_b_score);
 
     ++tick_count_;
 }

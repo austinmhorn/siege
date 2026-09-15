@@ -17,6 +17,9 @@ bool fully_owned(const Zone& zone) noexcept {
 void update_objective_scoring(World& world,
                               const std::uint64_t fixed_tick_count,
                               ScoringRules rules) noexcept {
+    if (!world.match_state().active()) {
+        return;
+    }
     rules.interval_ticks = std::max<std::uint32_t>(1, rules.interval_ticks);
     rules.points_per_objective =
         std::max<std::int64_t>(0, rules.points_per_objective);

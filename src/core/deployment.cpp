@@ -31,6 +31,9 @@ bool is_valid_deployment_location(const World& world, const Team team,
 DeploymentResult request_deployment(World& world, const Team team,
                                     const TroopType troop_type,
                                     const Vec2 position) {
+    if (!world.match_state().active()) {
+        return DeploymentResult::match_finished;
+    }
     const TroopDefinition* definition = troop_definition_for(troop_type);
     if (definition == nullptr || team == Team::none) {
         return DeploymentResult::invalid_troop;
@@ -55,6 +58,9 @@ DeploymentResult request_deployment(World& world, const Team team,
 
 void update_pending_deployments(World& world,
                                 const double fixed_delta_seconds) {
+    if (!world.match_state().active()) {
+        return;
+    }
     const double elapsed = std::max(0.0, fixed_delta_seconds);
     auto& pending = world.pending_deployments();
     for (auto deployment = pending.begin(); deployment != pending.end();) {

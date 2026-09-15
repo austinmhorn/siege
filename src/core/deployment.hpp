@@ -9,6 +9,7 @@ class World;
 
 enum class DeploymentResult {
     accepted,
+    match_finished,
     invalid_troop,
     invalid_location,
     insufficient_cash,

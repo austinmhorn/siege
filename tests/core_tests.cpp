@@ -5,6 +5,7 @@
 #include "core/deployment.hpp"
 #include "core/economy.hpp"
 #include "core/frontline.hpp"
+#include "core/match.hpp"
 #include "core/math.hpp"
 #include "core/movement_path.hpp"
 #include "core/perception.hpp"
@@ -382,6 +383,43 @@ int main() {
             team_b_capture_cash + 1'000,
         "neutral objective capture rewards Team B exactly once");
 
+    MatchState default_match;
+    passed &= check(
+        default_match.active() && default_match.result() == MatchResult::none &&
+            default_match.remaining_ticks() == 18'000 &&
+            default_match.remaining_display_seconds() == 300 &&
+            default_match.rules().duration_seconds == 300,
+        "match starts active at exactly 300 seconds and 18000 fixed ticks");
+
+    constexpr MatchRules one_second_match{
+        .fixed_ticks_per_second = 60,
+        .duration_seconds = 1,
+    };
+    MatchState exact_countdown{one_second_match};
+    passed &= check(!exact_countdown.advance(59, 0, 0) &&
+                        exact_countdown.active() &&
+                        exact_countdown.remaining_ticks() == 1 &&
+                        exact_countdown.remaining_display_seconds() == 1,
+                    "match countdown cannot expire before its exact final tick");
+    passed &= check(exact_countdown.advance(1, 0, 0) &&
+                        !exact_countdown.active() &&
+                        exact_countdown.remaining_ticks() == 0 &&
+                        exact_countdown.remaining_display_seconds() == 0 &&
+                        exact_countdown.result() == MatchResult::tie,
+                    "match expires exactly once at zero and equal scores tie");
+    passed &= check(!exact_countdown.advance(10'000, 50, 0) &&
+                        exact_countdown.remaining_ticks() == 0 &&
+                        exact_countdown.result() == MatchResult::tie,
+                    "finished timer stays at zero and finalized result cannot change");
+
+    MatchState team_a_win{one_second_match};
+    MatchState team_b_win{one_second_match};
+    (void)team_a_win.advance(60, 4, 3);
+    (void)team_b_win.advance(60, 8, 9);
+    passed &= check(team_a_win.result() == MatchResult::team_a &&
+                        team_b_win.result() == MatchResult::team_b,
+                    "higher score resolves the correct Team A or Team B winner");
+
     World scoring_cadence_world;
     scoring_cadence_world.units().clear();
     scoring_cadence_world.zones()[1].advance_capture(100.0F);
@@ -490,6 +528,96 @@ int main() {
     update_objective_scoring(home_scoring_world, 60);
     passed &= check(home_scoring_world.find_player(Team::team_a)->score() == 0,
                     "permanently owned home zones never score");
+
+    World finished_scoring_world{one_second_match};
+    finished_scoring_world.units().clear();
+    finished_scoring_world.zones()[1].advance_capture(100.0F);
+    finished_scoring_world.zones()[1].set_owner(Team::team_a);
+    finished_scoring_world.units().push_back(
+        test_unit(1210, Team::team_a, {500.0F, 300.0F}, 0.0F));
+    update_zone_capture(finished_scoring_world, 0.0);
+    Simulation finished_scoring_simulation{finished_scoring_world};
+    for (int tick = 0; tick < 60; ++tick) {
+        finished_scoring_simulation.update(1.0 / 60.0);
+    }
+    const Score final_scoring_score =
+        finished_scoring_world.find_player(Team::team_a)->score();
+    update_objective_scoring(finished_scoring_world, 60);
+    passed &= check(
+        final_scoring_score == 1 &&
+            finished_scoring_world.find_player(Team::team_a)->score() == 1 &&
+            finished_scoring_world.match_state().result() == MatchResult::team_a,
+        "final active second scores before result resolution and cannot score afterward");
+
+    World frozen_world{one_second_match};
+    frozen_world.units().clear();
+    frozen_world.zones()[1].advance_capture(50.0F);
+    frozen_world.zones()[1].set_owner(Team::team_a);
+    frozen_world.units().push_back(
+        test_unit(1211, Team::team_a, {500.0F, 400.0F}, 270.0F));
+    const Unit::Id frozen_unit_id = frozen_world.units().front().id();
+    frozen_world.queue_deployment(Team::team_a, TroopType::rifle,
+                                  {100.0F, 500.0F}, 10.0);
+    frozen_world.spawn_projectile(WeaponType::rifle, Team::team_a,
+                                  frozen_unit_id, {100.0F, 900.0F},
+                                  {100.0F, 0.0F}, 10'000.0F, 10.0F);
+    Simulation frozen_simulation{frozen_world};
+    for (int tick = 0; tick < 60; ++tick) {
+        frozen_simulation.update(1.0 / 60.0);
+    }
+    const Vec2 frozen_position = frozen_world.units().front().position();
+    const Vec2 frozen_projectile_position =
+        frozen_world.projectiles().front().position();
+    const float frozen_capture = frozen_world.zones()[1].capture_value();
+    const Money frozen_cash =
+        frozen_world.find_player(Team::team_a)->cash();
+    const Score frozen_score =
+        frozen_world.find_player(Team::team_a)->score();
+    const double frozen_deployment_time =
+        frozen_world.pending_deployments().front().remaining_seconds;
+    const std::size_t frozen_projectile_count =
+        frozen_world.projectiles().size();
+    const std::array<Unit::Id, 1> frozen_ids{frozen_unit_id};
+    passed &= check(
+        apply_tactical_order(frozen_world, frozen_ids,
+                             TacticalOrder::hold) == 0 &&
+            !assign_movement_path(frozen_world, frozen_unit_id,
+                                  {{700.0F, 400.0F}}) &&
+            request_deployment(frozen_world, Team::team_a, TroopType::rifle,
+                               {100.0F, 500.0F}) ==
+                DeploymentResult::match_finished,
+        "deployment, tactical commands, and paths are rejected after finish");
+    frozen_world.units().push_back(test_unit(
+        1212, Team::team_b, frozen_position + Vec2{40.0F, 0.0F}, 90.0F));
+    const float frozen_enemy_health = frozen_world.units().back().health();
+    update_zone_capture(frozen_world, 10.0);
+    update_passive_income(frozen_world, 60);
+    update_pending_deployments(frozen_world, 20.0);
+    update_objective_scoring(frozen_world, 60);
+    for (int tick = 0; tick < 120; ++tick) {
+        frozen_simulation.update(1.0 / 60.0);
+    }
+    passed &= check(
+        frozen_simulation.tick_count() == 60 &&
+            near(frozen_world.units().front().position().x,
+                 frozen_position.x) &&
+            near(frozen_world.units().front().position().y,
+                 frozen_position.y) &&
+            near(frozen_world.projectiles().front().position().x,
+                 frozen_projectile_position.x) &&
+            near(frozen_world.projectiles().front().position().y,
+                 frozen_projectile_position.y) &&
+            near(frozen_world.zones()[1].capture_value(), frozen_capture) &&
+            frozen_world.find_player(Team::team_a)->cash() == frozen_cash &&
+            frozen_world.find_player(Team::team_a)->score() == frozen_score &&
+            frozen_world.projectiles().size() == frozen_projectile_count &&
+            std::abs(frozen_world.pending_deployments().front()
+                         .remaining_seconds -
+                     frozen_deployment_time) < 1.0e-9 &&
+            !frozen_world.units().front().target_id().has_value() &&
+            !frozen_world.units().front().has_movement_path() &&
+            near(frozen_world.units().back().health(), frozen_enemy_health),
+        "finished simulation freezes movement, combat, projectiles, capture, economy, scoring, and pending deployment");
 
     World purchase_world;
     purchase_world.units().clear();

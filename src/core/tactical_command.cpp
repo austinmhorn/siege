@@ -11,6 +11,9 @@ std::size_t apply_tactical_order(World& world,
                                  const std::span<const Unit::Id> unit_ids,
                                  const TacticalOrder order,
                                  const Team commanding_team) {
+    if (!world.match_state().active()) {
+        return 0;
+    }
     std::vector<Unit*> units;
     units.reserve(unit_ids.size());
     for (const Unit::Id id : unit_ids) {

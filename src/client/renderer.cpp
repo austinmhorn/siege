@@ -57,9 +57,11 @@ constexpr int capture_marker_segments = 20;
 constexpr float command_menu_width = 184.0F;
 constexpr float command_menu_item_height = 30.0F;
 constexpr float command_menu_padding = 4.0F;
-constexpr float score_panel_width = 300.0F;
+constexpr float score_panel_width = 410.0F;
 constexpr float score_panel_height = 34.0F;
 constexpr float score_panel_y = 42.0F;
+constexpr float result_panel_width = 320.0F;
+constexpr float result_panel_height = 88.0F;
 
 constexpr std::array<TacticalOrder, 4> tactical_commands{
     TacticalOrder::advance,
@@ -80,6 +82,35 @@ std::string_view command_display_name(const TacticalOrder order) noexcept {
         return "Resume Auto";
     }
     return "Unknown";
+}
+
+std::string format_match_time(const std::uint32_t total_seconds) {
+    const std::uint32_t minutes = total_seconds / 60;
+    const std::uint32_t seconds = total_seconds % 60;
+    std::string result = std::to_string(minutes);
+    if (result.size() < 2) {
+        result.insert(result.begin(), '0');
+    }
+    result.push_back(':');
+    if (seconds < 10) {
+        result.push_back('0');
+    }
+    result += std::to_string(seconds);
+    return result;
+}
+
+std::string_view match_result_label(const MatchResult result) noexcept {
+    switch (result) {
+    case MatchResult::team_a:
+        return "BLUE WINS";
+    case MatchResult::team_b:
+        return "RED WINS";
+    case MatchResult::tie:
+        return "TIE";
+    case MatchResult::none:
+        return "";
+    }
+    return "";
 }
 
 struct SoldierVisualLayout {
@@ -475,6 +506,15 @@ Renderer::Renderer(SDL_Renderer* renderer, std::filesystem::path asset_root)
       fonts_(renderer, textures_.asset_root()), debug_renderer_(renderer, fonts_) {}
 
 void Renderer::update(const World& world, const double fixed_delta_seconds) {
+    const bool match_active = world.match_state().active();
+    if (!match_active) {
+        selection_drag_.reset();
+        path_drawing_.reset();
+        command_menu_position_.reset();
+        selected_troop_.reset();
+        deployment_feedback_ = DeploymentFeedback::none;
+        deployment_feedback_seconds_ = 0.0;
+    }
     selection_.prune(world);
     if (selection_.size() == 0) {
         command_menu_position_.reset();
@@ -496,6 +536,9 @@ void Renderer::update(const World& world, const double fixed_delta_seconds) {
         auto [entry, inserted] = leg_animations_.try_emplace(
             unit.id(), std::vector<std::size_t>{1, 2, 3, 4, 5, 6, 7}, 0.10, true);
         static_cast<void>(inserted);
+        if (!match_active) {
+            continue;
+        }
         if (unit.movement_state() == MovementState::moving) {
             entry->second.update(fixed_delta_seconds);
         } else {
@@ -522,36 +565,43 @@ void Renderer::update(const World& world, const double fixed_delta_seconds) {
             animation->second.reset();
         }
     }
-    for (auto& [unit_id, animation] : firing_animations_) {
-        static_cast<void>(unit_id);
-        animation.update(fixed_delta_seconds);
+    if (match_active) {
+        for (auto& [unit_id, animation] : firing_animations_) {
+            static_cast<void>(unit_id);
+            animation.update(fixed_delta_seconds);
+        }
+        std::erase_if(firing_animations_, [&world](const auto& entry) {
+            return entry.second.finished() ||
+                   world.find_unit(entry.first) == nullptr;
+        });
     }
-    std::erase_if(firing_animations_, [&world](const auto& entry) {
-        return entry.second.finished() || world.find_unit(entry.first) == nullptr;
-    });
 
     for (const auto& event : world.death_events()) {
         corpses_.push_back(CorpseVisual{event});
     }
-    for (auto& corpse : corpses_) {
-        corpse.animation.update(fixed_delta_seconds);
-        if (corpse.animation.finished()) {
-            corpse.fade_elapsed += fixed_delta_seconds;
+    if (match_active) {
+        for (auto& corpse : corpses_) {
+            corpse.animation.update(fixed_delta_seconds);
+            if (corpse.animation.finished()) {
+                corpse.fade_elapsed += fixed_delta_seconds;
+            }
         }
+        std::erase_if(corpses_, [](const CorpseVisual& corpse) {
+            return corpse.fade_elapsed >= corpse_fade_seconds;
+        });
     }
-    std::erase_if(corpses_, [](const CorpseVisual& corpse) {
-        return corpse.fade_elapsed >= corpse_fade_seconds;
-    });
 
     for (const auto& event : world.explosion_events()) {
         explosions_.push_back(ExplosionVisual{event});
     }
-    for (auto& explosion : explosions_) {
-        explosion.elapsed += fixed_delta_seconds;
+    if (match_active) {
+        for (auto& explosion : explosions_) {
+            explosion.elapsed += fixed_delta_seconds;
+        }
+        std::erase_if(explosions_, [](const ExplosionVisual& explosion) {
+            return explosion.elapsed >= explosion_effect_seconds;
+        });
     }
-    std::erase_if(explosions_, [](const ExplosionVisual& explosion) {
-        return explosion.elapsed >= explosion_effect_seconds;
-    });
 }
 
 void Renderer::toggle_debug_overlay() noexcept {
@@ -683,7 +733,8 @@ void Renderer::handle_primary_pointer_release(World& world,
     Unit* unit = world.find_unit(path_drawing_->unit_id);
     if (unit != nullptr && unit->is_alive() && unit->team() == Team::team_a &&
         !path_drawing_->sampled_points.empty()) {
-        unit->replace_movement_path(std::move(path_drawing_->sampled_points));
+        (void)assign_movement_path(
+            world, unit->id(), std::move(path_drawing_->sampled_points));
     }
     path_drawing_.reset();
 }
@@ -793,10 +844,6 @@ bool Renderer::render(const World& world, const double interpolation_alpha,
         return false;
     }
 
-    if (!render_score_ui(world, output_width)) {
-        return false;
-    }
-
     if (!render_corpses(transform) ||
         !render_projectiles(world, transform, interpolation_alpha) ||
         !render_explosions(transform) ||
@@ -804,6 +851,10 @@ bool Renderer::render(const World& world, const double interpolation_alpha,
         !render_units(world, transform, interpolation_alpha) ||
         !render_pending_deployments(world, transform) ||
         !render_selection(world, transform, interpolation_alpha)) {
+        return false;
+    }
+
+    if (!render_match_hud(world, output_width)) {
         return false;
     }
 
@@ -822,14 +873,21 @@ bool Renderer::render(const World& world, const double interpolation_alpha,
         return false;
     }
 
+    if (!render_match_result(world, output_width, output_height)) {
+        return false;
+    }
+
     return SDL_RenderPresent(renderer_);
 }
 
-bool Renderer::render_score_ui(const World& world, const int output_width) const {
+bool Renderer::render_match_hud(const World& world,
+                                const int output_width) const {
     const PlayerState* team_a_player = world.find_player(Team::team_a);
     const PlayerState* team_b_player = world.find_player(Team::team_b);
     const Score team_a_score = team_a_player == nullptr ? 0 : team_a_player->score();
     const Score team_b_score = team_b_player == nullptr ? 0 : team_b_player->score();
+    const std::string timer =
+        format_match_time(world.match_state().remaining_display_seconds());
     const float panel_x =
         (static_cast<float>(output_width) - score_panel_width) * 0.5F;
     const SDL_FRect panel{panel_x, score_panel_y, score_panel_width,
@@ -859,14 +917,49 @@ bool Renderer::render_score_ui(const World& world, const int output_width) const
                            FontRole::heading_bold, color);
     };
 
-    return draw_centered(panel.x + 38.0F, "BLUE",
+    return draw_centered(panel.x + 42.0F, "BLUE",
                          FontColor{116, 194, 255, 255}) &&
-           draw_centered(panel.x + 106.0F, std::to_string(team_a_score),
+           draw_centered(panel.x + 120.0F, std::to_string(team_a_score),
                          FontColor{245, 248, 250, 255}) &&
-           draw_centered(panel.x + 194.0F, std::to_string(team_b_score),
+           draw_centered(panel.x + 205.0F, timer,
+                         FontColor{255, 221, 105, 255}) &&
+           draw_centered(panel.x + 290.0F, std::to_string(team_b_score),
                          FontColor{245, 248, 250, 255}) &&
-           draw_centered(panel.x + 262.0F, "RED",
+           draw_centered(panel.x + 368.0F, "RED",
                          FontColor{255, 132, 122, 255});
+}
+
+bool Renderer::render_match_result(const World& world, const int output_width,
+                                   const int output_height) const {
+    if (world.match_state().active()) {
+        return true;
+    }
+    const std::string_view label =
+        match_result_label(world.match_state().result());
+    const SDL_FRect panel{
+        (static_cast<float>(output_width) - result_panel_width) * 0.5F,
+        (static_cast<float>(output_height) - result_panel_height) * 0.5F,
+        result_panel_width, result_panel_height};
+    if (!SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND)) {
+        return false;
+    }
+    set_color(renderer_, Color{8, 11, 15, 225});
+    if (!SDL_RenderFillRect(renderer_, &panel)) {
+        return false;
+    }
+    set_color(renderer_, Color{235, 240, 244, 255});
+    if (!SDL_RenderRect(renderer_, &panel)) {
+        return false;
+    }
+    float width = 0.0F;
+    float height = 0.0F;
+    if (!fonts_.measure(label, FontRole::heading_bold, width, height)) {
+        return false;
+    }
+    return fonts_.draw(panel.x + (panel.w - width) * 0.5F,
+                       panel.y + (panel.h - height) * 0.5F, label,
+                       FontRole::heading_bold,
+                       FontColor{255, 255, 255, 255});
 }
 
 bool Renderer::render_movement_paths(

@@ -17,14 +17,15 @@ constexpr Bounds zone_bounds(const std::size_t index) noexcept {
 
 } // namespace
 
-World::World()
+World::World(const MatchRules match_rules)
     : zones_{Zone{0, zone_bounds(0), ZoneType::home, Team::team_a},
              Zone{1, zone_bounds(1), ZoneType::objective, Team::none},
              Zone{2, zone_bounds(2), ZoneType::objective, Team::none},
              Zone{3, zone_bounds(3), ZoneType::objective, Team::none},
              Zone{4, zone_bounds(4), ZoneType::home, Team::team_b}},
       players_{PlayerState{Team::team_a, default_economy_rules.starting_cash},
-               PlayerState{Team::team_b, default_economy_rules.starting_cash}} {
+               PlayerState{Team::team_b, default_economy_rules.starting_cash}},
+      match_state_{match_rules} {
     spawn_test_units();
 }
 
@@ -57,6 +58,10 @@ PlayerState* World::find_player(const Team team) noexcept {
     }
     return nullptr;
 }
+
+const MatchState& World::match_state() const noexcept { return match_state_; }
+
+MatchState& World::match_state() noexcept { return match_state_; }
 
 std::uint64_t World::scoring_tick_progress() const noexcept {
     return scoring_tick_progress_;

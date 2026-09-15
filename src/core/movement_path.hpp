@@ -30,4 +30,8 @@ inline constexpr MovementPathRules default_movement_path_rules{
     std::vector<Vec2>& points, Vec2 origin, Vec2 point, bool force_endpoint,
     float sample_distance = default_movement_path_rules.sample_distance);
 
+[[nodiscard]] bool assign_movement_path(
+    World& world, Unit::Id unit_id, std::vector<Vec2> waypoints,
+    Team commanding_team = Team::team_a);
+
 } // namespace siege

@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace siege {
 
@@ -44,6 +45,21 @@ bool append_path_sample(std::vector<Vec2>& points, const Vec2 origin,
         return false;
     }
     points.push_back(point);
+    return true;
+}
+
+bool assign_movement_path(World& world, const Unit::Id unit_id,
+                          std::vector<Vec2> waypoints,
+                          const Team commanding_team) {
+    if (!world.match_state().active() || waypoints.empty()) {
+        return false;
+    }
+    Unit* unit = world.find_unit(unit_id);
+    if (unit == nullptr || !unit->is_alive() ||
+        unit->team() != commanding_team) {
+        return false;
+    }
+    unit->replace_movement_path(std::move(waypoints));
     return true;
 }
 

@@ -50,6 +50,9 @@ std::optional<std::size_t> zone_index_for_position(
 void update_zone_capture(World& world, const double fixed_delta_seconds,
                          CaptureRules rules,
                          ZoneSecurityRules security_rules) noexcept {
+    if (!world.match_state().active()) {
+        return;
+    }
     rules.capture_rate = std::max(0.0F, rules.capture_rate);
     rules.maximum_effective_pressure =
         std::max(0, rules.maximum_effective_pressure);

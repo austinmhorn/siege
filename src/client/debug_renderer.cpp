@@ -384,6 +384,21 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                       simulation_hz);
     global.blank();
 
+    global.line(FontRole::debug_bold, debug_heading, "MATCH");
+    const auto match_phase = to_string(world.match_state().phase());
+    const auto match_result = to_string(world.match_state().result());
+    global.format(FontRole::debug, debug_text, "state: %.*s",
+                  static_cast<int>(match_phase.size()), match_phase.data());
+    global.format(FontRole::debug, debug_text, "remaining ticks: %llu",
+                  static_cast<unsigned long long>(
+                      world.match_state().remaining_ticks()));
+    global.format(FontRole::debug, debug_text, "remaining: %.2fs",
+                  static_cast<double>(world.match_state().remaining_ticks()) /
+                      world.match_state().rules().fixed_ticks_per_second);
+    global.format(FontRole::debug, debug_text, "result: %.*s",
+                  static_cast<int>(match_result.size()), match_result.data());
+    global.blank();
+
     global.line(FontRole::debug_bold, debug_heading, "OBJECTIVES");
     for (const auto& zone : world.zones()) {
         if (zone.type() != ZoneType::objective) {

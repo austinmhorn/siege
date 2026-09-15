@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/match.hpp"
 #include "world/combat_event.hpp"
 #include "world/player_state.hpp"
 #include "world/pending_deployment.hpp"
@@ -20,7 +21,7 @@ public:
     static constexpr float height = 1080.0F;
     static constexpr std::size_t zone_count = 5;
 
-    World();
+    explicit World(MatchRules match_rules = default_match_rules);
 
     [[nodiscard]] const std::array<Zone, zone_count>& zones() const noexcept;
     [[nodiscard]] std::array<Zone, zone_count>& zones() noexcept;
@@ -28,6 +29,8 @@ public:
     [[nodiscard]] std::array<PlayerState, 2>& players() noexcept;
     [[nodiscard]] const PlayerState* find_player(Team team) const noexcept;
     [[nodiscard]] PlayerState* find_player(Team team) noexcept;
+    [[nodiscard]] const MatchState& match_state() const noexcept;
+    [[nodiscard]] MatchState& match_state() noexcept;
     [[nodiscard]] std::uint64_t scoring_tick_progress() const noexcept;
     [[nodiscard]] std::uint64_t advance_scoring_clock(
         std::uint64_t tick_count, std::uint32_t interval_ticks) noexcept;
@@ -67,6 +70,7 @@ private:
 
     std::array<Zone, zone_count> zones_;
     std::array<PlayerState, 2> players_;
+    MatchState match_state_;
     std::vector<Unit> units_;
     std::vector<PendingDeployment> pending_deployments_;
     std::vector<Projectile> projectiles_;
