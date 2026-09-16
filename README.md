@@ -131,7 +131,7 @@ runtime fonts. Tracked copies of the attribution and exact license text are in
   reports these states and outlines the valid deployment region; actual deployment,
   economy, and scoring are not implemented yet.
 - The complete battlefield remains visible while the window is resized.
-- World resolution: 1920x1080.
+- World resolution: 2560x1440.
 - Simulation rate: 60 fixed ticks per second, independent of rendering rate.
 - Team A and Team B each begin with 25,000 integer cash and receive identical
   passive income of 100 cash per second. Income uses an integer fixed-tick

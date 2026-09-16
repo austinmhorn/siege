@@ -278,20 +278,49 @@ void World::spawn_test_units() {
                             initial_facing);
     };
 
-    spawn(rifle_definition, Team::team_a, {260.0F, 300.0F}, 0.0F);
-    spawn(rifle_definition, Team::team_a, {260.0F, 780.0F}, 180.0F);
-    spawn(machine_gun_definition, Team::team_a, {140.0F, 300.0F}, 20.0F);
-    spawn(machine_gun_definition, Team::team_a, {140.0F, 780.0F}, 160.0F);
+    const Bounds& blue_home =
+        map_->zones[map_->team_a_forward.home_zone_index].bounds;
+    const Bounds& red_home =
+        map_->zones[map_->team_b_forward.home_zone_index].bounds;
+    const float north_y = map_->logical_height * (5.0F / 18.0F);
+    const float south_y = map_->logical_height * (13.0F / 18.0F);
+    const auto blue_x = [&blue_home](const float home_fraction) {
+        return blue_home.x + blue_home.width * home_fraction;
+    };
+    const auto red_x = [&red_home](const float home_fraction) {
+        return red_home.x + red_home.width * (1.0F - home_fraction);
+    };
 
-    spawn(rifle_definition, Team::team_b, {1660.0F, 300.0F}, 0.0F);
-    spawn(rifle_definition, Team::team_b, {1660.0F, 780.0F}, 180.0F);
-    spawn(machine_gun_definition, Team::team_b, {1780.0F, 300.0F}, 340.0F);
-    spawn(machine_gun_definition, Team::team_b, {1780.0F, 780.0F}, 200.0F);
+    constexpr float rifle_home_fraction = 0.6770833F;
+    constexpr float machine_gun_home_fraction = 0.3645833F;
+    constexpr float bazooka_home_fraction = 0.2083333F;
 
-    spawn(bazooka_definition, Team::team_a, {80.0F, 300.0F}, 35.0F);
-    spawn(bazooka_definition, Team::team_a, {80.0F, 780.0F}, 145.0F);
-    spawn(bazooka_definition, Team::team_b, {1840.0F, 300.0F}, 325.0F);
-    spawn(bazooka_definition, Team::team_b, {1840.0F, 780.0F}, 215.0F);
+    spawn(rifle_definition, Team::team_a,
+          {blue_x(rifle_home_fraction), north_y}, 0.0F);
+    spawn(rifle_definition, Team::team_a,
+          {blue_x(rifle_home_fraction), south_y}, 180.0F);
+    spawn(machine_gun_definition, Team::team_a,
+          {blue_x(machine_gun_home_fraction), north_y}, 20.0F);
+    spawn(machine_gun_definition, Team::team_a,
+          {blue_x(machine_gun_home_fraction), south_y}, 160.0F);
+
+    spawn(rifle_definition, Team::team_b,
+          {red_x(rifle_home_fraction), north_y}, 0.0F);
+    spawn(rifle_definition, Team::team_b,
+          {red_x(rifle_home_fraction), south_y}, 180.0F);
+    spawn(machine_gun_definition, Team::team_b,
+          {red_x(machine_gun_home_fraction), north_y}, 340.0F);
+    spawn(machine_gun_definition, Team::team_b,
+          {red_x(machine_gun_home_fraction), south_y}, 200.0F);
+
+    spawn(bazooka_definition, Team::team_a,
+          {blue_x(bazooka_home_fraction), north_y}, 35.0F);
+    spawn(bazooka_definition, Team::team_a,
+          {blue_x(bazooka_home_fraction), south_y}, 145.0F);
+    spawn(bazooka_definition, Team::team_b,
+          {red_x(bazooka_home_fraction), north_y}, 325.0F);
+    spawn(bazooka_definition, Team::team_b,
+          {red_x(bazooka_home_fraction), south_y}, 215.0F);
 }
 
 } // namespace siege

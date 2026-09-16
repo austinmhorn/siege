@@ -150,8 +150,8 @@ int main() {
             map_definition("missing_map") == nullptr &&
             battlefield.id == "battlefield_01",
         "battlefield_01 lookup is deterministic and rejects unknown IDs");
-    passed &= check(near(battlefield.logical_width, 1'920.0F) &&
-                        near(battlefield.logical_height, 1'080.0F) &&
+    passed &= check(near(battlefield.logical_width, 2'560.0F) &&
+                        near(battlefield.logical_height, 1'440.0F) &&
                         battlefield.zones.size() == 5,
                     "battlefield_01 defines the exact logical dimensions and five zones");
     bool exact_zone_geometry = true;
@@ -159,13 +159,13 @@ int main() {
         const ZoneDefinition& zone = battlefield.zones[index];
         exact_zone_geometry &= zone.id == index &&
                                near(zone.bounds.x,
-                                    static_cast<float>(index) * 384.0F) &&
+                                    static_cast<float>(index) * 512.0F) &&
                                near(zone.bounds.y, 0.0F) &&
-                               near(zone.bounds.width, 384.0F) &&
-                               near(zone.bounds.height, 1'080.0F);
+                               near(zone.bounds.width, 512.0F) &&
+                               near(zone.bounds.height, 1'440.0F);
     }
     passed &= check(exact_zone_geometry,
-                    "battlefield_01 zones are ordered with exact 384-unit bounds");
+                    "battlefield_01 zones are ordered with exact 512-unit bounds");
     passed &= check(
         battlefield.zones[0].type == ZoneType::home &&
             battlefield.zones[0].home_team == Team::team_a &&
@@ -203,12 +203,12 @@ int main() {
                     "idle facing derives mirrored team-forward bearings from map traversal");
     passed &= check(
         map_zone_index_for_position(battlefield, {0.0F, 0.0F}) == 0 &&
-            map_zone_index_for_position(battlefield, {383.999F, 500.0F}) == 0 &&
-            map_zone_index_for_position(battlefield, {384.0F, 500.0F}) == 1 &&
-            map_zone_index_for_position(battlefield, {768.0F, 500.0F}) == 2 &&
-            map_zone_index_for_position(battlefield, {1'920.0F, 500.0F}) ==
+            map_zone_index_for_position(battlefield, {511.999F, 500.0F}) == 0 &&
+            map_zone_index_for_position(battlefield, {512.0F, 500.0F}) == 1 &&
+            map_zone_index_for_position(battlefield, {1'024.0F, 500.0F}) == 2 &&
+            map_zone_index_for_position(battlefield, {2'560.0F, 500.0F}) ==
                 std::nullopt &&
-            map_zone_index_for_position(battlefield, {500.0F, 1'080.0F}) ==
+            map_zone_index_for_position(battlefield, {500.0F, 1'440.0F}) ==
                 std::nullopt,
         "map point lookup has deterministic lower-inclusive upper-exclusive boundaries");
     World map_world;
@@ -484,8 +484,8 @@ int main() {
     constexpr std::array red_collision_environment{
         EnvironmentObjectDefinition{
             "red_route_block", EnvironmentObjectType::rock,
-            EnvironmentAsset::rock_02, {1'580.0F, 180.0F},
-            {1'580.0F, 180.0F, 80.0F, 120.0F},
+            EnvironmentAsset::rock_02, {2'106.6667F, 240.0F},
+            {2'106.6667F, 240.0F, 80.0F, 120.0F},
             EnvironmentOrientation::neutral, {true, false, false}},
     };
     MapDefinition red_collision_map = battlefield;
@@ -493,7 +493,7 @@ int main() {
     World red_obstacle_world{default_match_rules, red_collision_map};
     red_obstacle_world.units().clear();
     red_obstacle_world.units().push_back(
-        test_unit(91, Team::team_b, {1'720.0F, 240.0F}, 90.0F));
+        test_unit(91, Team::team_b, {2'293.3333F, 300.0F}, 90.0F));
     Simulation red_obstacle_simulation{red_obstacle_world};
     red_obstacle_simulation.update(2.0);
     for (int tick = 0; tick < 300; ++tick) {
@@ -502,7 +502,7 @@ int main() {
     }
     passed &= check(
         blue_obstacle_world.units()[0].position().x > 340.0F &&
-            red_obstacle_world.units()[0].position().x < 1'560.0F &&
+            red_obstacle_world.units()[0].position().x < 2'086.0F &&
             !unit_overlaps_blocking_environment(
                 collision_map, blue_obstacle_world.units()[0].position(),
                 blue_obstacle_world.units()[0].hit_radius()) &&
@@ -660,8 +660,8 @@ int main() {
     constexpr std::array ai_environment{
         EnvironmentObjectDefinition{
             "red_first_lane_block", EnvironmentObjectType::watchtower,
-            EnvironmentAsset::watchtower_01, {1'660.0F, 200.0F},
-            {1'665.0F, 205.0F, 50.0F, 65.0F},
+            EnvironmentAsset::watchtower_01, {2'213.3333F, 266.6667F},
+            {2'218.3333F, 271.6667F, 50.0F, 65.0F},
             EnvironmentOrientation::team_b_forward, {true, false, false}},
     };
     MapDefinition ai_obstacle_map = battlefield;
@@ -683,7 +683,7 @@ int main() {
     ai_navigation_world.units().clear();
     ai_navigation_world.find_player(Team::team_b)->reset_cash(0);
     ai_navigation_world.units().push_back(
-        test_unit(160, Team::team_b, {1'720.0F, 240.0F}, 90.0F));
+        test_unit(160, Team::team_b, {2'293.3333F, 300.0F}, 90.0F));
     ai_navigation_world.units().push_back(
         test_unit(161, Team::team_a, {500.0F, 800.0F}, 270.0F));
     update_zone_capture(ai_navigation_world, 0.0);
@@ -700,7 +700,7 @@ int main() {
     }
     passed &= check(
         ai_started_shared_route &&
-            ai_navigation_world.find_unit(160)->position().x < 1'560.0F &&
+            ai_navigation_world.find_unit(160)->position().x < 2'086.0F &&
             !unit_overlaps_blocking_environment(
                 red_collision_map,
                 ai_navigation_world.find_unit(160)->position(),
@@ -957,7 +957,7 @@ int main() {
         red_deployment_world.find_player(Team::team_b)->cash();
     passed &= check(
         request_deployment(red_deployment_world, Team::team_b,
-                           TroopType::rifle, {1800.0F, 500.0F}) ==
+                           TroopType::rifle, {2'400.0F, 500.0F}) ==
                 DeploymentResult::accepted &&
             red_deployment_world.find_player(Team::team_b)->cash() ==
                 red_cash_before - rifle_definition.purchase_cost &&
@@ -1099,17 +1099,17 @@ int main() {
     profile_bias_world.units().clear();
     profile_bias_world.find_player(Team::team_b)->reset_cash(0);
     profile_bias_world.units().push_back(
-        test_unit(205, Team::team_b, {1'000.0F, 400.0F}, 90.0F));
+        test_unit(205, Team::team_b, {1'384.0F, 400.0F}, 90.0F));
     profile_bias_world.units().push_back(
-        test_unit(206, Team::team_b, {1'460.0F, 600.0F}, 90.0F));
+        test_unit(206, Team::team_b, {1'844.0F, 600.0F}, 90.0F));
     profile_bias_world.units().push_back(
-        test_unit(207, Team::team_a, {1'180.0F, 200.0F}, 270.0F));
+        test_unit(207, Team::team_a, {1'564.0F, 200.0F}, 270.0F));
     profile_bias_world.units().push_back(
-        test_unit(208, Team::team_a, {1'280.0F, 400.0F}, 270.0F));
+        test_unit(208, Team::team_a, {1'664.0F, 400.0F}, 270.0F));
     profile_bias_world.units().push_back(
-        test_unit(209, Team::team_a, {1'380.0F, 600.0F}, 270.0F));
+        test_unit(209, Team::team_a, {1'764.0F, 600.0F}, 270.0F));
     profile_bias_world.units().push_back(
-        test_unit(210, Team::team_a, {1'480.0F, 800.0F}, 270.0F));
+        test_unit(210, Team::team_a, {1'864.0F, 800.0F}, 270.0F));
     update_zone_capture(profile_bias_world, 0.0);
     World defensive_bias_world = profile_bias_world;
     AiCommander aggressive_bias{Team::team_b, aggressive_profile};
@@ -1154,9 +1154,9 @@ int main() {
     aggressive_defense_world.units().clear();
     secure_objective(aggressive_defense_world, 3, Team::team_b);
     aggressive_defense_world.units().push_back(
-        test_unit(211, Team::team_b, {1'430.0F, 400.0F}, 90.0F));
+        test_unit(211, Team::team_b, {1'814.0F, 400.0F}, 90.0F));
     aggressive_defense_world.units().push_back(
-        test_unit(212, Team::team_a, {1'350.0F, 400.0F}, 270.0F));
+        test_unit(212, Team::team_a, {1'734.0F, 400.0F}, 270.0F));
     update_zone_capture(aggressive_defense_world, 0.0);
     World defensive_defense_world = aggressive_defense_world;
     AiCommander aggressive_defense{Team::team_b, aggressive_profile};
@@ -1577,16 +1577,16 @@ int main() {
     ai_attack_world.units().clear();
     ai_attack_world.find_player(Team::team_b)->reset_cash(0);
     ai_attack_world.units().push_back(
-        test_unit(520, Team::team_b, {1'440.0F, 300.0F}, 90.0F));
+        test_unit(520, Team::team_b, {1'824.0F, 300.0F}, 90.0F));
     ai_attack_world.units().push_back(
-        unit_from_definition(510, Team::team_b, {1'620.0F, 700.0F}, 90.0F,
+        unit_from_definition(510, Team::team_b, {2'004.0F, 700.0F}, 90.0F,
                              machine_gun_definition));
     ai_attack_world.units().push_back(
-        test_unit(530, Team::team_b, {1'820.0F, 500.0F}, 90.0F));
+        test_unit(530, Team::team_b, {2'350.0F, 500.0F}, 90.0F));
     ai_attack_world.units().push_back(
         test_unit(540, Team::team_a, {300.0F, 500.0F}, 270.0F));
     ai_attack_world.units().push_back(
-        test_unit(550, Team::team_b, {1'430.0F, 500.0F}, 90.0F));
+        test_unit(550, Team::team_b, {1'814.0F, 500.0F}, 90.0F));
     ai_attack_world.units().back().apply_damage(
         ai_attack_world.units().back().max_health());
     update_zone_capture(ai_attack_world, 0.0);
@@ -1626,12 +1626,12 @@ int main() {
     ai_defend_world.find_player(Team::team_b)->reset_cash(0);
     secure_objective(ai_defend_world, 3, Team::team_b);
     ai_defend_world.units().push_back(
-        test_unit(610, Team::team_b, {1'620.0F, 260.0F}, 90.0F));
+        test_unit(610, Team::team_b, {2'004.0F, 260.0F}, 90.0F));
     ai_defend_world.units().push_back(
-        unit_from_definition(620, Team::team_b, {1'420.0F, 760.0F}, 90.0F,
+        unit_from_definition(620, Team::team_b, {1'804.0F, 760.0F}, 90.0F,
                              bazooka_definition));
     ai_defend_world.units().push_back(
-        test_unit(630, Team::team_a, {1'360.0F, 260.0F}, 270.0F));
+        test_unit(630, Team::team_a, {1'744.0F, 260.0F}, 270.0F));
     ai_defend_world.units().push_back(
         test_unit(640, Team::team_a, {300.0F, 760.0F}, 270.0F));
     update_zone_capture(ai_defend_world, 0.0);
@@ -1666,17 +1666,17 @@ int main() {
     ai_regroup_world.units().clear();
     ai_regroup_world.find_player(Team::team_b)->reset_cash(0);
     ai_regroup_world.units().push_back(
-        test_unit(710, Team::team_b, {950.0F, 300.0F}, 90.0F));
+        test_unit(710, Team::team_b, {1'334.0F, 300.0F}, 90.0F));
     ai_regroup_world.units().push_back(
-        test_unit(720, Team::team_b, {1'500.0F, 700.0F}, 90.0F));
+        test_unit(720, Team::team_b, {1'884.0F, 700.0F}, 90.0F));
     ai_regroup_world.units().push_back(
-        test_unit(730, Team::team_a, {1'180.0F, 200.0F}, 270.0F));
+        test_unit(730, Team::team_a, {1'564.0F, 200.0F}, 270.0F));
     ai_regroup_world.units().push_back(
-        test_unit(740, Team::team_a, {1'280.0F, 400.0F}, 270.0F));
+        test_unit(740, Team::team_a, {1'664.0F, 400.0F}, 270.0F));
     ai_regroup_world.units().push_back(
-        test_unit(750, Team::team_a, {1'380.0F, 600.0F}, 270.0F));
+        test_unit(750, Team::team_a, {1'764.0F, 600.0F}, 270.0F));
     ai_regroup_world.units().push_back(
-        test_unit(760, Team::team_a, {1'480.0F, 800.0F}, 270.0F));
+        test_unit(760, Team::team_a, {1'864.0F, 800.0F}, 270.0F));
     update_zone_capture(ai_regroup_world, 0.0);
     AiCommander regroup_commander{Team::team_b};
     regroup_commander.update(ai_regroup_world, Team::team_a);
@@ -1693,7 +1693,7 @@ int main() {
             regroup_target.has_value() && second_regroup_target.has_value() &&
             near(second_regroup_target->x, regroup_target->x) &&
             near(second_regroup_target->y, regroup_target->y) &&
-            near(regroup_target->x, 1'225.0F) &&
+            near(regroup_target->x, 1'609.0F) &&
             near(regroup_target->y, 500.0F),
         "scattered and substantially outnumbered RED forces regroup around one deterministic center");
     const std::uint64_t regroup_issue_count =
@@ -1961,7 +1961,7 @@ int main() {
                 DeploymentResult::accepted,
         "sudden death permits home deployment but rejects secured objective origins");
     sudden_reset_world.units().push_back(
-        test_unit(1222, Team::team_a, {500.0F, 300.0F}, 270.0F));
+        test_unit(1222, Team::team_a, {700.0F, 300.0F}, 270.0F));
     update_zone_capture(sudden_reset_world, 0.0);
     update_objective_scoring(sudden_reset_world, 60);
     passed &= check(
@@ -2012,7 +2012,7 @@ int main() {
     team_a_center_world.reset_for_sudden_death();
     team_a_center_world.zones()[2].advance_capture(95.0F);
     team_a_center_world.units().push_back(
-        test_unit(1223, Team::team_a, {900.0F, 300.0F}, 270.0F));
+        test_unit(1223, Team::team_a, {1'280.0F, 300.0F}, 270.0F));
     update_zone_capture(team_a_center_world, 1.0);
     passed &= check(
         resolve_sudden_death_center_capture(team_a_center_world) &&
@@ -2028,7 +2028,7 @@ int main() {
     team_b_center_world.reset_for_sudden_death();
     team_b_center_world.zones()[2].advance_capture(-95.0F);
     team_b_center_world.units().push_back(
-        test_unit(1224, Team::team_b, {900.0F, 300.0F}, 90.0F));
+        test_unit(1224, Team::team_b, {1'280.0F, 300.0F}, 90.0F));
     update_zone_capture(team_b_center_world, 1.0);
     passed &= check(
         resolve_sudden_death_center_capture(team_b_center_world) &&
@@ -2040,7 +2040,7 @@ int main() {
     simulated_center_win_world.reset_for_sudden_death();
     simulated_center_win_world.zones()[2].advance_capture(99.95F);
     simulated_center_win_world.units().push_back(
-        test_unit(1225, Team::team_a, {900.0F, 300.0F}, 270.0F));
+        test_unit(1225, Team::team_a, {1'280.0F, 300.0F}, 270.0F));
     Simulation simulated_center_win{simulated_center_win_world};
     simulated_center_win.update(1.0 / 60.0);
     const Vec2 center_winner_position =
@@ -2088,7 +2088,7 @@ int main() {
     scoring_cadence_world.zones()[1].advance_capture(100.0F);
     scoring_cadence_world.zones()[1].set_owner(Team::team_a);
     scoring_cadence_world.units().push_back(
-        test_unit(1200, Team::team_a, {500.0F, 200.0F}, 0.0F));
+        test_unit(1200, Team::team_a, {700.0F, 200.0F}, 0.0F));
     update_zone_capture(scoring_cadence_world, 0.0);
     update_objective_scoring(scoring_cadence_world, 59);
     passed &= check(
@@ -2105,7 +2105,7 @@ int main() {
         scoring_cadence_world.find_player(Team::team_a)->score() == 1,
         "objective cannot award a duplicate point within one scoring interval");
     scoring_cadence_world.units().push_back(
-        test_unit(1207, Team::team_b, {550.0F, 200.0F}, 0.0F));
+        test_unit(1207, Team::team_b, {750.0F, 200.0F}, 0.0F));
     update_zone_capture(scoring_cadence_world, 0.0);
     update_objective_scoring(scoring_cadence_world, 1);
     passed &= check(
@@ -2118,7 +2118,7 @@ int main() {
     partial_owned_scoring_world.zones()[1].advance_capture(50.0F);
     partial_owned_scoring_world.zones()[1].set_owner(Team::team_a);
     partial_owned_scoring_world.units().push_back(
-        test_unit(1208, Team::team_a, {500.0F, 200.0F}, 0.0F));
+        test_unit(1208, Team::team_a, {700.0F, 200.0F}, 0.0F));
     update_zone_capture(partial_owned_scoring_world, 0.0);
     update_objective_scoring(partial_owned_scoring_world, 60);
     passed &= check(
@@ -2134,7 +2134,7 @@ int main() {
     passed &= check(empty_scoring_world.find_player(Team::team_a)->score() == 0,
                     "owned but empty objective does not score");
     empty_scoring_world.units().push_back(
-        test_unit(1209, Team::team_a, {500.0F, 200.0F}, 0.0F));
+        test_unit(1209, Team::team_a, {700.0F, 200.0F}, 0.0F));
     update_zone_capture(empty_scoring_world, 0.0);
     update_objective_scoring(empty_scoring_world, 60);
     passed &= check(empty_scoring_world.find_player(Team::team_a)->score() == 1,
@@ -2145,7 +2145,7 @@ int main() {
     enemy_only_scoring_world.zones()[1].advance_capture(100.0F);
     enemy_only_scoring_world.zones()[1].set_owner(Team::team_a);
     enemy_only_scoring_world.units().push_back(
-        test_unit(1201, Team::team_b, {500.0F, 200.0F}, 0.0F));
+        test_unit(1201, Team::team_b, {700.0F, 200.0F}, 0.0F));
     update_zone_capture(enemy_only_scoring_world, 0.0);
     update_objective_scoring(enemy_only_scoring_world, 60);
     passed &= check(
@@ -2156,7 +2156,7 @@ int main() {
     World neutral_scoring_world;
     neutral_scoring_world.units().clear();
     neutral_scoring_world.units().push_back(
-        test_unit(1202, Team::team_a, {500.0F, 200.0F}, 0.0F));
+        test_unit(1202, Team::team_a, {700.0F, 200.0F}, 0.0F));
     update_zone_capture(neutral_scoring_world, 0.0);
     update_objective_scoring(neutral_scoring_world, 60);
     passed &= check(neutral_scoring_world.find_player(Team::team_a)->score() == 0,
@@ -2171,11 +2171,11 @@ int main() {
     multi_objective_scoring_world.zones()[3].advance_capture(100.0F);
     multi_objective_scoring_world.zones()[3].set_owner(Team::team_a);
     multi_objective_scoring_world.units().push_back(
-        test_unit(1203, Team::team_a, {500.0F, 200.0F}, 0.0F));
+        test_unit(1203, Team::team_a, {700.0F, 200.0F}, 0.0F));
     multi_objective_scoring_world.units().push_back(
-        test_unit(1204, Team::team_b, {900.0F, 200.0F}, 0.0F));
+        test_unit(1204, Team::team_b, {1'280.0F, 200.0F}, 0.0F));
     multi_objective_scoring_world.units().push_back(
-        test_unit(1205, Team::team_a, {1300.0F, 200.0F}, 0.0F));
+        test_unit(1205, Team::team_a, {1'800.0F, 200.0F}, 0.0F));
     update_zone_capture(multi_objective_scoring_world, 0.0);
     update_objective_scoring(multi_objective_scoring_world, 60);
     passed &= check(
@@ -2197,7 +2197,7 @@ int main() {
     finished_scoring_world.zones()[1].advance_capture(100.0F);
     finished_scoring_world.zones()[1].set_owner(Team::team_a);
     finished_scoring_world.units().push_back(
-        test_unit(1210, Team::team_a, {500.0F, 300.0F}, 0.0F));
+        test_unit(1210, Team::team_a, {700.0F, 300.0F}, 0.0F));
     update_zone_capture(finished_scoring_world, 0.0);
     Simulation finished_scoring_simulation{finished_scoring_world};
     for (int tick = 0; tick < 60; ++tick) {
@@ -2328,7 +2328,7 @@ int main() {
     update_zone_capture(secured_world, 2.0);
     passed &= check(
         request_deployment(secured_world, Team::team_a,
-                           TroopType::machine_gun, {500.0F, 420.0F}) ==
+                           TroopType::machine_gun, {700.0F, 420.0F}) ==
                 DeploymentResult::accepted &&
             secured_world.find_player(Team::team_a)->cash() == 21'000,
         "secured forward objective accepts owner placement and charges cost");
@@ -2336,7 +2336,7 @@ int main() {
         secured_world.find_player(Team::team_a)->cash();
     passed &= check(
         request_deployment(secured_world, Team::team_a, TroopType::rifle,
-                           {700.0F, 420.0F}) ==
+                           {950.0F, 420.0F}) ==
                 DeploymentResult::invalid_location &&
             secured_world.find_player(Team::team_a)->cash() == secured_cash,
         "secured objective front 25 percent remains invalid without charging");
@@ -2425,51 +2425,51 @@ int main() {
     const auto initial_b_frontline =
         frontline_objective(frontline_world, Team::team_b);
     const float initial_a_hold_x =
-        initial_a_frontline.has_value() ? initial_a_frontline->hold_x : 652.8F;
+        initial_a_frontline.has_value() ? initial_a_frontline->hold_x : 870.4F;
     passed &= check(initial_a_frontline.has_value() &&
                         initial_a_frontline->zone_index == 1 &&
-                        near(initial_a_frontline->forward_boundary_x, 768.0F) &&
+                        near(initial_a_frontline->forward_boundary_x, 1'024.0F) &&
                         initial_b_frontline.has_value() &&
                         initial_b_frontline->zone_index == 3 &&
-                        near(initial_b_frontline->forward_boundary_x, 1152.0F),
+                        near(initial_b_frontline->forward_boundary_x, 1'536.0F),
                     "frontline objective selection is mirrored by team");
 
     World team_a_gate_world;
     team_a_gate_world.units().clear();
     team_a_gate_world.units().push_back(
-        test_unit(5000, Team::team_a, {767.5F, 300.0F}, 270.0F));
+        test_unit(5000, Team::team_a, {1'023.5F, 400.0F}, 270.0F));
     team_a_gate_world.units().push_back(
-        test_unit(5001, Team::team_b, {1100.0F, 300.0F}, 90.0F));
+        test_unit(5001, Team::team_b, {1'450.0F, 400.0F}, 90.0F));
     Simulation team_a_gate_simulation{team_a_gate_world};
     team_a_gate_simulation.update(1.0);
-    passed &= check(team_a_gate_world.units()[0].position().x < 768.0F,
+    passed &= check(team_a_gate_world.units()[0].position().x < 1'024.0F,
                     "Team A combat pursuit cannot cross uncaptured frontline boundary");
 
     World team_b_gate_world;
     team_b_gate_world.units().clear();
     team_b_gate_world.units().push_back(
-        test_unit(5010, Team::team_b, {1152.5F, 300.0F}, 90.0F));
+        test_unit(5010, Team::team_b, {1'536.5F, 400.0F}, 90.0F));
     team_b_gate_world.units().push_back(
-        test_unit(5011, Team::team_a, {820.0F, 300.0F}, 270.0F));
+        test_unit(5011, Team::team_a, {1'100.0F, 400.0F}, 270.0F));
     Simulation team_b_gate_simulation{team_b_gate_world};
     team_b_gate_simulation.update(1.0);
-    passed &= check(team_b_gate_world.units()[0].position().x > 1152.0F,
+    passed &= check(team_b_gate_world.units()[0].position().x > 1'536.0F,
                     "Team B combat pursuit obeys mirrored frontline boundary");
 
     World frontline_entry_world;
     frontline_entry_world.units().clear();
     frontline_entry_world.units().push_back(
-        test_unit(5020, Team::team_a, {383.5F, 300.0F}, 270.0F));
+        test_unit(5020, Team::team_a, {511.5F, 400.0F}, 270.0F));
     Simulation frontline_entry_simulation{frontline_entry_world};
     frontline_entry_simulation.update(1.0 / 60.0);
-    passed &= check(frontline_entry_world.units()[0].position().x > 384.0F,
+    passed &= check(frontline_entry_world.units()[0].position().x > 512.0F,
                     "units may enter their current frontline objective");
 
     World frontline_hold_world;
     frontline_hold_world.units().clear();
     frontline_hold_world.units().push_back(
         test_unit(5021, Team::team_a,
-                  {initial_a_hold_x, 300.0F}, 270.0F));
+                  {initial_a_hold_x, 400.0F}, 270.0F));
     Simulation frontline_hold_simulation{frontline_hold_world};
     for (int tick = 0; tick < 120; ++tick) {
         frontline_hold_simulation.update(1.0 / 60.0);
@@ -2477,7 +2477,7 @@ int main() {
     passed &= check(
         std::abs(frontline_hold_world.units()[0].position().x -
                  initial_a_hold_x) < 1.0F &&
-            frontline_hold_world.units()[0].position().x < 700.0F,
+            frontline_hold_world.units()[0].position().x < 950.0F,
         "targetless unit settles at interior frontline hold instead of boundary");
 
     World unlocked_frontline_world;
@@ -2487,24 +2487,24 @@ int main() {
     const auto advanced_frontline =
         frontline_objective(unlocked_frontline_world, Team::team_a);
     unlocked_frontline_world.units().push_back(
-        test_unit(5030, Team::team_a, {767.5F, 300.0F}, 270.0F));
+        test_unit(5030, Team::team_a, {1'023.5F, 400.0F}, 270.0F));
     Simulation unlocked_frontline_simulation{unlocked_frontline_world};
     unlocked_frontline_simulation.update(0.1);
     passed &= check(advanced_frontline.has_value() &&
                         advanced_frontline->zone_index == 2 &&
-                        near(advanced_frontline->forward_boundary_x, 1152.0F) &&
+                        near(advanced_frontline->forward_boundary_x, 1'536.0F) &&
                         unlocked_frontline_world.units()[0].position().x >
-                            768.0F,
+                            1'024.0F,
                     "full ownership unlocks advancement and moves limit to next objective");
 
     unlocked_frontline_world.units().clear();
     unlocked_frontline_world.units().push_back(
-        test_unit(5031, Team::team_a, {1151.5F, 300.0F}, 270.0F));
+        test_unit(5031, Team::team_a, {1'535.5F, 400.0F}, 270.0F));
     unlocked_frontline_world.units().push_back(
-        test_unit(5032, Team::team_b, {1490.0F, 300.0F}, 90.0F));
+        test_unit(5032, Team::team_b, {1'900.0F, 400.0F}, 90.0F));
     Simulation next_gate_simulation{unlocked_frontline_world};
     next_gate_simulation.update(1.0);
-    passed &= check(unlocked_frontline_world.units()[0].position().x < 1152.0F,
+    passed &= check(unlocked_frontline_world.units()[0].position().x < 1'536.0F,
                     "new frontline objective becomes the next movement limit");
 
     World frontline_combat_world;
@@ -2539,15 +2539,15 @@ int main() {
     World advance_order_world;
     advance_order_world.units().clear();
     advance_order_world.units().push_back(
-        test_unit(5060, Team::team_a, {767.5F, 300.0F}, 270.0F));
+        test_unit(5060, Team::team_a, {1'023.5F, 400.0F}, 270.0F));
     const std::array<Unit::Id, 1> advance_ids{5060};
     (void)apply_tactical_order(advance_order_world, advance_ids,
                                TacticalOrder::advance);
     Simulation advance_order_simulation{advance_order_world};
     advance_order_simulation.update(1.0);
     passed &= check(
-        advance_order_world.units()[0].position().x > 767.5F &&
-            advance_order_world.units()[0].position().x < 768.0F &&
+        advance_order_world.units()[0].position().x > 1'023.5F &&
+            advance_order_world.units()[0].position().x < 1'024.0F &&
             advance_order_world.units()[0].tactical_order() ==
                 TacticalOrder::advance,
         "Advance pushes deliberately but cannot cross the uncaptured frontline");
@@ -2752,15 +2752,15 @@ int main() {
     World path_frontline_world;
     path_frontline_world.units().clear();
     path_frontline_world.units().push_back(
-        test_unit(5130, Team::team_a, {767.5F, 300.0F}, 270.0F));
-    path_frontline_world.units()[0].replace_movement_path({{900.0F, 300.0F}});
+        test_unit(5130, Team::team_a, {1'023.5F, 400.0F}, 270.0F));
+    path_frontline_world.units()[0].replace_movement_path({{1'200.0F, 400.0F}});
     Simulation path_frontline_simulation{path_frontline_world};
     path_frontline_simulation.update(1.0);
     passed &= check(
-        path_frontline_world.units()[0].position().x < 768.0F &&
+        path_frontline_world.units()[0].position().x < 1'024.0F &&
             path_frontline_world.units()[0].has_movement_path() &&
             near(path_frontline_world.units()[0].current_waypoint()->x,
-                 900.0F),
+                 1'200.0F),
         "individual paths cannot bypass the uncaptured frontline and retain the blocked waypoint");
 
     World terminal_a_world;
@@ -2772,48 +2772,48 @@ int main() {
     const auto terminal_a_frontline =
         frontline_objective(terminal_a_world, Team::team_a);
     terminal_a_world.units().push_back(
-        test_unit(5140, Team::team_a, {1535.5F, 300.0F}, 270.0F));
+        test_unit(5140, Team::team_a, {2'047.5F, 400.0F}, 270.0F));
     Simulation terminal_a_simulation{terminal_a_world};
     terminal_a_simulation.update(1.0);
     passed &= check(
         terminal_a_frontline.has_value() &&
             terminal_a_frontline->zone_index == 3 &&
-            near(terminal_a_frontline->forward_boundary_x, 1536.0F) &&
-            terminal_a_world.units()[0].position().x < 1536.0F,
+            near(terminal_a_frontline->forward_boundary_x, 2'048.0F) &&
+            terminal_a_world.units()[0].position().x < 2'048.0F,
         "Team A terminal frontline prevents autonomous entry into Team B home");
 
-    terminal_a_world.units()[0].set_position({1535.5F, 300.0F});
+    terminal_a_world.units()[0].set_position({2'047.5F, 400.0F});
     const std::array<Unit::Id, 1> terminal_advance_ids{5140};
     (void)apply_tactical_order(terminal_a_world, terminal_advance_ids,
                                TacticalOrder::advance);
     terminal_a_simulation.update(1.0);
     const bool terminal_advance_blocked =
-        terminal_a_world.units()[0].position().x < 1536.0F;
-    terminal_a_world.units()[0].set_position({1535.5F, 300.0F});
-    terminal_a_world.units()[0].replace_movement_path({{1800.0F, 300.0F}});
+        terminal_a_world.units()[0].position().x < 2'048.0F;
+    terminal_a_world.units()[0].set_position({2'047.5F, 400.0F});
+    terminal_a_world.units()[0].replace_movement_path({{2'400.0F, 400.0F}});
     terminal_a_simulation.update(1.0);
     passed &= check(
         terminal_advance_blocked &&
-            terminal_a_world.units()[0].position().x < 1536.0F &&
+            terminal_a_world.units()[0].position().x < 2'048.0F &&
             terminal_a_world.units()[0].has_movement_path(),
         "Tactical Advance and individual paths share Team A terminal home boundary");
 
     terminal_a_world.units()[0].clear_movement_path();
     terminal_a_world.units()[0].set_tactical_order(TacticalOrder::automatic);
     terminal_a_world.units()[0].set_position(
-        {terminal_a_frontline->hold_x, 300.0F});
+        {terminal_a_frontline->hold_x, 400.0F});
     for (int tick = 0; tick < 120; ++tick) {
         terminal_a_simulation.update(1.0 / 60.0);
     }
     passed &= check(
         std::abs(terminal_a_world.units()[0].position().x -
                  terminal_a_frontline->hold_x) < 1.0F &&
-            terminal_a_world.units()[0].position().x < 1536.0F,
+            terminal_a_world.units()[0].position().x < 2'048.0F,
         "owning every objective holds targetless Team A troops inside zone 3");
 
     terminal_a_world.units().clear();
     terminal_a_world.units().push_back(test_unit(
-        5141, Team::team_a, {terminal_a_frontline->hold_x, 300.0F}, 0.0F));
+        5141, Team::team_a, {terminal_a_frontline->hold_x, 400.0F}, 0.0F));
     terminal_a_simulation.update(1.0 / 60.0);
     const bool terminal_blue_faces_forward_gradually =
         terminal_a_world.units()[0].movement_state() == MovementState::idle &&
@@ -2867,19 +2867,19 @@ int main() {
     const auto terminal_b_frontline =
         frontline_objective(terminal_b_world, Team::team_b);
     terminal_b_world.units().push_back(
-        test_unit(5150, Team::team_b, {384.5F, 300.0F}, 90.0F));
+        test_unit(5150, Team::team_b, {512.5F, 400.0F}, 90.0F));
     Simulation terminal_b_simulation{terminal_b_world};
     terminal_b_simulation.update(1.0);
     passed &= check(
         terminal_b_frontline.has_value() &&
             terminal_b_frontline->zone_index == 1 &&
-            near(terminal_b_frontline->forward_boundary_x, 384.0F) &&
-            terminal_b_world.units()[0].position().x > 384.0F,
+            near(terminal_b_frontline->forward_boundary_x, 512.0F) &&
+            terminal_b_world.units()[0].position().x > 512.0F,
         "Team B terminal frontline mirrors the opposing-home restriction");
 
     terminal_b_world.units().clear();
     terminal_b_world.units().push_back(test_unit(
-        5151, Team::team_b, {terminal_b_frontline->hold_x, 300.0F}, 0.0F));
+        5151, Team::team_b, {terminal_b_frontline->hold_x, 400.0F}, 0.0F));
     terminal_b_simulation.update(1.0 / 60.0);
     passed &= check(
         terminal_b_world.units()[0].movement_state() == MovementState::idle &&
@@ -3083,9 +3083,9 @@ int main() {
     World presence_world;
     presence_world.units().clear();
     presence_world.units().push_back(
-        test_unit(1000, Team::team_a, {500.0F, 200.0F}, 0.0F));
+        test_unit(1000, Team::team_a, {700.0F, 200.0F}, 0.0F));
     presence_world.units().push_back(
-        test_unit(1001, Team::team_b, {500.0F, 300.0F}, 0.0F));
+        test_unit(1001, Team::team_b, {700.0F, 300.0F}, 0.0F));
     presence_world.units().back().apply_damage(100.0F);
     update_zone_capture(presence_world, 1.0);
     passed &= check(presence_world.zones()[1].team_a_count() == 1 &&
@@ -3095,7 +3095,7 @@ int main() {
     World boundary_world;
     boundary_world.units().clear();
     boundary_world.units().push_back(
-        test_unit(1002, Team::team_a, {768.0F, 200.0F}, 0.0F));
+        test_unit(1002, Team::team_a, {1'024.0F, 200.0F}, 0.0F));
     update_zone_capture(boundary_world, 0.0);
     const auto boundary_zone = zone_index_for_position(
         boundary_world, boundary_world.units().front().position());
@@ -3112,9 +3112,9 @@ int main() {
     equal_world.units().clear();
     equal_world.zones()[1].advance_capture(17.0F);
     equal_world.units().push_back(
-        test_unit(1010, Team::team_a, {500.0F, 200.0F}, 0.0F));
+        test_unit(1010, Team::team_a, {700.0F, 200.0F}, 0.0F));
     equal_world.units().push_back(
-        test_unit(1011, Team::team_b, {500.0F, 300.0F}, 0.0F));
+        test_unit(1011, Team::team_b, {700.0F, 300.0F}, 0.0F));
     update_zone_capture(equal_world, 1.0);
     passed &= check(equal_world.zones()[1].pressure() == 0 &&
                         near(equal_world.zones()[1].capture_value(), 17.0F),
@@ -3123,16 +3123,16 @@ int main() {
     World advantage_world;
     advantage_world.units().clear();
     advantage_world.units().push_back(
-        test_unit(1020, Team::team_a, {500.0F, 200.0F}, 0.0F));
+        test_unit(1020, Team::team_a, {700.0F, 200.0F}, 0.0F));
     update_zone_capture(advantage_world, 1.0);
     passed &= check(advantage_world.zones()[1].pressure() == 1 &&
                         near(advantage_world.zones()[1].capture_value(), 5.0F),
                     "Team A numerical advantage moves capture toward +100");
     advantage_world.units().clear();
     advantage_world.units().push_back(
-        test_unit(1021, Team::team_b, {500.0F, 200.0F}, 0.0F));
+        test_unit(1021, Team::team_b, {700.0F, 200.0F}, 0.0F));
     advantage_world.units().push_back(
-        test_unit(1022, Team::team_b, {500.0F, 300.0F}, 0.0F));
+        test_unit(1022, Team::team_b, {700.0F, 300.0F}, 0.0F));
     update_zone_capture(advantage_world, 1.0);
     passed &= check(advantage_world.zones()[1].pressure() == -2 &&
                         near(advantage_world.zones()[1].capture_value(), -5.0F),
@@ -3143,7 +3143,7 @@ int main() {
     for (Unit::Id id = 1030; id < 1036; ++id) {
         pressure_world.units().push_back(test_unit(
             id, Team::team_a,
-            {500.0F, 100.0F + static_cast<float>(id - 1030) * 40.0F}, 0.0F));
+            {700.0F, 100.0F + static_cast<float>(id - 1030) * 40.0F}, 0.0F));
     }
     update_zone_capture(pressure_world, 1.0);
     passed &= check(pressure_world.zones()[1].pressure() == 6 &&
@@ -3153,12 +3153,12 @@ int main() {
     World clamp_world;
     clamp_world.units().clear();
     clamp_world.units().push_back(
-        test_unit(1040, Team::team_a, {500.0F, 200.0F}, 0.0F));
+        test_unit(1040, Team::team_a, {700.0F, 200.0F}, 0.0F));
     update_zone_capture(clamp_world, 100.0);
     passed &= check(near(clamp_world.zones()[1].capture_value(), 100.0F),
                     "capture meter clamps at positive 100");
     clamp_world.units().front() =
-        test_unit(1041, Team::team_b, {500.0F, 200.0F}, 0.0F);
+        test_unit(1041, Team::team_b, {700.0F, 200.0F}, 0.0F);
     update_zone_capture(clamp_world, 100.0);
     passed &= check(near(clamp_world.zones()[1].capture_value(), -100.0F),
                     "capture meter clamps at negative 100");
@@ -3281,7 +3281,7 @@ int main() {
     occupation_world.units().clear();
     occupation_world.zones()[1].advance_capture(100.0F);
     occupation_world.units().push_back(
-        test_unit(1100, Team::team_a, {500.0F, 200.0F}, 0.0F));
+        test_unit(1100, Team::team_a, {700.0F, 200.0F}, 0.0F));
     update_zone_capture(occupation_world, 0.0);
     passed &= check(occupation_world.zones()[1].owner() == Team::team_a &&
                         occupation_world.zones()[1].occupied(),
@@ -3303,7 +3303,7 @@ int main() {
                     "neutral objective never becomes secured");
 
     occupation_world.units().push_back(
-        test_unit(1101, Team::team_b, {500.0F, 300.0F}, 0.0F));
+        test_unit(1101, Team::team_b, {700.0F, 300.0F}, 0.0F));
     update_zone_capture(occupation_world, 0.0);
     passed &= check(occupation_world.zones()[1].contested() &&
                         !occupation_world.zones()[1].secured() &&
@@ -3327,7 +3327,7 @@ int main() {
                     "two continuous uncontested seconds secure an objective");
 
     occupation_world.units().push_back(
-        test_unit(1102, Team::team_b, {500.0F, 400.0F}, 0.0F));
+        test_unit(1102, Team::team_b, {700.0F, 400.0F}, 0.0F));
     update_zone_capture(occupation_world, 0.0);
     passed &= check(!occupation_world.zones()[1].secured() &&
                         !is_zone_deployable(occupation_world.zones()[1],
@@ -3355,8 +3355,8 @@ int main() {
     const auto team_a_deployment =
         deployment_bounds(occupation_world.zones()[1], Team::team_a);
     passed &= check(team_a_deployment.has_value() &&
-                        near(team_a_deployment->x, 384.0F) &&
-                        near(team_a_deployment->width, 288.0F) &&
+                        near(team_a_deployment->x, 512.0F) &&
+                        near(team_a_deployment->width, 384.0F) &&
                         near(team_a_deployment->height,
                              occupation_world.map().logical_height),
                     "Team A deployment uses the left/rear 75 percent");
@@ -3369,8 +3369,8 @@ int main() {
     const auto team_b_deployment = deployment_bounds(
         team_b_deployment_world.zones()[3], Team::team_b);
     passed &= check(team_b_deployment.has_value() &&
-                        near(team_b_deployment->x, 1248.0F) &&
-                        near(team_b_deployment->width, 288.0F) &&
+                        near(team_b_deployment->x, 1'664.0F) &&
+                        near(team_b_deployment->width, 384.0F) &&
                         near(team_b_deployment->height,
                              team_b_deployment_world.map().logical_height),
                     "Team B deployment mirrors into the right/rear 75 percent");
@@ -3383,9 +3383,9 @@ int main() {
         contiguous_a_world, contiguous_a_world.zones()[4], Team::team_b);
     passed &= check(
         home_only_a.has_value() && near(home_only_a->x, 0.0F) &&
-            near(home_only_a->width, 288.0F) && home_only_b.has_value() &&
-            near(home_only_b->x, 1632.0F) &&
-            near(home_only_b->width, 288.0F),
+            near(home_only_a->width, 384.0F) && home_only_b.has_value() &&
+            near(home_only_b->x, 2'176.0F) &&
+            near(home_only_b->width, 384.0F),
         "home-only deployment keeps the mirrored rear-75-percent safety restriction");
 
     contiguous_a_world.zones()[1].advance_capture(100.0F);
@@ -3396,14 +3396,14 @@ int main() {
     const auto restricted_a_zone_1 = deployment_bounds(
         contiguous_a_world, contiguous_a_world.zones()[1], Team::team_a);
     passed &= check(
-        full_a_home.has_value() && near(full_a_home->width, 384.0F) &&
+        full_a_home.has_value() && near(full_a_home->width, 512.0F) &&
             restricted_a_zone_1.has_value() &&
-            near(restricted_a_zone_1->x, 384.0F) &&
-            near(restricted_a_zone_1->width, 288.0F) &&
+            near(restricted_a_zone_1->x, 512.0F) &&
+            near(restricted_a_zone_1->width, 384.0F) &&
             is_valid_deployment_location(contiguous_a_world, Team::team_a,
-                                         {350.0F, 400.0F}) &&
+                                         {480.0F, 400.0F}) &&
             !is_valid_deployment_location(contiguous_a_world, Team::team_a,
-                                          {700.0F, 400.0F}),
+                                          {950.0F, 400.0F}),
         "one secured Team A objective fills the old home gap and retains its front buffer");
 
     contiguous_a_world.zones()[2].advance_capture(100.0F);
@@ -3414,14 +3414,14 @@ int main() {
     const auto restricted_a_zone_2 = deployment_bounds(
         contiguous_a_world, contiguous_a_world.zones()[2], Team::team_a);
     passed &= check(
-        full_a_zone_1.has_value() && near(full_a_zone_1->width, 384.0F) &&
+        full_a_zone_1.has_value() && near(full_a_zone_1->width, 512.0F) &&
             restricted_a_zone_2.has_value() &&
-            near(restricted_a_zone_2->x, 768.0F) &&
-            near(restricted_a_zone_2->width, 288.0F) &&
+            near(restricted_a_zone_2->x, 1'024.0F) &&
+            near(restricted_a_zone_2->width, 384.0F) &&
             is_valid_deployment_location(contiguous_a_world, Team::team_a,
-                                         {750.0F, 400.0F}) &&
+                                         {1'000.0F, 400.0F}) &&
             !is_valid_deployment_location(contiguous_a_world, Team::team_a,
-                                          {1100.0F, 400.0F}),
+                                          {1'480.0F, 400.0F}),
         "advancing Team A deployment makes each previous connected zone fully deployable");
 
     contiguous_a_world.zones()[3].advance_capture(100.0F);
@@ -3432,10 +3432,10 @@ int main() {
     const auto restricted_a_zone_3 = deployment_bounds(
         contiguous_a_world, contiguous_a_world.zones()[3], Team::team_a);
     passed &= check(
-        full_a_zone_2.has_value() && near(full_a_zone_2->width, 384.0F) &&
+        full_a_zone_2.has_value() && near(full_a_zone_2->width, 512.0F) &&
             restricted_a_zone_3.has_value() &&
-            near(restricted_a_zone_3->x, 1152.0F) &&
-            near(restricted_a_zone_3->width, 288.0F),
+            near(restricted_a_zone_3->x, 1'536.0F) &&
+            near(restricted_a_zone_3->width, 384.0F),
         "frontmost Team A secured objective alone retains the forward 25-percent buffer");
 
     World contiguous_b_world;
@@ -3448,15 +3448,15 @@ int main() {
     const auto restricted_b_zone_3 = deployment_bounds(
         contiguous_b_world, contiguous_b_world.zones()[3], Team::team_b);
     passed &= check(
-        full_b_home.has_value() && near(full_b_home->x, 1536.0F) &&
-            near(full_b_home->width, 384.0F) &&
+        full_b_home.has_value() && near(full_b_home->x, 2'048.0F) &&
+            near(full_b_home->width, 512.0F) &&
             restricted_b_zone_3.has_value() &&
-            near(restricted_b_zone_3->x, 1248.0F) &&
-            near(restricted_b_zone_3->width, 288.0F) &&
+            near(restricted_b_zone_3->x, 1'664.0F) &&
+            near(restricted_b_zone_3->width, 384.0F) &&
             is_valid_deployment_location(contiguous_b_world, Team::team_b,
-                                         {1570.0F, 400.0F}) &&
+                                         {2'100.0F, 400.0F}) &&
             !is_valid_deployment_location(contiguous_b_world, Team::team_b,
-                                          {1200.0F, 400.0F}),
+                                          {1'600.0F, 400.0F}),
         "Team B contiguous deployment and front safety buffer mirror Team A");
 
     World disconnected_deployment_world;
@@ -3471,7 +3471,7 @@ int main() {
              .has_value() &&
             !is_valid_deployment_location(disconnected_deployment_world,
                                           Team::team_a,
-                                          {800.0F, 400.0F}),
+                                          {1'100.0F, 400.0F}),
         "disconnected secured ownership cannot bridge an unsecured objective gap");
 
     World sudden_deployment_corridor_world{MatchRules{60, 1}};
@@ -3485,7 +3485,7 @@ int main() {
         sudden_deployment_corridor_world,
         sudden_deployment_corridor_world.zones()[0], Team::team_a);
     passed &= check(
-        sudden_home.has_value() && near(sudden_home->width, 288.0F) &&
+        sudden_home.has_value() && near(sudden_home->width, 384.0F) &&
             !deployment_bounds(sudden_deployment_corridor_world,
                                sudden_deployment_corridor_world.zones()[1],
                                Team::team_a)
@@ -3819,8 +3819,8 @@ int main() {
                     "target too close reports retreating");
 
     World target_loss_world;
-    arrange_combat_scenario(target_loss_world, {500.0F, 400.0F},
-                            {500.0F, 1000.0F});
+    arrange_combat_scenario(target_loss_world, {500.0F, 500.0F},
+                            {500.0F, 1'100.0F});
     target_loss_world.units()[0].set_target_id(target_loss_world.units()[4].id());
     const Vec2 target_loss_start = target_loss_world.units()[0].position();
     Simulation target_loss_simulation{target_loss_world};
@@ -4035,7 +4035,7 @@ int main() {
     World out_of_bounds_projectile_world;
     out_of_bounds_projectile_world.spawn_projectile(
         WeaponType::rifle, Team::team_b,
-        out_of_bounds_projectile_world.units()[4].id(), {1919.0F, 100.0F},
+        out_of_bounds_projectile_world.units()[4].id(), {2'559.0F, 100.0F},
         {120.0F, 0.0F}, 100.0F, 25.0F);
     Simulation out_of_bounds_projectile_simulation{out_of_bounds_projectile_world};
     out_of_bounds_projectile_simulation.update(1.0 / 60.0);
