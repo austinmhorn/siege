@@ -21,6 +21,32 @@ Money kill_reward_for(const TroopType troop_type,
     return 0;
 }
 
+Money comeback_income_bonus(const World& world, const Team team,
+                            const EconomyRules rules) noexcept {
+    if (team != Team::team_a && team != Team::team_b) {
+        return 0;
+    }
+
+    const Team opposing_team =
+        team == Team::team_a ? Team::team_b : Team::team_a;
+    Money enemy_owned_objectives = 0;
+    for (const std::size_t zone_index :
+         world.map().objective_zone_indices) {
+        if (zone_index < world.zones().size() &&
+            world.zones()[zone_index].owner() == opposing_team) {
+            ++enemy_owned_objectives;
+        }
+    }
+    return enemy_owned_objectives *
+        rules.comeback_income_per_enemy_objective;
+}
+
+Money effective_passive_income_rate(const World& world, const Team team,
+                                    const EconomyRules rules) noexcept {
+    return rules.passive_income_per_second +
+        comeback_income_bonus(world, team, rules);
+}
+
 bool award_projectile_kill(World& world, const Projectile& projectile,
                            const Unit& victim,
                            const EconomyRules rules) noexcept {
@@ -70,9 +96,9 @@ void update_passive_income(World& world, const std::uint64_t fixed_tick_count,
         return;
     }
     for (auto& player : world.players()) {
-        player.accrue_passive_income(rules.passive_income_per_second,
-                                     rules.fixed_ticks_per_second,
-                                     fixed_tick_count);
+        player.accrue_passive_income(
+            effective_passive_income_rate(world, player.team(), rules),
+            rules.fixed_ticks_per_second, fixed_tick_count);
     }
 }
 

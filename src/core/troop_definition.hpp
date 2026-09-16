@@ -152,7 +152,7 @@ inline constexpr TroopDefinition medium_tank_definition{
     .display_name = "Medium Tank",
     .move_speed = 36.0F,
     .rotation_speed = 35.0F,
-    .vision_range = 700.0F,
+    .vision_range = 550.0F,
     .vision_angle = 90.0F,
     .awareness_radius = 120.0F,
     .preferred_combat_range = 520.0F,

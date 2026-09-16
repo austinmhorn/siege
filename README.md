@@ -134,9 +134,10 @@ runtime fonts. Tracked copies of the attribution and exact license text are in
 - World resolution: 2560x1440.
 - Simulation rate: 60 fixed ticks per second, independent of rendering rate.
 - Team A and Team B each begin with 25,000 integer cash and receive identical
-  passive income of 100 cash per second. Income uses an integer fixed-tick
+  base passive income of 200 cash per second, plus 25 cash per second for each
+  objective fully owned by the opposing team. Income uses an integer fixed-tick
   remainder, so simulation time—not rendering rate—controls cash. F3 displays
-  both balances and the passive rate; purchasing and rewards are not implemented.
+  both balances and each team's base, comeback, and effective income rates.
 
 The private source inputs under `.local_assets/` and generated runtime content
 under `assets/soldiers/`, `assets/fonts/`, and `assets/terrain/` are

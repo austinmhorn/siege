@@ -1760,11 +1760,94 @@ int main() {
                     "both players start with 25000 cash");
     passed &= check(
         default_economy_rules.passive_income_per_second == 200 &&
+            default_economy_rules.comeback_income_per_enemy_objective == 25 &&
             kill_reward_for(TroopType::rifle) == 250 &&
             kill_reward_for(TroopType::machine_gun) == 400 &&
             kill_reward_for(TroopType::bazooka) == 600 &&
             default_economy_rules.objective_capture_reward == 1'000,
         "passive income and all troop/capture rewards are centralized");
+
+    World comeback_income_world;
+    comeback_income_world.units().clear();
+    passed &= check(
+        comeback_income_bonus(comeback_income_world, Team::team_a) == 0 &&
+            comeback_income_bonus(comeback_income_world, Team::team_b) == 0 &&
+            effective_passive_income_rate(comeback_income_world,
+                                          Team::team_a) == 200 &&
+            effective_passive_income_rate(comeback_income_world,
+                                          Team::team_b) == 200,
+        "neutral objectives grant no comeback income and opposing homes never count");
+
+    comeback_income_world.zones()[1].advance_capture(-100.0F);
+    update_zone_capture(comeback_income_world, 0.0);
+    passed &= check(
+        comeback_income_bonus(comeback_income_world, Team::team_a) == 25 &&
+            effective_passive_income_rate(comeback_income_world,
+                                          Team::team_a) == 225 &&
+            effective_passive_income_rate(comeback_income_world,
+                                          Team::team_b) == 200,
+        "one enemy-owned objective raises only the losing team's income to 225 per second");
+
+    comeback_income_world.zones()[2].advance_capture(-100.0F);
+    update_zone_capture(comeback_income_world, 0.0);
+    passed &= check(
+        comeback_income_bonus(comeback_income_world, Team::team_a) == 50 &&
+            effective_passive_income_rate(comeback_income_world,
+                                          Team::team_a) == 250,
+        "two enemy-owned objectives raise comeback income to 250 per second");
+
+    comeback_income_world.zones()[3].advance_capture(-100.0F);
+    update_zone_capture(comeback_income_world, 0.0);
+    passed &= check(
+        comeback_income_bonus(comeback_income_world, Team::team_a) == 75 &&
+            effective_passive_income_rate(comeback_income_world,
+                                          Team::team_a) == 275,
+        "three enemy-owned objectives cap prototype comeback income at 275 per second");
+
+    World mirrored_comeback_world;
+    mirrored_comeback_world.units().clear();
+    mirrored_comeback_world.zones()[1].advance_capture(100.0F);
+    update_zone_capture(mirrored_comeback_world, 0.0);
+    update_passive_income(mirrored_comeback_world, 60);
+    passed &= check(
+        comeback_income_bonus(mirrored_comeback_world, Team::team_b) == 25 &&
+            effective_passive_income_rate(mirrored_comeback_world,
+                                          Team::team_b) == 225 &&
+            mirrored_comeback_world.find_player(Team::team_a)->cash() ==
+                25'200 &&
+            mirrored_comeback_world.find_player(Team::team_b)->cash() ==
+                25'225,
+        "mirrored RED economy and AI-owned cash use the same comeback rules");
+
+    comeback_income_world.zones()[1].advance_capture(100.0F);
+    update_zone_capture(comeback_income_world, 0.0);
+    passed &= check(
+        comeback_income_world.zones()[1].owner() == Team::none &&
+            comeback_income_bonus(comeback_income_world, Team::team_a) == 50 &&
+            effective_passive_income_rate(comeback_income_world,
+                                          Team::team_a) == 250,
+        "neutralizing an enemy objective immediately removes its comeback bonus");
+
+    World ticked_comeback_world;
+    World batched_comeback_world;
+    ticked_comeback_world.units().clear();
+    batched_comeback_world.units().clear();
+    ticked_comeback_world.zones()[1].advance_capture(-100.0F);
+    batched_comeback_world.zones()[1].advance_capture(-100.0F);
+    update_zone_capture(ticked_comeback_world, 0.0);
+    update_zone_capture(batched_comeback_world, 0.0);
+    for (int tick = 0; tick < 60; ++tick) {
+        update_passive_income(ticked_comeback_world);
+    }
+    update_passive_income(batched_comeback_world, 60);
+    passed &= check(
+        ticked_comeback_world.find_player(Team::team_a)->cash() == 25'225 &&
+            ticked_comeback_world.find_player(Team::team_b)->cash() == 25'200 &&
+            ticked_comeback_world.find_player(Team::team_a)->cash() ==
+                batched_comeback_world.find_player(Team::team_a)->cash() &&
+            ticked_comeback_world.find_player(Team::team_b)->cash() ==
+                batched_comeback_world.find_player(Team::team_b)->cash(),
+        "comeback income is deterministic across individual and batched fixed ticks");
 
     Simulation economy_simulation{economy_world};
     for (int tick = 0; tick < 60; ++tick) {
@@ -1788,6 +1871,10 @@ int main() {
     World render_rate_b;
     render_rate_a.units().clear();
     render_rate_b.units().clear();
+    render_rate_a.zones()[1].advance_capture(-100.0F);
+    render_rate_b.zones()[1].advance_capture(-100.0F);
+    update_zone_capture(render_rate_a, 0.0);
+    update_zone_capture(render_rate_b, 0.0);
     Simulation render_rate_a_simulation{render_rate_a};
     Simulation render_rate_b_simulation{render_rate_b};
     Money render_snapshot_checksum = 0;
@@ -1801,7 +1888,7 @@ int main() {
     }
     passed &= check(
         render_snapshot_checksum > 0 &&
-            render_rate_a.find_player(Team::team_a)->cash() == 25'400 &&
+            render_rate_a.find_player(Team::team_a)->cash() == 25'450 &&
             render_rate_a.find_player(Team::team_a)->cash() ==
                 render_rate_b.find_player(Team::team_a)->cash() &&
             render_rate_a.find_player(Team::team_b)->cash() ==
@@ -1945,6 +2032,8 @@ int main() {
                 MatchPhase::sudden_death &&
             sudden_reset_world.find_player(Team::team_a)->cash() == 25'200 &&
             sudden_reset_world.find_player(Team::team_b)->cash() == 25'200 &&
+            comeback_income_bonus(sudden_reset_world, Team::team_a) == 0 &&
+            comeback_income_bonus(sudden_reset_world, Team::team_b) == 0 &&
             sudden_reset_world.find_player(Team::team_a)->score() == 3 &&
             sudden_reset_world.find_player(Team::team_b)->score() == 3,
         "sudden death has no timer, keeps passive income, and freezes regulation scores");
@@ -2952,7 +3041,7 @@ int main() {
             medium_tank_definition.independent_turret &&
             near(medium_tank_definition.max_health, 600.0F) &&
             near(medium_tank_definition.hit_radius, 34.0F) &&
-            near(medium_tank_definition.vision_range, 700.0F) &&
+            near(medium_tank_definition.vision_range, 550.0F) &&
             near(medium_tank_definition.awareness_radius, 120.0F) &&
             near(medium_tank_definition.preferred_combat_range, 520.0F) &&
             near(medium_tank_definition.range_tolerance, 50.0F) &&

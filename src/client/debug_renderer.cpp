@@ -420,9 +420,24 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                   static_cast<long long>(team_b_player == nullptr
                                              ? 0
                                              : team_b_player->cash()));
-    global.format(FontRole::debug, debug_text, "passive: $%lld/s",
+    const Money team_a_comeback =
+        comeback_income_bonus(world, Team::team_a);
+    const Money team_b_comeback =
+        comeback_income_bonus(world, Team::team_b);
+    global.format(FontRole::debug, debug_text,
+                  "Team A income: $%lld + $%lld = $%lld/s",
                   static_cast<long long>(
-                      default_economy_rules.passive_income_per_second));
+                      default_economy_rules.passive_income_per_second),
+                  static_cast<long long>(team_a_comeback),
+                  static_cast<long long>(effective_passive_income_rate(
+                      world, Team::team_a)));
+    global.format(FontRole::debug, debug_text,
+                  "Team B income: $%lld + $%lld = $%lld/s",
+                  static_cast<long long>(
+                      default_economy_rules.passive_income_per_second),
+                  static_cast<long long>(team_b_comeback),
+                  static_cast<long long>(effective_passive_income_rate(
+                      world, Team::team_b)));
     global.blank();
 
     global.line(FontRole::debug_bold, debug_heading, "AI COMMANDER");

@@ -13,6 +13,7 @@ class Projectile;
 struct EconomyRules {
     Money starting_cash;
     Money passive_income_per_second;
+    Money comeback_income_per_enemy_objective;
     std::uint32_t fixed_ticks_per_second;
     Money rifle_kill_reward;
     Money machine_gun_kill_reward;
@@ -25,6 +26,7 @@ struct EconomyRules {
 inline constexpr EconomyRules default_economy_rules{
     .starting_cash = 25'000,
     .passive_income_per_second = 200,
+    .comeback_income_per_enemy_objective = 25,
     .fixed_ticks_per_second = 60,
     .rifle_kill_reward = 250,
     .machine_gun_kill_reward = 400,
@@ -36,6 +38,14 @@ inline constexpr EconomyRules default_economy_rules{
 
 [[nodiscard]] Money kill_reward_for(
     TroopType troop_type,
+    EconomyRules rules = default_economy_rules) noexcept;
+
+[[nodiscard]] Money comeback_income_bonus(
+    const World& world, Team team,
+    EconomyRules rules = default_economy_rules) noexcept;
+
+[[nodiscard]] Money effective_passive_income_rate(
+    const World& world, Team team,
     EconomyRules rules = default_economy_rules) noexcept;
 
 // Awards only a valid hostile lethal hit whose source is still an active unit.
