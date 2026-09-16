@@ -130,6 +130,12 @@ for index in 1 2 3 4 5 6 7 8 9 10 11 12 13; do
         "$shadow_source/bazooka${index}.png"
     )
 done
+for index in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+    required_files+=(
+        "$soldier_source/anti-tank_missile/anti-tank_missile${index}.png"
+        "$shadow_source/anti-tank_missile${index}.png"
+    )
+done
 
 if [[ ! -d "$source_root" ]]; then
     echo "error: CraftPix source pack not found: $source_root" >&2
@@ -174,11 +180,13 @@ mkdir -p \
     "$destination/rifle" \
     "$destination/machine_gun" \
     "$destination/bazooka" \
+    "$destination/anti-tank_missile" \
     "$destination/death1" \
     "$shadow_destination/legs" \
     "$shadow_destination/rifle" \
     "$shadow_destination/machine_gun" \
     "$shadow_destination/bazooka" \
+    "$shadow_destination/anti-tank_missile" \
     "$shadow_destination/death1"
 mkdir -p "$font_destination"
 mkdir -p \
@@ -190,6 +198,12 @@ mkdir -p "$tank_destination/shadows" "$tank_destination/broken"
 for index in 1 2 3 4 5 6 7; do
     cp "$soldier_source/legs/legs${index}.png" "$destination/legs/legs${index}.png"
     cp "$shadow_source/legs${index}.png" "$shadow_destination/legs/legs${index}.png"
+done
+for index in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+    cp "$soldier_source/anti-tank_missile/anti-tank_missile${index}.png" \
+        "$destination/anti-tank_missile/anti-tank_missile${index}.png"
+    cp "$shadow_source/anti-tank_missile${index}.png" \
+        "$shadow_destination/anti-tank_missile/anti-tank_missile${index}.png"
 done
 for index in 1 2 3 4 5 6 7 8 9; do
     cp "$soldier_source/rifle/rifle${index}.png" "$destination/rifle/rifle${index}.png"

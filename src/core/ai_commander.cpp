@@ -3,6 +3,7 @@
 #include "core/deployment.hpp"
 #include "core/frontline.hpp"
 #include "core/map_definition.hpp"
+#include "core/perception.hpp"
 #include "core/tactical_command.hpp"
 #include "core/troop_definition.hpp"
 #include "core/zone_capture.hpp"
@@ -166,6 +167,8 @@ std::size_t troop_index(const TroopType troop) noexcept {
         return 2;
     case TroopType::medium_tank:
         return 3;
+    case TroopType::anti_tank:
+        return 4;
     }
     return 0;
 }
@@ -178,8 +181,8 @@ std::optional<TroopType> composition_purchase(const World& world,
     if (player == nullptr) {
         return std::nullopt;
     }
-    std::array<int, 4> current{};
-    std::array<int, 4> desired{};
+    std::array<int, 5> current{};
+    std::array<int, 5> desired{};
     for (const Unit& unit : world.units()) {
         if (unit.is_alive() && unit.team() == team) {
             ++current[troop_index(unit.troop_type())];
@@ -193,12 +196,12 @@ std::optional<TroopType> composition_purchase(const World& world,
     for (const TroopType troop : profile.rules.troop_mix) {
         ++desired[troop_index(troop)];
     }
-    const std::array<TroopType, 4> attack_priority{
+    const std::array<TroopType, 5> attack_priority{
         TroopType::rifle, TroopType::machine_gun, TroopType::medium_tank,
-        TroopType::bazooka};
-    const std::array<TroopType, 4> defend_priority{
+        TroopType::bazooka, TroopType::anti_tank};
+    const std::array<TroopType, 5> defend_priority{
         TroopType::machine_gun, TroopType::rifle, TroopType::medium_tank,
-        TroopType::bazooka};
+        TroopType::anti_tank, TroopType::bazooka};
     const auto& priority = strategy == AiStrategy::defend
         ? defend_priority
         : attack_priority;
@@ -223,6 +226,41 @@ std::optional<TroopType> composition_purchase(const World& world,
         }
     }
     return selected;
+}
+
+std::size_t visible_enemy_vehicle_count(const World& world,
+                                        const Team team) noexcept {
+    std::size_t visible = 0;
+    for (const Unit& enemy : world.units()) {
+        if (!enemy.is_alive() || enemy.team() == team ||
+            enemy.team() == Team::none ||
+            enemy.target_category() != TargetCategory::vehicle) {
+            continue;
+        }
+        const bool perceived = std::ranges::any_of(
+            world.units(), [&world, team, &enemy](const Unit& observer) {
+                return observer.is_alive() && observer.team() == team &&
+                    can_perceive(world.map(), observer, enemy);
+            });
+        if (perceived) {
+            ++visible;
+        }
+    }
+    return visible;
+}
+
+std::size_t current_or_pending_count(const World& world, const Team team,
+                                     const TroopType troop_type) noexcept {
+    return static_cast<std::size_t>(std::ranges::count_if(
+               world.units(), [team, troop_type](const Unit& unit) {
+                   return unit.is_alive() && unit.team() == team &&
+                       unit.troop_type() == troop_type;
+               })) +
+        static_cast<std::size_t>(std::ranges::count_if(
+            world.pending_deployments(),
+            [team, troop_type](const PendingDeployment& pending) {
+                return pending.team == team && pending.troop_type == troop_type;
+            }));
 }
 
 } // namespace
@@ -268,7 +306,7 @@ AiProfile make_ai_profile(const AiDifficulty difficulty,
     case AiPlaystyle::aggressive:
         rules.troop_mix = {TroopType::rifle, TroopType::machine_gun,
                            TroopType::rifle, TroopType::medium_tank,
-                           TroopType::machine_gun};
+                           TroopType::machine_gun, TroopType::anti_tank};
         rules.forward_position_fraction = 0.90F;
         rules.defense_enemy_threshold = 2;
         rules.regroup_outnumber_ratio += 0.35F;
@@ -280,7 +318,7 @@ AiProfile make_ai_profile(const AiDifficulty difficulty,
     case AiPlaystyle::defensive:
         rules.troop_mix = {TroopType::rifle, TroopType::machine_gun,
                            TroopType::machine_gun, TroopType::bazooka,
-                           TroopType::medium_tank};
+                           TroopType::medium_tank, TroopType::anti_tank};
         rules.forward_position_fraction = 0.65F;
         rules.force_selection_margin += 80.0F;
         rules.fallback_force_limit += 2;
@@ -385,7 +423,15 @@ void AiCommander::make_purchase_decision(World& world) {
 
     std::optional<TroopType> selected_troop;
     std::optional<std::size_t> selected_index;
-    if (profile_.composition_aware_purchasing) {
+    const std::size_t visible_vehicles =
+        visible_enemy_vehicle_count(world, team_);
+    const TroopDefinition* anti_tank =
+        troop_definition_for(TroopType::anti_tank);
+    if (visible_vehicles > current_or_pending_count(
+                               world, team_, TroopType::anti_tank) &&
+        anti_tank != nullptr && player->can_afford(anti_tank->purchase_cost)) {
+        selected_troop = TroopType::anti_tank;
+    } else if (profile_.composition_aware_purchasing) {
         selected_troop = composition_purchase(world, team_, profile_, strategy_);
     } else {
         for (std::size_t offset = 0; offset < rules_.troop_mix.size(); ++offset) {

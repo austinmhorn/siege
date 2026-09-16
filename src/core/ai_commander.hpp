@@ -17,7 +17,7 @@ class World;
 struct AiCommanderRules {
     double decision_interval_seconds;
     double strategy_interval_seconds;
-    std::array<TroopType, 5> troop_mix;
+    std::array<TroopType, 6> troop_mix;
     std::array<float, 6> deployment_y_fractions;
     float forward_position_fraction;
     float force_selection_margin;
@@ -36,7 +36,7 @@ inline constexpr AiCommanderRules default_ai_commander_rules{
     .strategy_interval_seconds = 1,
     .troop_mix = {TroopType::rifle, TroopType::machine_gun,
                   TroopType::medium_tank, TroopType::rifle,
-                  TroopType::bazooka},
+                  TroopType::bazooka, TroopType::anti_tank},
     .deployment_y_fractions = {0.22F, 0.38F, 0.50F, 0.62F, 0.78F, 0.50F},
     .forward_position_fraction = 0.80F,
     .force_selection_margin = 220.0F,

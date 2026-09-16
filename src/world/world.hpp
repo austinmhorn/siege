@@ -59,7 +59,8 @@ public:
     Projectile& spawn_projectile(WeaponType weapon_type, Team team,
                                  Unit::Id source_unit_id, Vec2 position,
                                  Vec2 velocity, float maximum_distance,
-                                 float damage, float splash_radius = 0.0F);
+                                 float damage, float splash_radius = 0.0F,
+                                 float vehicle_damage_multiplier = 1.0F);
     void emit_explosion_event(const Projectile& projectile, Vec2 position);
     void emit_zone_ownership_event(std::size_t zone_id, Team previous_owner,
                                    Team new_owner,

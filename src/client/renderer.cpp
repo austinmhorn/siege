@@ -149,6 +149,8 @@ constexpr std::array<std::size_t, 13> bazooka_firing_frames{
     13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1,
 };
 constexpr std::array<std::size_t, 3> tank_cannon_firing_frames{2, 3, 4};
+constexpr std::array<std::size_t, 15> anti_tank_firing_frames{
+    15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
 
 struct TankVisualLayout {
     float canvas_size;
@@ -207,6 +209,21 @@ constexpr TroopVisualDefinition bazooka_visual{
     .firing_seconds_per_frame = 0.06,
 };
 
+constexpr TroopVisualDefinition anti_tank_visual{
+    .troop_type = TroopType::anti_tank,
+    .weapon_type = WeaponType::anti_tank_missile,
+    .layer = "anti-tank_missile",
+    .frame_prefix = "anti-tank_missile",
+    .upper_canvas_size = 64.0F,
+    .non_firing_frame = 1,
+    .body_anchor = {32.0F, 32.0F},
+    .body_shadow_anchor = {32.0F, 32.0F},
+    .firing_body_anchor = {32.0F, 32.0F},
+    .firing_body_shadow_anchor = {32.0F, 32.0F},
+    .firing_frames = anti_tank_firing_frames,
+    .firing_seconds_per_frame = 0.04,
+};
+
 const TroopVisualDefinition* visual_for(const TroopType troop_type) noexcept {
     switch (troop_type) {
     case TroopType::rifle:
@@ -217,13 +234,15 @@ const TroopVisualDefinition* visual_for(const TroopType troop_type) noexcept {
         return &bazooka_visual;
     case TroopType::medium_tank:
         return nullptr;
+    case TroopType::anti_tank:
+        return &anti_tank_visual;
     }
     return nullptr;
 }
 
-constexpr std::array<TroopType, 4> purchasable_troops{
+constexpr std::array<TroopType, 5> purchasable_troops{
     TroopType::rifle, TroopType::machine_gun, TroopType::bazooka,
-    TroopType::medium_tank};
+    TroopType::medium_tank, TroopType::anti_tank};
 
 SDL_FRect deployment_button_rect(const std::size_t index,
                                  const int output_width,
@@ -1415,7 +1434,8 @@ bool Renderer::render_projectiles(const World& world,
             return false;
         }
         if (projectile.weapon_type() == WeaponType::bazooka ||
-            projectile.weapon_type() == WeaponType::tank_cannon) {
+            projectile.weapon_type() == WeaponType::tank_cannon ||
+            projectile.weapon_type() == WeaponType::anti_tank_missile) {
             set_color(renderer_, rocket_core);
             if (!SDL_RenderPoint(renderer_, draw_position.x, draw_position.y) ||
                 !SDL_RenderPoint(renderer_, draw_position.x - 1.0F, draw_position.y) ||

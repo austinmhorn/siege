@@ -17,6 +17,7 @@ enum class TroopType {
     machine_gun,
     bazooka,
     medium_tank,
+    anti_tank,
 };
 
 enum class MovementState {
@@ -40,6 +41,7 @@ enum class TacticalOrder {
 };
 
 [[nodiscard]] std::string_view to_string(TroopType type) noexcept;
+[[nodiscard]] std::string_view to_string(TargetCategory category) noexcept;
 [[nodiscard]] std::string_view to_string(Team team) noexcept;
 [[nodiscard]] std::string_view to_string(MovementState state) noexcept;
 [[nodiscard]] std::string_view to_string(CombatMovementState state) noexcept;
@@ -56,6 +58,7 @@ public:
          float frontline_screen_weight, float support_positioning_bias,
          float support_rear_distance, float support_search_radius,
          float max_health, float hit_radius, WeaponDefinition weapon,
+         TargetCategory target_category, bool prefers_vehicle_targets,
          bool independent_turret, float turret_rotation_speed,
          float initial_facing_angle) noexcept;
 
@@ -123,6 +126,8 @@ public:
     [[nodiscard]] float health() const noexcept;
     [[nodiscard]] float max_health() const noexcept;
     [[nodiscard]] float hit_radius() const noexcept;
+    [[nodiscard]] TargetCategory target_category() const noexcept;
+    [[nodiscard]] bool prefers_vehicle_targets() const noexcept;
     [[nodiscard]] bool is_alive() const noexcept;
     [[nodiscard]] MovementState movement_state() const noexcept;
     [[nodiscard]] CombatMovementState combat_movement_state() const noexcept;
@@ -180,6 +185,8 @@ private:
     float health_{};
     float max_health_{};
     float hit_radius_{};
+    TargetCategory target_category_{TargetCategory::infantry};
+    bool prefers_vehicle_targets_{};
     MovementState movement_state_{MovementState::idle};
     CombatMovementState combat_movement_state_{CombatMovementState::advancing};
     TacticalOrder tactical_order_{TacticalOrder::automatic};

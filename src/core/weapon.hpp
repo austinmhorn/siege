@@ -7,6 +7,12 @@ enum class WeaponType {
     machine_gun,
     bazooka,
     tank_cannon,
+    anti_tank_missile,
+};
+
+enum class TargetCategory {
+    infantry,
+    vehicle,
 };
 
 struct WeaponDefinition {
@@ -18,6 +24,7 @@ struct WeaponDefinition {
     float projectile_max_distance;
     float projectile_damage;
     float splash_radius;
+    float vehicle_damage_multiplier{1.0F};
 };
 
 class Unit;

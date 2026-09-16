@@ -261,7 +261,8 @@ void apply_explosion(World& world, const Projectile& projectile,
             continue;
         }
         if (length_squared(candidate.position() - position) <= radius_squared) {
-            candidate.apply_damage(projectile.damage());
+            candidate.apply_damage(
+                projectile.damage_against(candidate.target_category()));
             if (!candidate.is_alive()) {
                 (void)award_projectile_kill(world, projectile, candidate);
             }
@@ -320,7 +321,8 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
                 world_.emit_explosion_event(*projectile, impact_position);
                 apply_explosion(world_, *projectile, impact_position, units);
             } else {
-                unit_hit->unit->apply_damage(projectile->damage());
+                unit_hit->unit->apply_damage(projectile->damage_against(
+                    unit_hit->unit->target_category()));
                 if (!unit_hit->unit->is_alive()) {
                     (void)award_projectile_kill(world_, *projectile,
                                                 *unit_hit->unit);
@@ -654,7 +656,8 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
                                 direction * unit.weapon().projectile_speed,
                                 unit.weapon().projectile_max_distance,
                                 unit.weapon().projectile_damage,
-                                unit.weapon().splash_radius);
+                                unit.weapon().splash_radius,
+                                unit.weapon().vehicle_damage_multiplier);
         world_.emit_fire_event(unit);
         unit.reset_weapon_cooldown();
     }

@@ -16,6 +16,18 @@ std::string_view to_string(const TroopType type) noexcept {
         return "bazooka";
     case TroopType::medium_tank:
         return "medium_tank";
+    case TroopType::anti_tank:
+        return "anti_tank";
+    }
+    return "unknown";
+}
+
+std::string_view to_string(const TargetCategory category) noexcept {
+    switch (category) {
+    case TargetCategory::infantry:
+        return "infantry";
+    case TargetCategory::vehicle:
+        return "vehicle";
     }
     return "unknown";
 }
@@ -83,7 +95,8 @@ Unit::Unit(const Id id, const TroopType troop_type, const Team team,
            const float support_rear_distance,
            const float support_search_radius,
            const float max_health, const float hit_radius,
-           const WeaponDefinition weapon, const bool independent_turret,
+           const WeaponDefinition weapon, const TargetCategory target_category,
+           const bool prefers_vehicle_targets, const bool independent_turret,
            const float turret_rotation_speed,
            const float initial_facing_angle) noexcept
     : id_(id), troop_type_(troop_type), team_(team), position_(spawn_position),
@@ -107,7 +120,9 @@ Unit::Unit(const Id id, const TroopType troop_type, const Team team,
       weapon_(weapon),
       health_(std::max(max_health, 0.0F)),
       max_health_(std::max(max_health, 0.0F)),
-      hit_radius_(std::max(hit_radius, 0.0F)) {}
+      hit_radius_(std::max(hit_radius, 0.0F)),
+      target_category_(target_category),
+      prefers_vehicle_targets_(prefers_vehicle_targets) {}
 
 void Unit::begin_simulation_step() noexcept {
     previous_position_ = position_;
@@ -341,6 +356,10 @@ float Unit::weapon_cooldown_remaining() const noexcept {
 float Unit::health() const noexcept { return health_; }
 float Unit::max_health() const noexcept { return max_health_; }
 float Unit::hit_radius() const noexcept { return hit_radius_; }
+TargetCategory Unit::target_category() const noexcept { return target_category_; }
+bool Unit::prefers_vehicle_targets() const noexcept {
+    return prefers_vehicle_targets_;
+}
 bool Unit::is_alive() const noexcept { return health_ > 0.0F; }
 MovementState Unit::movement_state() const noexcept { return movement_state_; }
 CombatMovementState Unit::combat_movement_state() const noexcept {

@@ -64,6 +64,7 @@ siege::Unit test_unit(const siege::Unit::Id id, const siege::Team team,
                            .projectile_damage = 25.0F,
                            .splash_radius = 0.0F,
                        },
+                       siege::TargetCategory::infantry, false,
                        false, 0.0F,
                        facing};
 }
@@ -86,6 +87,8 @@ siege::Unit unit_from_definition(const siege::Unit::Id id,
                        definition.support_search_radius,
                        definition.max_health,
                        definition.hit_radius, definition.weapon,
+                       definition.target_category,
+                       definition.prefers_vehicle_targets,
                        definition.independent_turret,
                        definition.turret_rotation_speed, facing};
 }
@@ -1214,6 +1217,34 @@ int main() {
                 hard_purchase_world_b.find_player(Team::team_b)->cash() &&
             hard_purchase_world_a.find_player(Team::team_b)->cash() == 500,
         "Hard composition-aware purchases are deterministic, affordable, and use legal pending deployments");
+
+    World anti_tank_ai_world_a{default_match_rules, navigation_open_map};
+    anti_tank_ai_world_a.units().clear();
+    anti_tank_ai_world_a.units().push_back(
+        test_unit(220, Team::team_b, {1'500.0F, 540.0F}, 90.0F));
+    anti_tank_ai_world_a.units().push_back(unit_from_definition(
+        221, Team::team_a, {1'250.0F, 540.0F}, 270.0F,
+        medium_tank_definition));
+    World anti_tank_ai_world_b = anti_tank_ai_world_a;
+    AiCommander anti_tank_ai_a{Team::team_b};
+    AiCommander anti_tank_ai_b{Team::team_b};
+    anti_tank_ai_a.update(anti_tank_ai_world_a, Team::team_a);
+    anti_tank_ai_b.update(anti_tank_ai_world_b, Team::team_a);
+    passed &= check(
+        anti_tank_ai_a.last_troop_choice() == TroopType::anti_tank &&
+            anti_tank_ai_world_a.pending_deployments().size() == 1 &&
+            anti_tank_ai_world_a.pending_deployments()[0].troop_type ==
+                TroopType::anti_tank &&
+            anti_tank_ai_world_a.find_player(Team::team_b)->cash() == 18'000 &&
+            anti_tank_ai_world_b.pending_deployments().size() == 1 &&
+            is_valid_deployment_location(
+                anti_tank_ai_world_a, Team::team_b, TroopType::anti_tank,
+                anti_tank_ai_world_a.pending_deployments()[0].position) &&
+            near(anti_tank_ai_world_a.pending_deployments()[0].position.x,
+                 anti_tank_ai_world_b.pending_deployments()[0].position.x) &&
+            near(anti_tank_ai_world_a.pending_deployments()[0].position.y,
+                 anti_tank_ai_world_b.pending_deployments()[0].position.y),
+        "AI deterministically counters a perceivable vehicle with one legal anti-tank purchase");
 
     const std::array all_difficulties{AiDifficulty::easy,
                                       AiDifficulty::medium,
@@ -2937,6 +2968,45 @@ int main() {
             near(medium_tank_definition.weapon.splash_radius, 90.0F) &&
             kill_reward_for(TroopType::medium_tank) == 1'200,
         "medium tank definition centralizes vehicle, economy, and cannon tuning");
+    passed &= check(
+        anti_tank_definition.type == TroopType::anti_tank &&
+            troop_definition_for(TroopType::anti_tank) ==
+                &anti_tank_definition &&
+            troop_display_name(TroopType::anti_tank) == "Anti-Tank" &&
+            to_string(TroopType::anti_tank) == "anti_tank" &&
+            anti_tank_definition.target_category == TargetCategory::infantry &&
+            anti_tank_definition.prefers_vehicle_targets &&
+            near(anti_tank_definition.move_speed, 58.0F) &&
+            near(anti_tank_definition.rotation_speed, 60.0F) &&
+            near(anti_tank_definition.max_health, 80.0F) &&
+            near(anti_tank_definition.hit_radius, 20.0F) &&
+            near(anti_tank_definition.vision_range, 800.0F) &&
+            near(anti_tank_definition.vision_angle, 75.0F) &&
+            near(anti_tank_definition.awareness_radius, 110.0F) &&
+            near(anti_tank_definition.preferred_combat_range, 580.0F) &&
+            near(anti_tank_definition.range_tolerance, 45.0F) &&
+            anti_tank_definition.purchase_cost == 7'000 &&
+            near(static_cast<float>(anti_tank_definition.deployment_seconds),
+                 2.0F) &&
+            anti_tank_definition.weapon.type ==
+                WeaponType::anti_tank_missile &&
+            near(anti_tank_definition.weapon.projectile_speed, 560.0F) &&
+            near(anti_tank_definition.weapon.fire_interval, 3.0F) &&
+            near(anti_tank_definition.weapon.range, 700.0F) &&
+            near(anti_tank_definition.weapon.projectile_max_distance, 800.0F) &&
+            near(anti_tank_definition.weapon.projectile_damage, 60.0F) &&
+            near(anti_tank_definition.weapon.splash_radius, 45.0F) &&
+            near(anti_tank_definition.weapon.vehicle_damage_multiplier, 3.5F) &&
+            kill_reward_for(TroopType::anti_tank) == 700,
+        "anti-tank definition centralizes infantry, support, economy, and missile tuning");
+    passed &= check(
+        rifle_definition.target_category == TargetCategory::infantry &&
+            medium_tank_definition.target_category == TargetCategory::vehicle &&
+            near(rifle_definition.weapon.vehicle_damage_multiplier, 1.0F) &&
+            near(machine_gun_definition.weapon.vehicle_damage_multiplier, 1.0F) &&
+            near(bazooka_definition.weapon.vehicle_damage_multiplier, 1.0F) &&
+            near(medium_tank_definition.weapon.vehicle_damage_multiplier, 1.0F),
+        "target categories are generic and existing weapons remain one-times damage");
 
     Unit turret_tank = unit_from_definition(
         980, Team::team_a, {100.0F, 100.0F}, 0.0F,
@@ -2994,6 +3064,21 @@ int main() {
                 TroopType::medium_tank &&
             near(tank_deployment_world.units()[0].hit_radius(), 34.0F),
         "medium tank spawns generically after its deterministic three-second timer");
+
+    World anti_tank_deployment_world;
+    anti_tank_deployment_world.units().clear();
+    passed &= check(
+        request_deployment(anti_tank_deployment_world, Team::team_a,
+                           TroopType::anti_tank, {100.0F, 540.0F}) ==
+                DeploymentResult::accepted &&
+            anti_tank_deployment_world.find_player(Team::team_a)->cash() ==
+                18'000 &&
+            anti_tank_deployment_world.pending_deployments().size() == 1 &&
+            near(static_cast<float>(anti_tank_deployment_world
+                                        .pending_deployments()[0]
+                                        .remaining_seconds),
+                 2.0F),
+        "anti-tank purchase uses normal cash and pending deployment rules");
 
     World presence_world;
     presence_world.units().clear();
@@ -3641,6 +3726,37 @@ int main() {
     passed &= check(select_target(navigation_open_map, tie_units[0], tie_units) == 331,
                     "equal-distance target tie selects the lowest unit ID");
 
+    std::vector<Unit> anti_tank_priority_units{
+        unit_from_definition(340, Team::team_a, {100.0F, 100.0F}, 270.0F,
+                             anti_tank_definition),
+        test_unit(341, Team::team_b, {220.0F, 100.0F}, 90.0F),
+        unit_from_definition(342, Team::team_b, {420.0F, 100.0F}, 90.0F,
+                             medium_tank_definition),
+    };
+    passed &= check(
+        select_target(navigation_open_map, anti_tank_priority_units[0],
+                      anti_tank_priority_units) == 342,
+        "anti-tank infantry prefers a farther perceivable vehicle over infantry");
+    anti_tank_priority_units[0].set_target_id(341);
+    passed &= check(
+        select_target(navigation_open_map, anti_tank_priority_units[0],
+                      anti_tank_priority_units) == 342,
+        "a perceivable vehicle may preempt a persisted infantry target");
+
+    constexpr std::array anti_tank_los_cover{
+        EnvironmentObjectDefinition{
+            "anti_tank_los_cover", EnvironmentObjectType::house,
+            EnvironmentAsset::house_01, {260.0F, 80.0F},
+            {260.0F, 80.0F, 40.0F, 40.0F},
+            EnvironmentOrientation::neutral, {true, true, true}},
+    };
+    MapDefinition anti_tank_los_map = navigation_open_map;
+    anti_tank_los_map.environment_objects = anti_tank_los_cover;
+    passed &= check(
+        select_target(anti_tank_los_map, anti_tank_priority_units[0],
+                      anti_tank_priority_units) == 341,
+        "anti-tank preference does not detect a vehicle through blocked LOS");
+
     World facing_world;
     facing_world.units()[0].set_position({150.0F, 250.0F});
     facing_world.units()[4].set_position({150.0F, 350.0F});
@@ -4120,6 +4236,22 @@ int main() {
             bazooka_cover_world.projectiles().empty(),
         "bazooka detonates at the exact blocker contact and applies normal hostile splash once");
 
+    World anti_tank_cover_world = prepare_cover_world();
+    anti_tank_cover_world.spawn_projectile(
+        WeaponType::anti_tank_missile, Team::team_a, 900,
+        {100.0F, 100.0F}, {24'000.0F, 0.0F}, 800.0F, 60.0F, 45.0F,
+        3.5F);
+    Simulation anti_tank_cover_simulation{anti_tank_cover_world};
+    anti_tank_cover_simulation.update(1.0 / 60.0);
+    passed &= check(
+        anti_tank_cover_world.explosion_events().size() == 1 &&
+            anti_tank_cover_world.explosion_events().front().weapon_type ==
+                WeaponType::anti_tank_missile &&
+            near(anti_tank_cover_world.explosion_events().front().position.x,
+                 250.0F) &&
+            anti_tank_cover_world.projectiles().empty(),
+        "anti-tank missile is swept into environment cover and explodes at contact");
+
     std::vector<Unit> occluded_units{
         test_unit(907, Team::team_a, {100.0F, 100.0F}, 270.0F),
         test_unit(908, Team::team_b, {350.0F, 100.0F}, 90.0F),
@@ -4300,6 +4432,73 @@ int main() {
         near(machine_gun_single_target_world.units()[4].health(), 90.0F) &&
             near(machine_gun_single_target_world.units()[5].health(), 100.0F),
         "machine_gun projectile remains single-target");
+
+    World anti_vehicle_damage_world{default_match_rules, navigation_open_map};
+    anti_vehicle_damage_world.units().clear();
+    anti_vehicle_damage_world.units().push_back(unit_from_definition(
+        950, Team::team_a, {100.0F, 100.0F}, 270.0F,
+        anti_tank_definition));
+    anti_vehicle_damage_world.units().push_back(unit_from_definition(
+        951, Team::team_b, {200.0F, 100.0F}, 90.0F,
+        medium_tank_definition));
+    anti_vehicle_damage_world.units()[0].reset_weapon_cooldown();
+    anti_vehicle_damage_world.spawn_projectile(
+        WeaponType::anti_tank_missile, Team::team_a, 950,
+        {100.0F, 100.0F}, {12'000.0F, 0.0F}, 800.0F, 60.0F, 45.0F,
+        3.5F);
+    Simulation anti_vehicle_damage_simulation{anti_vehicle_damage_world};
+    anti_vehicle_damage_simulation.update(1.0 / 60.0);
+    passed &= check(
+        near(anti_vehicle_damage_world.find_unit(951)->health(), 390.0F),
+        "anti-tank missile applies its 3.5-times multiplier to a vehicle");
+    Unit three_hit_tank = unit_from_definition(
+        956, Team::team_b, {200.0F, 100.0F}, 90.0F,
+        medium_tank_definition);
+    const float anti_vehicle_hit =
+        anti_tank_definition.weapon.projectile_damage *
+        anti_tank_definition.weapon.vehicle_damage_multiplier;
+    three_hit_tank.apply_damage(anti_vehicle_hit);
+    three_hit_tank.apply_damage(anti_vehicle_hit);
+    const bool survived_two_hits =
+        three_hit_tank.is_alive() && near(three_hit_tank.health(), 180.0F);
+    three_hit_tank.apply_damage(anti_vehicle_hit);
+    passed &= check(survived_two_hits && !three_hit_tank.is_alive(),
+                    "a full-health medium tank survives two clean anti-tank hits and dies on the third");
+
+    World anti_infantry_damage_world{default_match_rules, navigation_open_map};
+    anti_infantry_damage_world.units().clear();
+    anti_infantry_damage_world.units().push_back(unit_from_definition(
+        952, Team::team_a, {100.0F, 100.0F}, 270.0F,
+        anti_tank_definition));
+    anti_infantry_damage_world.units().push_back(
+        test_unit(953, Team::team_b, {200.0F, 100.0F}, 90.0F));
+    anti_infantry_damage_world.units()[0].reset_weapon_cooldown();
+    anti_infantry_damage_world.spawn_projectile(
+        WeaponType::anti_tank_missile, Team::team_a, 952,
+        {100.0F, 100.0F}, {12'000.0F, 0.0F}, 800.0F, 60.0F, 45.0F,
+        3.5F);
+    Simulation anti_infantry_damage_simulation{anti_infantry_damage_world};
+    anti_infantry_damage_simulation.update(1.0 / 60.0);
+    passed &= check(
+        near(anti_infantry_damage_world.find_unit(953)->health(), 40.0F),
+        "anti-tank missile deals only base damage to infantry");
+
+    World normal_weapon_vehicle_world{default_match_rules, navigation_open_map};
+    normal_weapon_vehicle_world.units().clear();
+    normal_weapon_vehicle_world.units().push_back(
+        test_unit(954, Team::team_a, {100.0F, 100.0F}, 270.0F));
+    normal_weapon_vehicle_world.units().push_back(unit_from_definition(
+        955, Team::team_b, {200.0F, 100.0F}, 90.0F,
+        medium_tank_definition));
+    normal_weapon_vehicle_world.units()[0].reset_weapon_cooldown();
+    normal_weapon_vehicle_world.spawn_projectile(
+        WeaponType::rifle, Team::team_a, 954, {100.0F, 100.0F},
+        {12'000.0F, 0.0F}, 520.0F, 25.0F);
+    Simulation normal_weapon_vehicle_simulation{normal_weapon_vehicle_world};
+    normal_weapon_vehicle_simulation.update(1.0 / 60.0);
+    passed &= check(
+        near(normal_weapon_vehicle_world.find_unit(955)->health(), 575.0F),
+        "existing infantry weapons remain one-times damage against vehicles");
 
     World splash_world;
     isolate_collision_units(splash_world);

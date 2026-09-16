@@ -40,7 +40,7 @@ constexpr float left_panel_width = 256.0F;
 constexpr float unit_column_preferred_width = 190.0F;
 constexpr float unit_column_minimum_width = 148.0F;
 constexpr float unit_block_gap = 6.0F;
-constexpr std::size_t unit_block_line_count = 20;
+constexpr std::size_t unit_block_line_count = 22;
 
 struct TextCursor {
     FontSystem& fonts;
@@ -646,10 +646,21 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
         }
         cursor.format(FontRole::debug, debug_text, "hp: %.0f/%.0f", unit.health(),
                       unit.max_health());
+        const auto category = to_string(unit.target_category());
+        cursor.format(FontRole::debug, debug_text, "category: %.*s",
+                      static_cast<int>(category.size()), category.data());
         if (unit.target_id().has_value()) {
-            cursor.format(FontRole::debug, debug_text, "target: #%u",
-                          *unit.target_id());
             const Unit* target = world.find_unit(*unit.target_id());
+            if (target != nullptr) {
+                const auto target_category = to_string(target->target_category());
+                cursor.format(FontRole::debug, debug_text,
+                              "target: #%u / %.*s", *unit.target_id(),
+                              static_cast<int>(target_category.size()),
+                              target_category.data());
+            } else {
+                cursor.format(FontRole::debug, debug_text, "target: #%u / missing",
+                              *unit.target_id());
+            }
             const bool clear = target != nullptr &&
                 environment_line_of_sight_clear(
                     world.map(), unit.position(), target->position());
@@ -681,6 +692,8 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                       unit.preferred_combat_range(), unit.range_tolerance());
         cursor.format(FontRole::debug, debug_text, "cooldown: %.2f",
                       unit.weapon_cooldown_remaining());
+        cursor.format(FontRole::debug, debug_text, "vs vehicle: x%.1f",
+                      unit.weapon().vehicle_damage_multiplier);
         if (!cursor.succeeded) {
             return false;
         }

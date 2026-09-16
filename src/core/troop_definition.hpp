@@ -26,6 +26,8 @@ struct TroopDefinition {
     float support_search_radius;
     float max_health;
     float hit_radius;
+    TargetCategory target_category;
+    bool prefers_vehicle_targets;
     bool independent_turret;
     float turret_rotation_speed;
     float zone_control_weight;
@@ -52,6 +54,8 @@ inline constexpr TroopDefinition rifle_definition{
     .support_search_radius = 0.0F,
     .max_health = 100.0F,
     .hit_radius = 20.0F,
+    .target_category = TargetCategory::infantry,
+    .prefers_vehicle_targets = false,
     .independent_turret = false,
     .turret_rotation_speed = 0.0F,
     .zone_control_weight = 1.0F,
@@ -87,6 +91,8 @@ inline constexpr TroopDefinition machine_gun_definition{
     .support_search_radius = 420.0F,
     .max_health = 100.0F,
     .hit_radius = 22.0F,
+    .target_category = TargetCategory::infantry,
+    .prefers_vehicle_targets = false,
     .independent_turret = false,
     .turret_rotation_speed = 0.0F,
     .zone_control_weight = 1.0F,
@@ -122,6 +128,8 @@ inline constexpr TroopDefinition bazooka_definition{
     .support_search_radius = 500.0F,
     .max_health = 80.0F,
     .hit_radius = 20.0F,
+    .target_category = TargetCategory::infantry,
+    .prefers_vehicle_targets = false,
     .independent_turret = false,
     .turret_rotation_speed = 0.0F,
     .zone_control_weight = 1.0F,
@@ -157,6 +165,8 @@ inline constexpr TroopDefinition medium_tank_definition{
     .support_search_radius = 500.0F,
     .max_health = 600.0F,
     .hit_radius = 34.0F,
+    .target_category = TargetCategory::vehicle,
+    .prefers_vehicle_targets = false,
     .independent_turret = true,
     .turret_rotation_speed = 55.0F,
     .zone_control_weight = 1.0F,
@@ -174,6 +184,44 @@ inline constexpr TroopDefinition medium_tank_definition{
     },
 };
 
+inline constexpr TroopDefinition anti_tank_definition{
+    .type = TroopType::anti_tank,
+    .display_name = "Anti-Tank",
+    .move_speed = 58.0F,
+    .rotation_speed = 60.0F,
+    .vision_range = 800.0F,
+    .vision_angle = 75.0F,
+    .awareness_radius = 110.0F,
+    .preferred_combat_range = 580.0F,
+    .range_tolerance = 45.0F,
+    .aggression = 0.42F,
+    .retreat_bias = 1.10F,
+    .frontline_screen_weight = 0.0F,
+    .support_positioning_bias = 1.20F,
+    .support_rear_distance = 210.0F,
+    .support_search_radius = 560.0F,
+    .max_health = 80.0F,
+    .hit_radius = 20.0F,
+    .target_category = TargetCategory::infantry,
+    .prefers_vehicle_targets = true,
+    .independent_turret = false,
+    .turret_rotation_speed = 0.0F,
+    .zone_control_weight = 1.0F,
+    .purchase_cost = 7'000,
+    .deployment_seconds = 2.0,
+    .weapon = WeaponDefinition{
+        .type = WeaponType::anti_tank_missile,
+        .projectile_speed = 560.0F,
+        .fire_interval = 3.0F,
+        .range = 700.0F,
+        .firing_arc = 8.0F,
+        .projectile_max_distance = 800.0F,
+        .projectile_damage = 60.0F,
+        .splash_radius = 45.0F,
+        .vehicle_damage_multiplier = 3.5F,
+    },
+};
+
 [[nodiscard]] constexpr const TroopDefinition* troop_definition_for(
     const TroopType type) noexcept {
     switch (type) {
@@ -185,6 +233,8 @@ inline constexpr TroopDefinition medium_tank_definition{
         return &bazooka_definition;
     case TroopType::medium_tank:
         return &medium_tank_definition;
+    case TroopType::anti_tank:
+        return &anti_tank_definition;
     }
     return nullptr;
 }

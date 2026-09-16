@@ -152,6 +152,7 @@ Unit& World::spawn_unit(const TroopType troop_type, const Team team,
         definition->support_positioning_bias,
         definition->support_rear_distance, definition->support_search_radius,
         definition->max_health, definition->hit_radius, definition->weapon,
+        definition->target_category, definition->prefers_vehicle_targets,
         definition->independent_turret, definition->turret_rotation_speed,
         initial_facing);
 }
@@ -230,10 +231,12 @@ Projectile& World::spawn_projectile(const WeaponType weapon_type, const Team tea
                                     const Vec2 position, const Vec2 velocity,
                                     const float maximum_distance,
                                     const float damage,
-                                    const float splash_radius) {
+                                    const float splash_radius,
+                                    const float vehicle_damage_multiplier) {
     return projectiles_.emplace_back(next_projectile_id_++, weapon_type, team,
                                      source_unit_id, position, velocity,
-                                     maximum_distance, damage, splash_radius);
+                                     maximum_distance, damage, splash_radius,
+                                     vehicle_damage_multiplier);
 }
 
 void World::emit_explosion_event(const Projectile& projectile,
@@ -268,6 +271,8 @@ void World::spawn_test_units() {
                             definition.support_search_radius,
                             definition.max_health,
                             definition.hit_radius, definition.weapon,
+                            definition.target_category,
+                            definition.prefers_vehicle_targets,
                             definition.independent_turret,
                             definition.turret_rotation_speed,
                             initial_facing);
