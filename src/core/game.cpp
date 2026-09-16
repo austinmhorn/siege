@@ -27,7 +27,8 @@ std::optional<PointerButton> pointer_button_for(
 
 } // namespace
 
-Game::Game() noexcept : simulation_(world_) {}
+Game::Game(const AiProfile ai_profile) noexcept
+    : simulation_(world_), red_commander_(Team::team_b, ai_profile) {}
 
 Game::~Game() {
     shutdown();

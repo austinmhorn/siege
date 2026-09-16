@@ -8,6 +8,7 @@
 #include "core/deployment.hpp"
 #include "core/economy.hpp"
 #include "core/frontline.hpp"
+#include "core/launch_options.hpp"
 #include "core/map_definition.hpp"
 #include "core/match.hpp"
 #include "core/math.hpp"
@@ -570,6 +571,321 @@ int main() {
             red_deployment_world.find_player(Team::team_b)->score() ==
                 red_score,
         "switching local control does not alter units, ownership, or scores");
+
+    const AiProfile default_profile = make_ai_profile();
+    const AiProfile easy_profile =
+        make_ai_profile(AiDifficulty::easy, AiPlaystyle::balanced);
+    const AiProfile hard_profile =
+        make_ai_profile(AiDifficulty::hard, AiPlaystyle::balanced);
+    const AiProfile aggressive_profile =
+        make_ai_profile(AiDifficulty::medium, AiPlaystyle::aggressive);
+    const AiProfile defensive_profile =
+        make_ai_profile(AiDifficulty::medium, AiPlaystyle::defensive);
+    passed &= check(
+        default_profile.difficulty == AiDifficulty::medium &&
+            default_profile.playstyle == AiPlaystyle::balanced &&
+            near(static_cast<float>(default_profile.rules.decision_interval_seconds),
+                 2.0F) &&
+            near(static_cast<float>(default_profile.rules.strategy_interval_seconds),
+                 1.0F) &&
+            default_profile.rules.troop_mix ==
+                default_ai_commander_rules.troop_mix &&
+            near(default_profile.rules.force_selection_margin, 220.0F) &&
+            default_profile.rules.fallback_force_limit == 6 &&
+            !default_profile.composition_aware_purchasing,
+        "default AI profile is medium/balanced and preserves the Phase 2 baseline");
+    passed &= check(
+        easy_profile.rules.decision_interval_seconds >
+                default_profile.rules.decision_interval_seconds &&
+            easy_profile.rules.strategy_interval_seconds >
+                default_profile.rules.strategy_interval_seconds &&
+            hard_profile.rules.decision_interval_seconds <
+                default_profile.rules.decision_interval_seconds &&
+            hard_profile.rules.strategy_interval_seconds <
+                default_profile.rules.strategy_interval_seconds &&
+            easy_profile.rules.maximum_local_force == 4 &&
+            hard_profile.composition_aware_purchasing,
+        "Easy reacts and purchases slower while Hard reacts faster with improved selection");
+    passed &= check(
+        aggressive_profile.rules.defense_enemy_threshold == 2 &&
+            aggressive_profile.rules.regroup_outnumber_ratio >
+                default_profile.rules.regroup_outnumber_ratio &&
+            aggressive_profile.rules.regroup_scatter_distance >
+                default_profile.rules.regroup_scatter_distance &&
+            aggressive_profile.rules.forward_position_fraction >
+                default_profile.rules.forward_position_fraction &&
+            defensive_profile.rules.defense_release_evaluations == 2 &&
+            defensive_profile.rules.regroup_outnumber_ratio <
+                default_profile.rules.regroup_outnumber_ratio &&
+            defensive_profile.rules.regroup_scatter_distance <
+                default_profile.rules.regroup_scatter_distance &&
+            defensive_profile.rules.force_selection_margin >
+                default_profile.rules.force_selection_margin &&
+            defensive_profile.rules.strategy_interval_seconds <
+                default_profile.rules.strategy_interval_seconds &&
+            defensive_profile.rules.forward_position_fraction <
+                default_profile.rules.forward_position_fraction,
+        "aggressive and defensive playstyles bias existing strategy thresholds in opposite directions");
+    passed &= check(
+        default_economy_rules.starting_cash == 25'000 &&
+            default_economy_rules.passive_income_per_second == 200 &&
+            rifle_definition.purchase_cost == 2'500 &&
+            machine_gun_definition.purchase_cost == 4'000 &&
+            bazooka_definition.purchase_cost == 6'000 &&
+            near(rifle_definition.max_health, 100.0F) &&
+            near(rifle_definition.move_speed, 72.0F),
+        "AI profiles do not alter economy or troop gameplay statistics");
+
+    const std::array<std::string_view, 0> no_launch_arguments{};
+    const std::array<std::string_view, 4> valid_launch_arguments{
+        "--ai-difficulty", "hard", "--ai-playstyle", "aggressive"};
+    const std::array<std::string_view, 2> invalid_difficulty_arguments{
+        "--ai-difficulty", "expert"};
+    const std::array<std::string_view, 1> missing_value_arguments{
+        "--ai-playstyle"};
+    const LaunchOptionsResult default_launch =
+        parse_launch_options(no_launch_arguments);
+    const LaunchOptionsResult configured_launch =
+        parse_launch_options(valid_launch_arguments);
+    passed &= check(
+        default_launch &&
+            default_launch.options.ai_difficulty == AiDifficulty::medium &&
+            default_launch.options.ai_playstyle == AiPlaystyle::balanced &&
+            configured_launch &&
+            configured_launch.options.ai_difficulty == AiDifficulty::hard &&
+            configured_launch.options.ai_playstyle ==
+                AiPlaystyle::aggressive &&
+            !parse_launch_options(invalid_difficulty_arguments) &&
+            !parse_launch_options(missing_value_arguments),
+        "CLI parsing accepts valid profiles, defaults medium/balanced, and rejects invalid values");
+
+    World profile_cadence_world;
+    profile_cadence_world.units().clear();
+    AiCommander easy_cadence{Team::team_b, easy_profile};
+    AiCommander medium_cadence{Team::team_b, default_profile};
+    AiCommander hard_cadence{Team::team_b, hard_profile};
+    easy_cadence.update(profile_cadence_world, Team::team_a, 60);
+    medium_cadence.update(profile_cadence_world, Team::team_a, 60);
+    hard_cadence.update(profile_cadence_world, Team::team_a, 60);
+    passed &= check(
+        easy_cadence.strategy_evaluation_count() <
+                medium_cadence.strategy_evaluation_count() &&
+            medium_cadence.strategy_evaluation_count() <
+                hard_cadence.strategy_evaluation_count() &&
+            easy_cadence.successful_deployments() <=
+                medium_cadence.successful_deployments() &&
+            medium_cadence.successful_deployments() <=
+                hard_cadence.successful_deployments(),
+        "fixed-tick cadence makes Easy slower and Hard faster than Medium");
+
+    World profile_bias_world;
+    profile_bias_world.units().clear();
+    profile_bias_world.find_player(Team::team_b)->reset_cash(0);
+    profile_bias_world.units().push_back(
+        test_unit(205, Team::team_b, {1'000.0F, 400.0F}, 90.0F));
+    profile_bias_world.units().push_back(
+        test_unit(206, Team::team_b, {1'460.0F, 600.0F}, 90.0F));
+    profile_bias_world.units().push_back(
+        test_unit(207, Team::team_a, {1'180.0F, 200.0F}, 270.0F));
+    profile_bias_world.units().push_back(
+        test_unit(208, Team::team_a, {1'280.0F, 400.0F}, 270.0F));
+    profile_bias_world.units().push_back(
+        test_unit(209, Team::team_a, {1'380.0F, 600.0F}, 270.0F));
+    profile_bias_world.units().push_back(
+        test_unit(210, Team::team_a, {1'480.0F, 800.0F}, 270.0F));
+    update_zone_capture(profile_bias_world, 0.0);
+    World defensive_bias_world = profile_bias_world;
+    AiCommander aggressive_bias{Team::team_b, aggressive_profile};
+    AiCommander defensive_bias{Team::team_b, defensive_profile};
+    aggressive_bias.update(profile_bias_world, Team::team_a);
+    defensive_bias.update(defensive_bias_world, Team::team_a);
+    passed &= check(
+        aggressive_bias.strategy() == AiStrategy::attack &&
+            defensive_bias.strategy() == AiStrategy::regroup,
+        "aggressive pressure tolerates dispersion that triggers defensive regrouping");
+
+    World aggressive_deployment_world;
+    World balanced_deployment_world;
+    World defensive_deployment_world;
+    aggressive_deployment_world.units().clear();
+    balanced_deployment_world.units().clear();
+    defensive_deployment_world.units().clear();
+    AiCommander aggressive_deployer{Team::team_b, aggressive_profile};
+    AiCommander balanced_deployer{Team::team_b, default_profile};
+    AiCommander defensive_deployer{Team::team_b, defensive_profile};
+    aggressive_deployer.update(aggressive_deployment_world, Team::team_a);
+    balanced_deployer.update(balanced_deployment_world, Team::team_a);
+    defensive_deployer.update(defensive_deployment_world, Team::team_a);
+    const Vec2 aggressive_position =
+        *aggressive_deployer.last_deployment_position();
+    const Vec2 balanced_position =
+        *balanced_deployer.last_deployment_position();
+    const Vec2 defensive_position =
+        *defensive_deployer.last_deployment_position();
+    passed &= check(
+        aggressive_position.x < balanced_position.x &&
+            balanced_position.x < defensive_position.x &&
+            is_valid_deployment_location(aggressive_deployment_world,
+                                         Team::team_b,
+                                         aggressive_position) &&
+            is_valid_deployment_location(defensive_deployment_world,
+                                         Team::team_b,
+                                         defensive_position),
+        "playstyle deployment depth stays legal while aggressive is farther forward and defensive farther back");
+
+    World aggressive_defense_world;
+    aggressive_defense_world.units().clear();
+    secure_objective(aggressive_defense_world, 3, Team::team_b);
+    aggressive_defense_world.units().push_back(
+        test_unit(211, Team::team_b, {1'430.0F, 400.0F}, 90.0F));
+    aggressive_defense_world.units().push_back(
+        test_unit(212, Team::team_a, {1'350.0F, 400.0F}, 270.0F));
+    update_zone_capture(aggressive_defense_world, 0.0);
+    World defensive_defense_world = aggressive_defense_world;
+    AiCommander aggressive_defense{Team::team_b, aggressive_profile};
+    AiCommander defensive_defense{Team::team_b, defensive_profile};
+    aggressive_defense.update(aggressive_defense_world, Team::team_a);
+    defensive_defense.update(defensive_defense_world, Team::team_a);
+    defensive_defense_world.units().erase(
+        defensive_defense_world.units().begin() + 1);
+    update_zone_capture(defensive_defense_world, 0.0);
+    defensive_defense.update(defensive_defense_world, Team::team_a, 60);
+    const bool defensive_hold_persisted_once =
+        defensive_defense.strategy() == AiStrategy::defend;
+    defensive_defense.update(defensive_defense_world, Team::team_a, 60);
+    const bool defensive_hold_persisted_twice =
+        defensive_defense.strategy() == AiStrategy::defend;
+    defensive_defense.update(defensive_defense_world, Team::team_a, 60);
+    passed &= check(
+        aggressive_defense.strategy() == AiStrategy::attack &&
+            defensive_hold_persisted_once && defensive_hold_persisted_twice &&
+            defensive_defense.strategy() == AiStrategy::attack,
+        "defensive playstyle responds to a single intruder and holds for two clear evaluations before attacking");
+
+    World hard_purchase_world_a;
+    World hard_purchase_world_b;
+    hard_purchase_world_a.units().clear();
+    hard_purchase_world_b.units().clear();
+    AiCommander hard_purchase_a{Team::team_b, hard_profile};
+    AiCommander hard_purchase_b{Team::team_b, hard_profile};
+    hard_purchase_a.update(hard_purchase_world_a, Team::team_a, 181);
+    hard_purchase_b.update(hard_purchase_world_b, Team::team_a, 181);
+    bool hard_purchases_match =
+        hard_purchase_world_a.pending_deployments().size() == 4 &&
+        hard_purchase_world_a.pending_deployments().size() ==
+            hard_purchase_world_b.pending_deployments().size();
+    for (std::size_t index = 0;
+         hard_purchases_match &&
+         index < hard_purchase_world_a.pending_deployments().size(); ++index) {
+        const PendingDeployment& left =
+            hard_purchase_world_a.pending_deployments()[index];
+        const PendingDeployment& right =
+            hard_purchase_world_b.pending_deployments()[index];
+        hard_purchases_match &=
+            left.troop_type == right.troop_type &&
+            near(left.position.x, right.position.x) &&
+            near(left.position.y, right.position.y) &&
+            is_valid_deployment_location(hard_purchase_world_a, Team::team_b,
+                                         left.position);
+    }
+    passed &= check(
+        hard_purchases_match &&
+            hard_purchase_world_a.pending_deployments()[0].troop_type ==
+                TroopType::rifle &&
+            hard_purchase_world_a.pending_deployments()[1].troop_type ==
+                TroopType::machine_gun &&
+            hard_purchase_world_a.pending_deployments()[2].troop_type ==
+                TroopType::bazooka &&
+            hard_purchase_world_a.find_player(Team::team_b)->cash() ==
+                hard_purchase_world_b.find_player(Team::team_b)->cash() &&
+            hard_purchase_world_a.find_player(Team::team_b)->cash() == 10'000,
+        "Hard composition-aware purchases are deterministic, affordable, and use legal pending deployments");
+
+    const std::array all_difficulties{AiDifficulty::easy,
+                                      AiDifficulty::medium,
+                                      AiDifficulty::hard};
+    const std::array all_playstyles{AiPlaystyle::balanced,
+                                    AiPlaystyle::aggressive,
+                                    AiPlaystyle::defensive};
+    bool every_profile_pauses = true;
+    bool every_profile_sudden_death_legal = true;
+    bool every_profile_deterministic = true;
+    for (const AiDifficulty difficulty : all_difficulties) {
+        World pause_world;
+        pause_world.units().clear();
+        AiCommander paused{Team::team_b,
+                           make_ai_profile(difficulty,
+                                           AiPlaystyle::balanced)};
+        paused.update(pause_world, Team::team_a);
+        const std::uint64_t purchase_clock =
+            paused.ticks_until_next_decision();
+        const std::uint64_t strategy_clock =
+            paused.ticks_until_next_strategy_evaluation();
+        const std::uint64_t evaluations =
+            paused.strategy_evaluation_count();
+        paused.update(pause_world, Team::team_b, 600);
+        every_profile_pauses &=
+            paused.status() == AiCommanderStatus::paused_local_control &&
+            paused.ticks_until_next_decision() == purchase_clock &&
+            paused.ticks_until_next_strategy_evaluation() == strategy_clock &&
+            paused.strategy_evaluation_count() == evaluations;
+        paused.update(pause_world, Team::team_a);
+        every_profile_pauses &=
+            paused.status() == AiCommanderStatus::enabled &&
+            paused.ticks_until_next_decision() < purchase_clock;
+    }
+    for (const AiDifficulty difficulty : all_difficulties) {
+        for (const AiPlaystyle playstyle : all_playstyles) {
+            const AiProfile profile = make_ai_profile(difficulty, playstyle);
+            World sudden_profile_world{MatchRules{60, 0}};
+            sudden_profile_world.units().clear();
+            secure_objective(sudden_profile_world, 3, Team::team_b);
+            AiCommander sudden_profile_commander{Team::team_b, profile};
+            sudden_profile_commander.update(sudden_profile_world,
+                                             Team::team_a);
+            const auto position =
+                sudden_profile_commander.last_deployment_position();
+            every_profile_sudden_death_legal &=
+                position.has_value() &&
+                zone_index_for_position(sudden_profile_world, *position) == 4 &&
+                is_valid_deployment_location(sudden_profile_world,
+                                             Team::team_b, *position) &&
+                sudden_profile_commander.target_objective() ==
+                    sudden_profile_world.map().center_objective_zone_index;
+
+            World replay_world_a;
+            World replay_world_b;
+            replay_world_a.units().clear();
+            replay_world_b.units().clear();
+            AiCommander replay_a{Team::team_b, profile};
+            AiCommander replay_b{Team::team_b, profile};
+            Simulation replay_simulation_a{replay_world_a};
+            Simulation replay_simulation_b{replay_world_b};
+            for (int tick = 0; tick < 180; ++tick) {
+                replay_simulation_a.update(1.0 / 60.0);
+                replay_a.update(replay_world_a, Team::team_a);
+                replay_simulation_b.update(1.0 / 60.0);
+                replay_b.update(replay_world_b, Team::team_a);
+            }
+            every_profile_deterministic &=
+                replay_world_a.find_player(Team::team_b)->cash() ==
+                    replay_world_b.find_player(Team::team_b)->cash() &&
+                replay_world_a.units().size() == replay_world_b.units().size() &&
+                replay_world_a.pending_deployments().size() ==
+                    replay_world_b.pending_deployments().size() &&
+                replay_a.strategy() == replay_b.strategy() &&
+                replay_a.last_troop_choice() == replay_b.last_troop_choice() &&
+                std::ranges::equal(replay_a.last_commanded_unit_ids(),
+                                   replay_b.last_commanded_unit_ids());
+        }
+    }
+    passed &= check(every_profile_pauses,
+                    "F4 RED control freezes and resumes clocks for every difficulty");
+    passed &= check(
+        every_profile_sudden_death_legal,
+        "all difficulty/playstyle profiles keep sudden-death deployment home-only and target center progression");
+    passed &= check(every_profile_deterministic,
+                    "every difficulty/playstyle profile replays deterministically");
 
     World ai_purchase_world;
     ai_purchase_world.units().clear();

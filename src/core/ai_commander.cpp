@@ -10,6 +10,7 @@
 #include "world/world.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <utility>
 #include <vector>
@@ -102,6 +103,10 @@ ForceAssessment assess_force(const World& world, const Team team,
         }
     }
     std::ranges::sort(assessment.unit_ids);
+    if (rules.maximum_local_force > 0 &&
+        assessment.unit_ids.size() > rules.maximum_local_force) {
+        assessment.unit_ids.resize(rules.maximum_local_force);
+    }
 
     assessment.friendly_strength =
         static_cast<int>(assessment.unit_ids.size());
@@ -132,7 +137,8 @@ ForceAssessment assess_force(const World& world, const Team team,
 }
 
 std::optional<std::size_t> threatened_owned_objective(
-    const World& world, const Team team) noexcept {
+    const World& world, const Team team,
+    const int enemy_threshold) noexcept {
     std::optional<std::size_t> threatened;
     int greatest_enemy_presence = 0;
     for (const std::size_t index : world.map().objective_zone_indices) {
@@ -141,7 +147,8 @@ std::optional<std::size_t> threatened_owned_objective(
         }
         const Zone& zone = world.zones()[index];
         const int enemies = enemy_count(zone, team);
-        if (zone.owner() == team && enemies > greatest_enemy_presence) {
+        if (zone.owner() == team && enemies >= enemy_threshold &&
+            enemies > greatest_enemy_presence) {
             threatened = index;
             greatest_enemy_presence = enemies;
         }
@@ -149,14 +156,149 @@ std::optional<std::size_t> threatened_owned_objective(
     return threatened;
 }
 
+std::size_t troop_index(const TroopType troop) noexcept {
+    switch (troop) {
+    case TroopType::rifle:
+        return 0;
+    case TroopType::machine_gun:
+        return 1;
+    case TroopType::bazooka:
+        return 2;
+    }
+    return 0;
+}
+
+std::optional<TroopType> composition_purchase(const World& world,
+                                              const Team team,
+                                              const AiProfile& profile,
+                                              const AiStrategy strategy) {
+    const PlayerState* player = world.find_player(team);
+    if (player == nullptr) {
+        return std::nullopt;
+    }
+    std::array<int, 3> current{};
+    std::array<int, 3> desired{};
+    for (const Unit& unit : world.units()) {
+        if (unit.is_alive() && unit.team() == team) {
+            ++current[troop_index(unit.troop_type())];
+        }
+    }
+    for (const PendingDeployment& pending : world.pending_deployments()) {
+        if (pending.team == team) {
+            ++current[troop_index(pending.troop_type)];
+        }
+    }
+    for (const TroopType troop : profile.rules.troop_mix) {
+        ++desired[troop_index(troop)];
+    }
+    const std::array<TroopType, 3> attack_priority{
+        TroopType::rifle, TroopType::machine_gun, TroopType::bazooka};
+    const std::array<TroopType, 3> defend_priority{
+        TroopType::machine_gun, TroopType::rifle, TroopType::bazooka};
+    const auto& priority = strategy == AiStrategy::defend
+        ? defend_priority
+        : attack_priority;
+    std::optional<TroopType> selected;
+    for (const TroopType troop : priority) {
+        const TroopDefinition* definition = troop_definition_for(troop);
+        if (definition == nullptr ||
+            !player->can_afford(definition->purchase_cost)) {
+            continue;
+        }
+        if (!selected.has_value()) {
+            selected = troop;
+            continue;
+        }
+        const std::size_t candidate = troop_index(troop);
+        const std::size_t incumbent = troop_index(*selected);
+        const int candidate_weight = std::max(1, desired[candidate]);
+        const int incumbent_weight = std::max(1, desired[incumbent]);
+        if (current[candidate] * incumbent_weight <
+            current[incumbent] * candidate_weight) {
+            selected = troop;
+        }
+    }
+    return selected;
+}
+
 } // namespace
 
-AiCommander::AiCommander(const Team team, const AiCommanderRules rules) noexcept
-    : team_{team}, rules_{rules} {
+AiProfile make_ai_profile(const AiDifficulty difficulty,
+                          const AiPlaystyle playstyle) noexcept {
+    AiProfile profile{difficulty, playstyle, default_ai_commander_rules, false};
+    AiCommanderRules& rules = profile.rules;
+    switch (difficulty) {
+    case AiDifficulty::easy:
+        rules.decision_interval_seconds = 4.0;
+        rules.strategy_interval_seconds = 3.0;
+        rules.deployment_y_fractions = {0.20F, 0.80F, 0.50F,
+                                        0.35F, 0.65F, 0.50F};
+        rules.force_selection_margin = 170.0F;
+        rules.fallback_force_limit = 4;
+        rules.maximum_local_force = 4;
+        rules.regroup_outnumber_ratio = 1.75F;
+        rules.regroup_minimum_enemy_advantage = 3;
+        rules.regroup_scatter_distance = 320.0F;
+        rules.regroup_severe_scatter_distance = 500.0F;
+        break;
+    case AiDifficulty::medium:
+        break;
+    case AiDifficulty::hard:
+        rules.decision_interval_seconds = 1.0;
+        rules.strategy_interval_seconds = 0.5;
+        rules.deployment_y_fractions = {0.50F, 0.35F, 0.65F,
+                                        0.25F, 0.75F, 0.50F};
+        rules.force_selection_margin = 300.0F;
+        rules.fallback_force_limit = 8;
+        rules.regroup_outnumber_ratio = 1.35F;
+        rules.regroup_minimum_enemy_advantage = 1;
+        rules.regroup_scatter_distance = 220.0F;
+        rules.regroup_severe_scatter_distance = 360.0F;
+        profile.composition_aware_purchasing = true;
+        break;
+    }
+
+    switch (playstyle) {
+    case AiPlaystyle::balanced:
+        break;
+    case AiPlaystyle::aggressive:
+        rules.troop_mix = {TroopType::rifle, TroopType::machine_gun,
+                           TroopType::rifle, TroopType::machine_gun};
+        rules.forward_position_fraction = 0.90F;
+        rules.defense_enemy_threshold = 2;
+        rules.regroup_outnumber_ratio += 0.35F;
+        rules.regroup_minimum_enemy_advantage =
+            std::max(2, rules.regroup_minimum_enemy_advantage);
+        rules.regroup_scatter_distance += 40.0F;
+        rules.regroup_severe_scatter_distance += 80.0F;
+        break;
+    case AiPlaystyle::defensive:
+        rules.troop_mix = {TroopType::rifle, TroopType::machine_gun,
+                           TroopType::machine_gun, TroopType::bazooka};
+        rules.forward_position_fraction = 0.65F;
+        rules.force_selection_margin += 80.0F;
+        rules.fallback_force_limit += 2;
+        rules.strategy_interval_seconds *= 0.75;
+        rules.defense_release_evaluations = 2;
+        rules.regroup_outnumber_ratio =
+            std::max(1.0F, rules.regroup_outnumber_ratio - 0.20F);
+        rules.regroup_minimum_enemy_advantage = 1;
+        rules.regroup_scatter_distance =
+            std::max(160.0F, rules.regroup_scatter_distance - 40.0F);
+        rules.regroup_severe_scatter_distance = std::max(
+            rules.regroup_scatter_distance,
+            rules.regroup_severe_scatter_distance - 80.0F);
+        break;
+    }
+    return profile;
+}
+
+AiCommander::AiCommander(const Team team, const AiProfile profile) noexcept
+    : team_{team}, profile_{profile}, rules_{profile.rules} {
     rules_.decision_interval_seconds =
-        std::max<std::uint32_t>(1, rules_.decision_interval_seconds);
+        std::max(1.0 / 60.0, rules_.decision_interval_seconds);
     rules_.strategy_interval_seconds =
-        std::max<std::uint32_t>(1, rules_.strategy_interval_seconds);
+        std::max(1.0 / 60.0, rules_.strategy_interval_seconds);
     rules_.forward_position_fraction =
         std::clamp(rules_.forward_position_fraction, 0.0F, 1.0F);
     for (float& fraction : rules_.deployment_y_fractions) {
@@ -166,6 +308,8 @@ AiCommander::AiCommander(const Team team, const AiCommanderRules rules) noexcept
         std::max(0.0F, rules_.force_selection_margin);
     rules_.fallback_force_limit =
         std::max<std::size_t>(1, rules_.fallback_force_limit);
+    rules_.defense_enemy_threshold =
+        std::max(1, rules_.defense_enemy_threshold);
     rules_.regroup_outnumber_ratio =
         std::max(1.0F, rules_.regroup_outnumber_ratio);
     rules_.regroup_minimum_enemy_advantage =
@@ -192,12 +336,15 @@ void AiCommander::update(World& world, const Team locally_controlled_team,
         return;
     }
 
+    const auto interval_ticks = [&world](const double seconds) {
+        return std::max<std::uint64_t>(
+            1, static_cast<std::uint64_t>(std::llround(
+                   seconds * world.match_state().rules().fixed_ticks_per_second)));
+    };
     const std::uint64_t purchase_interval_ticks =
-        static_cast<std::uint64_t>(rules_.decision_interval_seconds) *
-        world.match_state().rules().fixed_ticks_per_second;
+        interval_ticks(rules_.decision_interval_seconds);
     const std::uint64_t strategy_interval_ticks =
-        static_cast<std::uint64_t>(rules_.strategy_interval_seconds) *
-        world.match_state().rules().fixed_ticks_per_second;
+        interval_ticks(rules_.strategy_interval_seconds);
     const auto advance_clock = [fixed_tick_count](
                                    std::uint64_t& remaining,
                                    const std::uint64_t interval,
@@ -230,24 +377,30 @@ void AiCommander::make_purchase_decision(World& world) {
         return;
     }
 
+    std::optional<TroopType> selected_troop;
     std::optional<std::size_t> selected_index;
-    for (std::size_t offset = 0; offset < rules_.troop_mix.size(); ++offset) {
-        const std::size_t index =
-            (troop_mix_cursor_ + offset) % rules_.troop_mix.size();
-        const TroopDefinition* definition =
-            troop_definition_for(rules_.troop_mix[index]);
-        if (definition != nullptr &&
-            player->can_afford(definition->purchase_cost)) {
-            selected_index = index;
-            break;
+    if (profile_.composition_aware_purchasing) {
+        selected_troop = composition_purchase(world, team_, profile_, strategy_);
+    } else {
+        for (std::size_t offset = 0; offset < rules_.troop_mix.size(); ++offset) {
+            const std::size_t index =
+                (troop_mix_cursor_ + offset) % rules_.troop_mix.size();
+            const TroopDefinition* definition =
+                troop_definition_for(rules_.troop_mix[index]);
+            if (definition != nullptr &&
+                player->can_afford(definition->purchase_cost)) {
+                selected_index = index;
+                selected_troop = rules_.troop_mix[index];
+                break;
+            }
         }
     }
-    if (!selected_index.has_value()) {
+    if (!selected_troop.has_value()) {
         last_result_ = AiDecisionResult::no_affordable_troop;
         return;
     }
 
-    const TroopType troop_type = rules_.troop_mix[*selected_index];
+    const TroopType troop_type = *selected_troop;
     last_troop_choice_ = troop_type;
     const auto bounds = frontmost_deployment_bounds(world, team_);
     const TeamForwardDefinition* forward =
@@ -275,15 +428,31 @@ void AiCommander::make_purchase_decision(World& world) {
 
     last_result_ = AiDecisionResult::purchased;
     last_deployment_position_ = position;
-    troop_mix_cursor_ = (*selected_index + 1) % rules_.troop_mix.size();
+    if (selected_index.has_value()) {
+        troop_mix_cursor_ = (*selected_index + 1) % rules_.troop_mix.size();
+    }
     ++placement_cursor_;
     ++successful_deployments_;
 }
 
 void AiCommander::make_strategy_decision(World& world) {
     ++strategy_evaluation_count_;
-    const auto threat = threatened_owned_objective(world, team_);
+    auto threat = threatened_owned_objective(
+        world, team_, rules_.defense_enemy_threshold);
     const auto frontline = frontline_objective(world, team_);
+    if (threat.has_value()) {
+        defense_clear_evaluations_ = 0;
+    } else if (strategy_ == AiStrategy::defend &&
+               target_objective_.has_value() &&
+               *target_objective_ < world.zones().size() &&
+               world.zones()[*target_objective_].owner() == team_ &&
+               defense_clear_evaluations_ <
+                   rules_.defense_release_evaluations) {
+        threat = target_objective_;
+        ++defense_clear_evaluations_;
+    } else {
+        defense_clear_evaluations_ = 0;
+    }
     if (!threat.has_value() && !frontline.has_value()) {
         target_objective_.reset();
         relevant_friendly_strength_ = 0;
@@ -487,6 +656,8 @@ std::uint64_t AiCommander::tactical_command_issue_count() const noexcept {
 
 const AiCommanderRules& AiCommander::rules() const noexcept { return rules_; }
 
+const AiProfile& AiCommander::profile() const noexcept { return profile_; }
+
 std::string_view to_string(const AiCommanderStatus status) noexcept {
     switch (status) {
     case AiCommanderStatus::enabled:
@@ -523,6 +694,30 @@ std::string_view to_string(const AiStrategy strategy) noexcept {
         return "defend";
     case AiStrategy::regroup:
         return "regroup";
+    }
+    return "unknown";
+}
+
+std::string_view to_string(const AiDifficulty difficulty) noexcept {
+    switch (difficulty) {
+    case AiDifficulty::easy:
+        return "easy";
+    case AiDifficulty::medium:
+        return "medium";
+    case AiDifficulty::hard:
+        return "hard";
+    }
+    return "unknown";
+}
+
+std::string_view to_string(const AiPlaystyle playstyle) noexcept {
+    switch (playstyle) {
+    case AiPlaystyle::balanced:
+        return "balanced";
+    case AiPlaystyle::aggressive:
+        return "aggressive";
+    case AiPlaystyle::defensive:
+        return "defensive";
     }
     return "unknown";
 }

@@ -380,6 +380,10 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
     const auto ai_status = to_string(ai_commander.status());
     const auto ai_team = team_color_name(ai_commander.team());
     const auto ai_result = to_string(ai_commander.last_result());
+    const auto ai_difficulty =
+        to_string(ai_commander.profile().difficulty);
+    const auto ai_playstyle =
+        to_string(ai_commander.profile().playstyle);
     const std::size_t ai_pending = static_cast<std::size_t>(std::count_if(
         world.pending_deployments().begin(), world.pending_deployments().end(),
         [&ai_commander](const auto& deployment) {
@@ -388,6 +392,9 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
     global.format(FontRole::debug, debug_text, "%.*s: %.*s",
                   static_cast<int>(ai_team.size()), ai_team.data(),
                   static_cast<int>(ai_status.size()), ai_status.data());
+    global.format(FontRole::debug, debug_text, "profile: %.*s / %.*s",
+                  static_cast<int>(ai_difficulty.size()), ai_difficulty.data(),
+                  static_cast<int>(ai_playstyle.size()), ai_playstyle.data());
     global.format(FontRole::debug, debug_text, "next: %.2fs",
                   static_cast<double>(
                       ai_commander.ticks_until_next_decision()) /

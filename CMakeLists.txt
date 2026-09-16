@@ -58,6 +58,7 @@ add_executable(siege
     src/core/deployment.cpp
     src/core/economy.cpp
     src/core/frontline.cpp
+    src/core/launch_options.cpp
     src/core/map_definition.cpp
     src/core/match.cpp
     src/core/movement_path.cpp
@@ -115,6 +116,7 @@ if(BUILD_TESTING)
         src/core/deployment.cpp
         src/core/economy.cpp
         src/core/frontline.cpp
+        src/core/launch_options.cpp
         src/core/map_definition.cpp
         src/core/match.cpp
         src/core/movement_path.cpp

@@ -11,7 +11,7 @@ namespace siege {
 
 class Game {
 public:
-    Game() noexcept;
+    explicit Game(AiProfile ai_profile = make_ai_profile()) noexcept;
     ~Game();
 
     Game(const Game&) = delete;
@@ -27,7 +27,7 @@ private:
     SDL_Renderer* renderer_{};
     World world_{};
     Simulation simulation_;
-    AiCommander red_commander_{Team::team_b};
+    AiCommander red_commander_;
 };
 
 } // namespace siege

@@ -15,13 +15,16 @@ namespace siege {
 class World;
 
 struct AiCommanderRules {
-    std::uint32_t decision_interval_seconds;
-    std::uint32_t strategy_interval_seconds;
+    double decision_interval_seconds;
+    double strategy_interval_seconds;
     std::array<TroopType, 4> troop_mix;
     std::array<float, 6> deployment_y_fractions;
     float forward_position_fraction;
     float force_selection_margin;
     std::size_t fallback_force_limit;
+    std::size_t maximum_local_force;
+    int defense_enemy_threshold;
+    std::uint32_t defense_release_evaluations;
     float regroup_outnumber_ratio;
     int regroup_minimum_enemy_advantage;
     float regroup_scatter_distance;
@@ -37,11 +40,37 @@ inline constexpr AiCommanderRules default_ai_commander_rules{
     .forward_position_fraction = 0.80F,
     .force_selection_margin = 220.0F,
     .fallback_force_limit = 6,
+    .maximum_local_force = 0,
+    .defense_enemy_threshold = 1,
+    .defense_release_evaluations = 0,
     .regroup_outnumber_ratio = 1.50F,
     .regroup_minimum_enemy_advantage = 2,
     .regroup_scatter_distance = 260.0F,
     .regroup_severe_scatter_distance = 420.0F,
 };
+
+enum class AiDifficulty {
+    easy,
+    medium,
+    hard,
+};
+
+enum class AiPlaystyle {
+    balanced,
+    aggressive,
+    defensive,
+};
+
+struct AiProfile {
+    AiDifficulty difficulty;
+    AiPlaystyle playstyle;
+    AiCommanderRules rules;
+    bool composition_aware_purchasing;
+};
+
+[[nodiscard]] AiProfile make_ai_profile(
+    AiDifficulty difficulty = AiDifficulty::medium,
+    AiPlaystyle playstyle = AiPlaystyle::balanced) noexcept;
 
 enum class AiStrategy {
     attack,
@@ -67,7 +96,7 @@ class AiCommander {
 public:
     explicit AiCommander(
         Team team,
-        AiCommanderRules rules = default_ai_commander_rules) noexcept;
+        AiProfile profile = make_ai_profile()) noexcept;
 
     // One fixed simulation tick is the normal call. Passing multiple ticks is
     // supported so deterministic tests/headless hosts can advance in batches.
@@ -95,6 +124,7 @@ public:
     [[nodiscard]] std::uint64_t strategy_evaluation_count() const noexcept;
     [[nodiscard]] std::uint64_t tactical_command_issue_count() const noexcept;
     [[nodiscard]] const AiCommanderRules& rules() const noexcept;
+    [[nodiscard]] const AiProfile& profile() const noexcept;
 
 private:
     void make_purchase_decision(World& world);
@@ -104,6 +134,7 @@ private:
                                 std::vector<Unit::Id> unit_ids);
 
     Team team_{Team::none};
+    AiProfile profile_{};
     AiCommanderRules rules_{};
     AiCommanderStatus status_{AiCommanderStatus::enabled};
     AiDecisionResult last_result_{AiDecisionResult::none};
@@ -120,6 +151,7 @@ private:
     std::optional<std::size_t> target_objective_{};
     int relevant_friendly_strength_{};
     int relevant_enemy_strength_{};
+    std::uint32_t defense_clear_evaluations_{};
     std::optional<TacticalOrder> last_tactical_command_{};
     std::size_t last_commanded_unit_count_{};
     std::optional<std::size_t> last_command_objective_{};
@@ -129,5 +161,7 @@ private:
 [[nodiscard]] std::string_view to_string(AiCommanderStatus status) noexcept;
 [[nodiscard]] std::string_view to_string(AiDecisionResult result) noexcept;
 [[nodiscard]] std::string_view to_string(AiStrategy strategy) noexcept;
+[[nodiscard]] std::string_view to_string(AiDifficulty difficulty) noexcept;
+[[nodiscard]] std::string_view to_string(AiPlaystyle playstyle) noexcept;
 
 } // namespace siege
