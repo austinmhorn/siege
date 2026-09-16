@@ -8,6 +8,7 @@
 #include "core/deployment.hpp"
 #include "core/economy.hpp"
 #include "core/environment_collision.hpp"
+#include "core/environment_line_of_sight.hpp"
 #include "core/environment_navigation.hpp"
 #include "core/frontline.hpp"
 #include "core/launch_options.hpp"
@@ -246,6 +247,7 @@ int main() {
     bool environment_ids_unique = true;
     std::array<bool, 8> blocking_types{};
     bool bushes_are_passable = true;
+    bool environment_interaction_metadata = true;
     for (std::size_t index = 0;
          index < battlefield.environment_objects.size(); ++index) {
         const auto& object = battlefield.environment_objects[index];
@@ -268,10 +270,19 @@ int main() {
         } else if (object.physical.blocks_unit_movement) {
             blocking_types[static_cast<std::size_t>(object.type)] = true;
         }
+        const bool opaque = object.type == EnvironmentObjectType::house ||
+            object.type == EnvironmentObjectType::rock ||
+            object.type == EnvironmentObjectType::tree ||
+            object.type == EnvironmentObjectType::watchtower;
+        const bool projectile_blocker =
+            object.type != EnvironmentObjectType::bush;
+        environment_interaction_metadata &=
+            object.physical.blocks_projectiles == projectile_blocker &&
+            object.physical.blocks_line_of_sight == opaque;
     }
     passed &= check(environment_bounds_valid && environment_ids_unique &&
                         validate_environment_objects(battlefield) &&
-                        bushes_are_passable &&
+                        bushes_are_passable && environment_interaction_metadata &&
                         blocking_types[static_cast<std::size_t>(
                             EnvironmentObjectType::house)] &&
                         blocking_types[static_cast<std::size_t>(
@@ -318,17 +329,17 @@ int main() {
             "movement_block", EnvironmentObjectType::rock,
             EnvironmentAsset::rock_02, {296.0F, 180.0F},
             {300.0F, 180.0F, 40.0F, 120.0F},
-            EnvironmentOrientation::neutral, {true}},
+            EnvironmentOrientation::neutral, {true, false, false}},
         EnvironmentObjectDefinition{
             "deployment_block", EnvironmentObjectType::crate,
             EnvironmentAsset::crate_02, {180.0F, 500.0F},
             {180.0F, 500.0F, 40.0F, 40.0F},
-            EnvironmentOrientation::neutral, {true}},
+            EnvironmentOrientation::neutral, {true, false, false}},
         EnvironmentObjectDefinition{
             "passable_bush", EnvironmentObjectType::bush,
             EnvironmentAsset::bush_02, {96.0F, 640.0F},
             {100.0F, 640.0F, 40.0F, 40.0F},
-            EnvironmentOrientation::neutral, {false}},
+            EnvironmentOrientation::neutral, {false, false, false}},
     };
     MapDefinition collision_map = battlefield;
     collision_map.environment_objects = collision_environment;
@@ -422,12 +433,12 @@ int main() {
             "first_block", EnvironmentObjectType::rock,
             EnvironmentAsset::rock_02, {280.0F, 180.0F},
             {280.0F, 180.0F, 50.0F, 140.0F},
-            EnvironmentOrientation::neutral, {true}},
+            EnvironmentOrientation::neutral, {true, false, false}},
         EnvironmentObjectDefinition{
             "second_block", EnvironmentObjectType::crate,
             EnvironmentAsset::crate_02, {390.0F, 80.0F},
             {390.0F, 80.0F, 50.0F, 180.0F},
-            EnvironmentOrientation::neutral, {true}},
+            EnvironmentOrientation::neutral, {true, false, false}},
     };
     MapDefinition multiple_navigation_map = battlefield;
     multiple_navigation_map.environment_objects =
@@ -469,7 +480,7 @@ int main() {
             "red_route_block", EnvironmentObjectType::rock,
             EnvironmentAsset::rock_02, {1'580.0F, 180.0F},
             {1'580.0F, 180.0F, 80.0F, 120.0F},
-            EnvironmentOrientation::neutral, {true}},
+            EnvironmentOrientation::neutral, {true, false, false}},
     };
     MapDefinition red_collision_map = battlefield;
     red_collision_map.environment_objects = red_collision_environment;
@@ -500,7 +511,7 @@ int main() {
                 "hold_route_block", EnvironmentObjectType::crate,
                 EnvironmentAsset::crate_02, {300.0F, 220.0F},
                 {300.0F, 220.0F, 40.0F, 40.0F},
-                EnvironmentOrientation::neutral, {true}},
+                EnvironmentOrientation::neutral, {true, false, false}},
         };
         MapDefinition command_map = collision_map;
         if (order == TacticalOrder::hold) {
@@ -573,7 +584,7 @@ int main() {
             "retreat_block", EnvironmentObjectType::sandbags,
             EnvironmentAsset::sandbags_01, {220.0F, 210.0F},
             {220.0F, 210.0F, 20.0F, 60.0F},
-            EnvironmentOrientation::team_a_forward, {true}},
+            EnvironmentOrientation::team_a_forward, {true, false, false}},
     };
     MapDefinition retreat_map = battlefield;
     retreat_map.environment_objects = retreat_environment;
@@ -645,7 +656,7 @@ int main() {
             "red_first_lane_block", EnvironmentObjectType::watchtower,
             EnvironmentAsset::watchtower_01, {1'660.0F, 200.0F},
             {1'665.0F, 205.0F, 50.0F, 65.0F},
-            EnvironmentOrientation::team_b_forward, {true}},
+            EnvironmentOrientation::team_b_forward, {true, false, false}},
     };
     MapDefinition ai_obstacle_map = battlefield;
     ai_obstacle_map.environment_objects = ai_environment;
@@ -3440,14 +3451,14 @@ int main() {
     const Unit ahead = test_unit(201, Team::team_b, {300.0F, 100.0F}, 90.0F);
     passed &= check(inside_vision_cone(observer, ahead),
                     "ahead and in range is inside vision cone");
-    passed &= check(can_perceive(observer, ahead),
+    passed &= check(can_perceive(navigation_open_map, observer, ahead),
                     "ahead and in range is perceptible");
 
     const Unit out_of_range =
         test_unit(202, Team::team_b, {601.0F, 100.0F}, 90.0F);
     passed &= check(!inside_vision_cone(observer, out_of_range),
                     "ahead and out of range is outside vision cone");
-    passed &= check(!can_perceive(observer, out_of_range),
+    passed &= check(!can_perceive(navigation_open_map, observer, out_of_range),
                     "ahead and out of all ranges is not perceptible");
 
     const Unit outside_angle =
@@ -3460,7 +3471,7 @@ int main() {
                     "target behind observer is not visible through cone");
     passed &= check(inside_awareness_radius(observer, behind),
                     "target behind and inside awareness radius is aware");
-    passed &= check(can_perceive(observer, behind),
+    passed &= check(can_perceive(navigation_open_map, observer, behind),
                     "awareness makes a close target behind perceptible");
 
     const Unit wrap_observer = test_unit(205, Team::team_a, {}, 359.0F);
@@ -3485,7 +3496,7 @@ int main() {
                     "awareness radius boundary is inclusive");
 
     const Unit friendly = test_unit(210, Team::team_a, {200.0F, 100.0F}, 90.0F);
-    passed &= check(!can_perceive(observer, friendly),
+    passed &= check(!can_perceive(navigation_open_map, observer, friendly),
                     "perception queries reject friendly units");
 
     std::vector<Unit> acquisition_units{
@@ -3493,7 +3504,8 @@ int main() {
         test_unit(302, Team::team_b, {350.0F, 100.0F}, 90.0F),
         test_unit(301, Team::team_b, {250.0F, 100.0F}, 90.0F),
     };
-    passed &= check(select_target(acquisition_units[0], acquisition_units) == 301,
+    passed &= check(select_target(navigation_open_map, acquisition_units[0],
+                                  acquisition_units) == 301,
                     "nearest visible enemy is acquired");
 
     std::vector<Unit> visibility_units{
@@ -3502,7 +3514,8 @@ int main() {
         test_unit(312, Team::team_b, {300.0F, 100.0F}, 90.0F),
         test_unit(309, Team::team_a, {150.0F, 100.0F}, 90.0F),
     };
-    passed &= check(select_target(visibility_units[0], visibility_units) == 312,
+    passed &= check(select_target(navigation_open_map, visibility_units[0],
+                                  visibility_units) == 312,
                     "closer invisible enemy and friendly unit are ignored");
 
     std::vector<Unit> friendly_units{
@@ -3510,7 +3523,8 @@ int main() {
         test_unit(314, Team::team_a, {150.0F, 100.0F}, 90.0F),
         test_unit(315, Team::team_b, {300.0F, 100.0F}, 90.0F),
     };
-    passed &= check(select_target(friendly_units[0], friendly_units) == 315,
+    passed &= check(select_target(navigation_open_map, friendly_units[0],
+                                  friendly_units) == 315,
                     "closer friendly unit is ignored during acquisition");
 
     std::vector<Unit> persistence_units{
@@ -3519,13 +3533,16 @@ int main() {
         test_unit(322, Team::team_b, {200.0F, 100.0F}, 90.0F),
     };
     persistence_units[0].set_target_id(321);
-    passed &= check(select_target(persistence_units[0], persistence_units) == 321,
+    passed &= check(select_target(navigation_open_map, persistence_units[0],
+                                  persistence_units) == 321,
                     "current target is retained while perceptible");
     persistence_units[1].set_position({700.0F, 100.0F});
-    passed &= check(select_target(persistence_units[0], persistence_units) == 322,
+    passed &= check(select_target(navigation_open_map, persistence_units[0],
+                                  persistence_units) == 322,
                     "new target is acquired after current target is lost");
     persistence_units[2].set_position({800.0F, 100.0F});
-    passed &= check(!select_target(persistence_units[0], persistence_units).has_value(),
+    passed &= check(!select_target(navigation_open_map, persistence_units[0],
+                                   persistence_units).has_value(),
                     "target is cleared when no enemy remains perceptible");
 
     std::vector<Unit> tie_units{
@@ -3533,7 +3550,7 @@ int main() {
         test_unit(332, Team::team_b, {-100.0F, 100.0F}, 180.0F),
         test_unit(331, Team::team_b, {100.0F, 100.0F}, 180.0F),
     };
-    passed &= check(select_target(tie_units[0], tie_units) == 331,
+    passed &= check(select_target(navigation_open_map, tie_units[0], tie_units) == 331,
                     "equal-distance target tie selects the lowest unit ID");
 
     World facing_world;
@@ -3803,8 +3820,236 @@ int main() {
 
     const auto direct_sweep = swept_circle_hit_fraction(
         {100.0F, 100.0F}, {300.0F, 100.0F}, {200.0F, 100.0F}, 20.0F);
-    passed &= check(direct_sweep.has_value() && near(*direct_sweep, 0.4F),
-                    "swept collision returns the first segment hit fraction");
+    const auto bounds_sweep = swept_bounds_hit_fraction(
+        {100.0F, 100.0F}, {500.0F, 100.0F},
+        {300.0F, 80.0F, 40.0F, 40.0F});
+    passed &= check(direct_sweep.has_value() && near(*direct_sweep, 0.4F) &&
+                        bounds_sweep.has_value() && near(*bounds_sweep, 0.5F),
+                    "swept circle and bounds collision return exact first-hit fractions");
+
+    constexpr std::array environment_interaction_objects{
+        EnvironmentObjectDefinition{
+            "house", EnvironmentObjectType::house,
+            EnvironmentAsset::house_01, {300.0F, 80.0F},
+            {300.0F, 80.0F, 40.0F, 40.0F},
+            EnvironmentOrientation::neutral, {true, true, true}},
+        EnvironmentObjectDefinition{
+            "rock", EnvironmentObjectType::rock,
+            EnvironmentAsset::rock_02, {300.0F, 80.0F},
+            {300.0F, 80.0F, 40.0F, 40.0F},
+            EnvironmentOrientation::neutral, {true, true, true}},
+        EnvironmentObjectDefinition{
+            "tree", EnvironmentObjectType::tree,
+            EnvironmentAsset::tree_02, {300.0F, 80.0F},
+            {300.0F, 80.0F, 40.0F, 40.0F},
+            EnvironmentOrientation::neutral, {true, true, true}},
+        EnvironmentObjectDefinition{
+            "watchtower", EnvironmentObjectType::watchtower,
+            EnvironmentAsset::watchtower_01, {300.0F, 80.0F},
+            {300.0F, 80.0F, 40.0F, 40.0F},
+            EnvironmentOrientation::neutral, {true, true, true}},
+        EnvironmentObjectDefinition{
+            "sandbags", EnvironmentObjectType::sandbags,
+            EnvironmentAsset::sandbags_01, {300.0F, 80.0F},
+            {300.0F, 80.0F, 40.0F, 40.0F},
+            EnvironmentOrientation::neutral, {true, true, false}},
+        EnvironmentObjectDefinition{
+            "crate", EnvironmentObjectType::crate,
+            EnvironmentAsset::crate_02, {300.0F, 80.0F},
+            {300.0F, 80.0F, 40.0F, 40.0F},
+            EnvironmentOrientation::neutral, {true, true, false}},
+        EnvironmentObjectDefinition{
+            "barrel", EnvironmentObjectType::barrel,
+            EnvironmentAsset::barrel_01, {300.0F, 80.0F},
+            {300.0F, 80.0F, 40.0F, 40.0F},
+            EnvironmentOrientation::neutral, {true, true, false}},
+        EnvironmentObjectDefinition{
+            "bush", EnvironmentObjectType::bush,
+            EnvironmentAsset::bush_02, {300.0F, 80.0F},
+            {300.0F, 80.0F, 40.0F, 40.0F},
+            EnvironmentOrientation::neutral, {false, false, false}},
+    };
+    bool interaction_matrix_correct = true;
+    for (const EnvironmentObjectDefinition& object :
+         environment_interaction_objects) {
+        MapDefinition interaction_map = navigation_open_map;
+        interaction_map.environment_objects =
+            std::span<const EnvironmentObjectDefinition>{&object, 1};
+        const bool expected_projectile =
+            object.type != EnvironmentObjectType::bush;
+        const bool expected_los =
+            object.type == EnvironmentObjectType::house ||
+            object.type == EnvironmentObjectType::rock ||
+            object.type == EnvironmentObjectType::tree ||
+            object.type == EnvironmentObjectType::watchtower;
+        interaction_matrix_correct &=
+            nearest_environment_projectile_hit(
+                interaction_map, {100.0F, 100.0F},
+                {500.0F, 100.0F}).has_value() == expected_projectile;
+        interaction_matrix_correct &=
+            !environment_line_of_sight_clear(
+                interaction_map, {100.0F, 100.0F},
+                {500.0F, 100.0F}) == expected_los;
+    }
+    passed &= check(
+        interaction_matrix_correct,
+        "house, rock, tree, and tower block fire and LOS; low cover blocks only fire; bush blocks neither");
+
+    constexpr std::array projectile_cover_environment{
+        EnvironmentObjectDefinition{
+            "cover", EnvironmentObjectType::house,
+            EnvironmentAsset::house_01, {250.0F, 80.0F},
+            {250.0F, 80.0F, 40.0F, 40.0F},
+            EnvironmentOrientation::neutral, {true, true, true}},
+    };
+    MapDefinition projectile_cover_map = navigation_open_map;
+    projectile_cover_map.environment_objects = projectile_cover_environment;
+    const auto prepare_cover_world = [&]() {
+        World world{default_match_rules, projectile_cover_map};
+        world.units().clear();
+        world.units().push_back(
+            test_unit(900, Team::team_a, {100.0F, 100.0F}, 270.0F));
+        world.units().front().reset_weapon_cooldown();
+        return world;
+    };
+
+    World front_hit_world = prepare_cover_world();
+    front_hit_world.units().push_back(
+        test_unit(901, Team::team_b, {200.0F, 100.0F}, 90.0F));
+    front_hit_world.spawn_projectile(
+        WeaponType::rifle, Team::team_a, 900, {100.0F, 100.0F},
+        {24'000.0F, 0.0F}, 1'000.0F, 25.0F);
+    Simulation front_hit_simulation{front_hit_world};
+    front_hit_simulation.update(1.0 / 60.0);
+    passed &= check(near(front_hit_world.find_unit(901)->health(), 75.0F),
+                    "unit before an environment blocker is hit normally");
+
+    World protected_world = prepare_cover_world();
+    protected_world.units().push_back(
+        test_unit(902, Team::team_b, {350.0F, 100.0F}, 90.0F));
+    protected_world.spawn_projectile(
+        WeaponType::machine_gun, Team::team_a, 900, {100.0F, 100.0F},
+        {24'000.0F, 0.0F}, 1'000.0F, 25.0F);
+    Simulation protected_simulation{protected_world};
+    protected_simulation.update(1.0 / 60.0);
+    passed &= check(near(protected_world.find_unit(902)->health(), 100.0F) &&
+                        protected_world.projectiles().empty(),
+                    "swept environment impact removes a fast bullet before a protected unit");
+
+    constexpr std::array tied_impact_environment{
+        EnvironmentObjectDefinition{
+            "alpha_cover", EnvironmentObjectType::crate,
+            EnvironmentAsset::crate_02, {180.0F, 80.0F},
+            {180.0F, 80.0F, 20.0F, 40.0F},
+            EnvironmentOrientation::neutral, {true, true, false}},
+        EnvironmentObjectDefinition{
+            "zulu_cover", EnvironmentObjectType::barrel,
+            EnvironmentAsset::barrel_01, {180.0F, 80.0F},
+            {180.0F, 80.0F, 20.0F, 40.0F},
+            EnvironmentOrientation::neutral, {true, true, false}},
+    };
+    MapDefinition tied_impact_map = navigation_open_map;
+    tied_impact_map.environment_objects = tied_impact_environment;
+    const auto tied_environment_hit = nearest_environment_projectile_hit(
+        tied_impact_map, {100.0F, 100.0F}, {300.0F, 100.0F});
+    World tied_impact_world{default_match_rules, tied_impact_map};
+    tied_impact_world.units().clear();
+    tied_impact_world.units().push_back(
+        test_unit(903, Team::team_a, {100.0F, 100.0F}, 270.0F));
+    tied_impact_world.units().front().reset_weapon_cooldown();
+    tied_impact_world.units().push_back(
+        test_unit(904, Team::team_b, {200.0F, 100.0F}, 90.0F));
+    tied_impact_world.spawn_projectile(
+        WeaponType::rifle, Team::team_a, 903, {100.0F, 100.0F},
+        {12'000.0F, 0.0F}, 1'000.0F, 25.0F);
+    Simulation tied_impact_simulation{tied_impact_world};
+    tied_impact_simulation.update(1.0 / 60.0);
+    passed &= check(
+        tied_environment_hit.has_value() &&
+            tied_environment_hit->object->id == "alpha_cover" &&
+            near(tied_impact_world.find_unit(904)->health(), 100.0F),
+        "equal environment ties use stable IDs and environment wins an equal unit-impact tie");
+
+    World bazooka_cover_world = prepare_cover_world();
+    bazooka_cover_world.units().push_back(
+        test_unit(905, Team::team_b, {310.0F, 100.0F}, 90.0F));
+    bazooka_cover_world.units().push_back(
+        test_unit(906, Team::team_b, {390.0F, 100.0F}, 90.0F));
+    bazooka_cover_world.spawn_projectile(
+        WeaponType::bazooka, Team::team_a, 900, {100.0F, 100.0F},
+        {24'000.0F, 0.0F}, 1'000.0F, 70.0F, 115.0F);
+    Simulation bazooka_cover_simulation{bazooka_cover_world};
+    bazooka_cover_simulation.update(1.0 / 60.0);
+    passed &= check(
+        bazooka_cover_world.explosion_events().size() == 1 &&
+            near(bazooka_cover_world.explosion_events().front().position.x,
+                 250.0F) &&
+            near(bazooka_cover_world.find_unit(905)->health(), 30.0F) &&
+            near(bazooka_cover_world.find_unit(906)->health(), 100.0F) &&
+            bazooka_cover_world.projectiles().empty(),
+        "bazooka detonates at the exact blocker contact and applies normal hostile splash once");
+
+    std::vector<Unit> occluded_units{
+        test_unit(907, Team::team_a, {100.0F, 100.0F}, 270.0F),
+        test_unit(908, Team::team_b, {350.0F, 100.0F}, 90.0F),
+    };
+    occluded_units[0].set_target_id(908);
+    const bool occlusion_clears_target =
+        !can_perceive(projectile_cover_map, occluded_units[0],
+                      occluded_units[1]) &&
+        !select_target(projectile_cover_map, occluded_units[0],
+                       occluded_units).has_value();
+    occluded_units[1].set_position({350.0F, 160.0F});
+    const bool clear_reacquires =
+        can_perceive(projectile_cover_map, occluded_units[0],
+                     occluded_units[1]) &&
+        select_target(projectile_cover_map, occluded_units[0],
+                      occluded_units) == 908;
+    World los_lifecycle_world{default_match_rules, projectile_cover_map};
+    los_lifecycle_world.units() = {
+        test_unit(907, Team::team_a, {100.0F, 100.0F}, 270.0F),
+        test_unit(908, Team::team_b, {350.0F, 100.0F}, 90.0F),
+    };
+    los_lifecycle_world.units()[0].set_target_id(908);
+    Simulation los_lifecycle_simulation{los_lifecycle_world};
+    los_lifecycle_simulation.update(1.0 / 60.0);
+    const bool blocked_simulation_cleared =
+        !los_lifecycle_world.units()[0].target_id().has_value() &&
+        los_lifecycle_world.projectiles().empty();
+    los_lifecycle_world.units()[1].set_position({350.0F, 160.0F});
+    los_lifecycle_simulation.update(1.0 / 60.0);
+    const bool clear_simulation_reacquired =
+        los_lifecycle_world.units()[0].target_id() == 908;
+    std::vector<Unit> mirrored_occluded_units{
+        test_unit(909, Team::team_b, {400.0F, 100.0F}, 90.0F),
+        test_unit(910, Team::team_a, {100.0F, 100.0F}, 270.0F),
+    };
+    passed &= check(
+        occlusion_clears_target && clear_reacquires &&
+            blocked_simulation_cleared && clear_simulation_reacquired &&
+            !can_perceive(projectile_cover_map,
+                          mirrored_occluded_units[0],
+                          mirrored_occluded_units[1]),
+        "opaque LOS clears target persistence, allows reacquisition when clear, and mirrors for RED");
+
+    World deterministic_cover_a = protected_world;
+    World deterministic_cover_b = protected_world;
+    deterministic_cover_a.spawn_projectile(
+        WeaponType::rifle, Team::team_a, 900, {100.0F, 100.0F},
+        {24'000.0F, 0.0F}, 1'000.0F, 25.0F);
+    deterministic_cover_b.spawn_projectile(
+        WeaponType::rifle, Team::team_a, 900, {100.0F, 100.0F},
+        {24'000.0F, 0.0F}, 1'000.0F, 25.0F);
+    Simulation deterministic_cover_simulation_a{deterministic_cover_a};
+    Simulation deterministic_cover_simulation_b{deterministic_cover_b};
+    deterministic_cover_simulation_a.update(1.0 / 60.0);
+    deterministic_cover_simulation_b.update(1.0 / 60.0);
+    passed &= check(
+        deterministic_cover_a.projectiles().size() ==
+                deterministic_cover_b.projectiles().size() &&
+            near(deterministic_cover_a.find_unit(902)->health(),
+                 deterministic_cover_b.find_unit(902)->health()),
+        "environment projectile and LOS simulation replays deterministically");
 
     World hostile_hit_world;
     isolate_collision_units(hostile_hit_world);
@@ -3978,7 +4223,7 @@ int main() {
                 TroopType::machine_gun,
         "generic damage and death lifecycle remove a defeated machine_gun");
 
-    World bazooka_lifecycle_world;
+    World bazooka_lifecycle_world{default_match_rules, navigation_open_map};
     isolate_collision_units(bazooka_lifecycle_world);
     Unit& bazooka_observer = bazooka_lifecycle_world.units()[0];
     Unit& defeated_bazooka = bazooka_lifecycle_world.units()[10];
@@ -4030,7 +4275,8 @@ int main() {
                             CombatMovementState::inactive &&
                         !pending_removal.target_id().has_value(),
                     "lethal damage immediately marks unit inactive before removal");
-    passed &= check(!select_target(pending_removal, lifecycle_world.units()).has_value() &&
+    passed &= check(!select_target(lifecycle_world.map(), pending_removal,
+                                   lifecycle_world.units()).has_value() &&
                         !can_fire_at(pending_removal, lifecycle_world.units()[0]),
                     "dead unit cannot target or fire before lifecycle removal");
 
@@ -4058,9 +4304,11 @@ int main() {
     };
     dead_target_units[0].set_target_id(411);
     dead_target_units[1].apply_damage(dead_target_units[1].max_health());
-    passed &= check(select_target(dead_target_units[0], dead_target_units) == 412,
+    passed &= check(select_target(navigation_open_map, dead_target_units[0],
+                                  dead_target_units) == 412,
                     "dead target is cleared and another valid target is acquired");
-    passed &= check(!can_perceive(dead_target_units[0], dead_target_units[1]),
+    passed &= check(!can_perceive(navigation_open_map, dead_target_units[0],
+                                  dead_target_units[1]),
                     "dead unit cannot be targeted through perception");
 
     MapDefinition movement_profile_map = battlefield;

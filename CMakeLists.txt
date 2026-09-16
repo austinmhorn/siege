@@ -58,6 +58,7 @@ add_executable(siege
     src/core/deployment.cpp
     src/core/economy.cpp
     src/core/environment_collision.cpp
+    src/core/environment_line_of_sight.cpp
     src/core/environment_navigation.cpp
     src/core/frontline.cpp
     src/core/launch_options.cpp
@@ -118,6 +119,7 @@ if(BUILD_TESTING)
         src/core/deployment.cpp
         src/core/economy.cpp
         src/core/environment_collision.cpp
+        src/core/environment_line_of_sight.cpp
         src/core/environment_navigation.cpp
         src/core/frontline.cpp
         src/core/launch_options.cpp

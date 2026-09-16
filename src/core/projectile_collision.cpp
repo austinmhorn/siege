@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace siege {
 
@@ -37,6 +38,64 @@ std::optional<float> swept_circle_hit_fraction(
         return second;
     }
     return std::nullopt;
+}
+
+std::optional<float> swept_bounds_hit_fraction(
+    const Vec2 segment_start, const Vec2 segment_end,
+    const Bounds bounds) noexcept {
+    const Vec2 movement = segment_end - segment_start;
+    float entry = 0.0F;
+    float exit = 1.0F;
+    const auto clip_axis = [&](const float origin, const float delta,
+                               const float minimum, const float maximum) {
+        if (std::abs(delta) <= 0.000001F) {
+            return origin >= minimum && origin <= maximum;
+        }
+        const float first = (minimum - origin) / delta;
+        const float second = (maximum - origin) / delta;
+        entry = std::max(entry, std::min(first, second));
+        exit = std::min(exit, std::max(first, second));
+        return entry <= exit;
+    };
+    if (!clip_axis(segment_start.x, movement.x, bounds.x,
+                   bounds.x + bounds.width) ||
+        !clip_axis(segment_start.y, movement.y, bounds.y,
+                   bounds.y + bounds.height) ||
+        exit < 0.0F || entry > 1.0F) {
+        return std::nullopt;
+    }
+    return std::clamp(entry, 0.0F, 1.0F);
+}
+
+std::optional<EnvironmentProjectileHit> nearest_environment_projectile_hit(
+    const MapDefinition& map, const Vec2 segment_start,
+    const Vec2 segment_end) noexcept {
+    const EnvironmentObjectDefinition* nearest = nullptr;
+    float nearest_fraction = std::numeric_limits<float>::infinity();
+    constexpr float tie_epsilon = 0.000001F;
+    for (const EnvironmentObjectDefinition& object : map.environment_objects) {
+        if (!object.physical.blocks_projectiles) {
+            continue;
+        }
+        const auto fraction = swept_bounds_hit_fraction(
+            segment_start, segment_end, object.footprint);
+        if (!fraction.has_value()) {
+            continue;
+        }
+        if (nearest == nullptr ||
+            *fraction < nearest_fraction - tie_epsilon ||
+            (std::abs(*fraction - nearest_fraction) <= tie_epsilon &&
+             object.id < nearest->id)) {
+            nearest = &object;
+            nearest_fraction = *fraction;
+        }
+    }
+    if (nearest == nullptr) {
+        return std::nullopt;
+    }
+    return EnvironmentProjectileHit{
+        nearest, nearest_fraction,
+        segment_start + (segment_end - segment_start) * nearest_fraction};
 }
 
 } // namespace siege

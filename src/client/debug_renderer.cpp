@@ -6,6 +6,7 @@
 #include "client/world_transform.hpp"
 #include "core/ai_commander.hpp"
 #include "core/economy.hpp"
+#include "core/environment_line_of_sight.hpp"
 #include "core/math.hpp"
 #include "core/scoring.hpp"
 #include "core/tactical_command.hpp"
@@ -39,7 +40,7 @@ constexpr float left_panel_width = 256.0F;
 constexpr float unit_column_preferred_width = 190.0F;
 constexpr float unit_column_minimum_width = 148.0F;
 constexpr float unit_block_gap = 6.0F;
-constexpr std::size_t unit_block_line_count = 18;
+constexpr std::size_t unit_block_line_count = 19;
 
 struct TextCursor {
     FontSystem& fonts;
@@ -248,7 +249,10 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
         if (unit.target_id().has_value()) {
             const Unit* target = world.find_unit(*unit.target_id());
             if (target != nullptr) {
-                set_color(renderer_, 255, 92, 92, 205);
+                const bool clear = environment_line_of_sight_clear(
+                    world.map(), position, target->position());
+                set_color(renderer_, clear ? 112 : 255,
+                          clear ? 220 : 92, clear ? 150 : 92, 205);
                 if (!draw_world_line(renderer_, transform, position,
                                      target->position())) {
                     return false;
@@ -637,8 +641,16 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
         if (unit.target_id().has_value()) {
             cursor.format(FontRole::debug, debug_text, "target: #%u",
                           *unit.target_id());
+            const Unit* target = world.find_unit(*unit.target_id());
+            const bool clear = target != nullptr &&
+                environment_line_of_sight_clear(
+                    world.map(), unit.position(), target->position());
+            cursor.format(FontRole::debug,
+                          clear ? debug_text : debug_heading, "los: %s",
+                          clear ? "clear" : "blocked");
         } else {
             cursor.line(FontRole::debug, debug_muted, "target: none");
+            cursor.line(FontRole::debug, debug_muted, "los: none");
         }
         cursor.format(FontRole::debug, debug_text, "pos: %.0f, %.0f",
                       unit.position().x, unit.position().y);

@@ -1,5 +1,6 @@
 #include "core/perception.hpp"
 
+#include "core/environment_line_of_sight.hpp"
 #include "core/math.hpp"
 #include "world/unit.hpp"
 
@@ -49,9 +50,12 @@ bool inside_awareness_radius(const Unit& observer, const Unit& target) noexcept 
            within_distance(observer, target, observer.awareness_radius());
 }
 
-bool can_perceive(const Unit& observer, const Unit& target) noexcept {
-    return inside_awareness_radius(observer, target) ||
-           inside_vision_cone(observer, target);
+bool can_perceive(const MapDefinition& map, const Unit& observer,
+                  const Unit& target) noexcept {
+    return (inside_awareness_radius(observer, target) ||
+            inside_vision_cone(observer, target)) &&
+           environment_line_of_sight_clear(map, observer.position(),
+                                           target.position());
 }
 
 } // namespace siege

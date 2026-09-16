@@ -19,15 +19,16 @@ const Unit* find_unit(const std::span<const Unit> units,
 
 } // namespace
 
-std::optional<Unit::Id> select_target(const Unit& observer,
-                                      const std::span<const Unit> units) noexcept {
+std::optional<Unit::Id> select_target(
+    const MapDefinition& map, const Unit& observer,
+    const std::span<const Unit> units) noexcept {
     if (!observer.is_alive()) {
         return std::nullopt;
     }
 
     if (observer.target_id().has_value()) {
         const Unit* current = find_unit(units, *observer.target_id());
-        if (current != nullptr && can_perceive(observer, *current)) {
+        if (current != nullptr && can_perceive(map, observer, *current)) {
             return current->id();
         }
     }
@@ -35,7 +36,7 @@ std::optional<Unit::Id> select_target(const Unit& observer,
     std::optional<Unit::Id> nearest_id;
     float nearest_distance_squared = std::numeric_limits<float>::max();
     for (const auto& candidate : units) {
-        if (!can_perceive(observer, candidate)) {
+        if (!can_perceive(map, observer, candidate)) {
             continue;
         }
 

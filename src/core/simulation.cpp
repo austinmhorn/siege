@@ -218,6 +218,8 @@ struct ProjectileHit {
     float segment_fraction;
 };
 
+constexpr float projectile_hit_tie_epsilon = 0.000001F;
+
 std::optional<ProjectileHit> nearest_projectile_hit(
     const Projectile& projectile, std::vector<Unit>& units) noexcept {
     Unit* nearest = nullptr;
@@ -235,8 +237,9 @@ std::optional<ProjectileHit> nearest_projectile_hit(
             continue;
         }
 
-        if (*hit_fraction < nearest_fraction ||
-            (*hit_fraction == nearest_fraction && nearest != nullptr &&
+        if (*hit_fraction < nearest_fraction - projectile_hit_tie_epsilon ||
+            (std::abs(*hit_fraction - nearest_fraction) <=
+                 projectile_hit_tie_epsilon && nearest != nullptr &&
              candidate.id() < nearest->id())) {
             nearest = &candidate;
             nearest_fraction = *hit_fraction;
@@ -292,19 +295,35 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
         projectile.advance(fixed_delta_seconds);
     }
     for (auto projectile = projectiles.begin(); projectile != projectiles.end();) {
-        if (const auto hit = nearest_projectile_hit(*projectile, units)) {
+        const auto unit_hit = nearest_projectile_hit(*projectile, units);
+        const auto environment_hit = nearest_environment_projectile_hit(
+            world_.map(), projectile->previous_position(),
+            projectile->position());
+        const bool environment_first = environment_hit.has_value() &&
+            (!unit_hit.has_value() ||
+             environment_hit->segment_fraction <=
+                 unit_hit->segment_fraction + projectile_hit_tie_epsilon);
+        if (environment_first) {
+            if (projectile->splash_radius() > 0.0F) {
+                world_.emit_explosion_event(*projectile,
+                                            environment_hit->impact_position);
+                apply_explosion(world_, *projectile,
+                                environment_hit->impact_position, units);
+            }
+            projectile = projectiles.erase(projectile);
+        } else if (unit_hit.has_value()) {
             if (projectile->splash_radius() > 0.0F) {
                 const Vec2 impact_position =
                     projectile->previous_position() +
                     (projectile->position() - projectile->previous_position()) *
-                        hit->segment_fraction;
+                        unit_hit->segment_fraction;
                 world_.emit_explosion_event(*projectile, impact_position);
                 apply_explosion(world_, *projectile, impact_position, units);
             } else {
-                hit->unit->apply_damage(projectile->damage());
-                if (!hit->unit->is_alive()) {
+                unit_hit->unit->apply_damage(projectile->damage());
+                if (!unit_hit->unit->is_alive()) {
                     (void)award_projectile_kill(world_, *projectile,
-                                                *hit->unit);
+                                                *unit_hit->unit);
                 }
             }
             projectile = projectiles.erase(projectile);
@@ -351,7 +370,7 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
     std::vector<std::optional<Unit::Id>> target_ids;
     target_ids.reserve(units.size());
     for (const auto& unit : units) {
-        target_ids.push_back(select_target(unit, units));
+        target_ids.push_back(select_target(world_.map(), unit, units));
     }
 
     std::vector<MotionIntent> intents;

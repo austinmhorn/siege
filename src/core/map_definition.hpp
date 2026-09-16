@@ -71,6 +71,8 @@ enum class EnvironmentOrientation {
 
 struct EnvironmentPhysicalProperties {
     bool blocks_unit_movement;
+    bool blocks_projectiles;
+    bool blocks_line_of_sight;
 };
 
 struct EnvironmentObjectDefinition {
