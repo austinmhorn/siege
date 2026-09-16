@@ -8,6 +8,7 @@
 #include "core/deployment.hpp"
 #include "core/economy.hpp"
 #include "core/environment_collision.hpp"
+#include "core/environment_navigation.hpp"
 #include "core/frontline.hpp"
 #include "core/launch_options.hpp"
 #include "core/map_definition.hpp"
@@ -361,59 +362,211 @@ int main() {
             near(through_bush.x, 180.0F) && near(through_bush.y, 660.0F),
         "swept collision prevents tunneling, slides deterministically, and leaves bushes passable");
 
+    MapDefinition navigation_open_map = battlefield;
+    navigation_open_map.environment_objects = {};
+    const EnvironmentNavigationRoute direct_route =
+        environment_navigation_route(navigation_open_map, 20.0F,
+                                     {100.0F, 100.0F}, {500.0F, 300.0F});
+    const EnvironmentNavigationRoute one_block_route =
+        environment_navigation_route(collision_map, 20.0F,
+                                     {220.0F, 240.0F}, {440.0F, 240.0F});
+    const EnvironmentNavigationRoute repeated_route =
+        environment_navigation_route(collision_map, 20.0F,
+                                     {220.0F, 240.0F}, {440.0F, 240.0F});
+    bool one_block_segments_clear = one_block_route.waypoints.size() >= 3;
+    Vec2 route_segment_start{220.0F, 240.0F};
+    for (const Vec2 waypoint : one_block_route.waypoints) {
+        one_block_segments_clear &= environment_navigation_segment_clear(
+            collision_map, 20.0F, route_segment_start, waypoint);
+        route_segment_start = waypoint;
+    }
+    bool deterministic_route =
+        one_block_route.waypoints.size() == repeated_route.waypoints.size();
+    for (std::size_t index = 0;
+         deterministic_route && index < one_block_route.waypoints.size();
+         ++index) {
+        deterministic_route &=
+            near(one_block_route.waypoints[index].x,
+                 repeated_route.waypoints[index].x) &&
+            near(one_block_route.waypoints[index].y,
+                 repeated_route.waypoints[index].y);
+    }
+    passed &= check(
+        direct_route.waypoints.size() == 1 &&
+            near(direct_route.waypoints.front().x, 500.0F) &&
+            one_block_segments_clear && deterministic_route,
+        "visibility routing keeps clear travel direct and deterministically clears blocker corners");
+
+    const EnvironmentNavigationRoute mirrored_route =
+        environment_navigation_route(collision_map, 20.0F,
+                                     {420.0F, 240.0F}, {200.0F, 240.0F});
+    bool mirrored_navigation =
+        mirrored_route.waypoints.size() == one_block_route.waypoints.size();
+    const std::size_t detour_count = one_block_route.waypoints.empty()
+        ? 0
+        : one_block_route.waypoints.size() - 1;
+    for (std::size_t index = 0;
+         mirrored_navigation && index < detour_count; ++index) {
+        const Vec2 blue = one_block_route.waypoints[index];
+        const Vec2 red = mirrored_route.waypoints[detour_count - 1 - index];
+        mirrored_navigation &= near(blue.x, red.x) && near(blue.y, red.y);
+    }
+    mirrored_navigation &=
+        !mirrored_route.waypoints.empty() &&
+        near(mirrored_route.waypoints.back().x, 200.0F);
+    passed &= check(mirrored_navigation,
+                    "mirrored route queries choose mirrored deterministic corners");
+
+    constexpr std::array multiple_navigation_environment{
+        EnvironmentObjectDefinition{
+            "first_block", EnvironmentObjectType::rock,
+            EnvironmentAsset::rock_02, {280.0F, 180.0F},
+            {280.0F, 180.0F, 50.0F, 140.0F},
+            EnvironmentOrientation::neutral, {true}},
+        EnvironmentObjectDefinition{
+            "second_block", EnvironmentObjectType::crate,
+            EnvironmentAsset::crate_02, {390.0F, 80.0F},
+            {390.0F, 80.0F, 50.0F, 180.0F},
+            EnvironmentOrientation::neutral, {true}},
+    };
+    MapDefinition multiple_navigation_map = battlefield;
+    multiple_navigation_map.environment_objects =
+        multiple_navigation_environment;
+    const EnvironmentNavigationRoute multiple_route =
+        environment_navigation_route(multiple_navigation_map, 20.0F,
+                                     {200.0F, 220.0F}, {520.0F, 220.0F});
+    bool multiple_segments_clear = multiple_route.waypoints.size() >= 3;
+    route_segment_start = {200.0F, 220.0F};
+    for (const Vec2 waypoint : multiple_route.waypoints) {
+        multiple_segments_clear &= environment_navigation_segment_clear(
+            multiple_navigation_map, 20.0F, route_segment_start, waypoint);
+        route_segment_start = waypoint;
+    }
+    const EnvironmentNavigationRoute large_radius_route =
+        environment_navigation_route(collision_map, 35.0F,
+                                     {220.0F, 240.0F}, {440.0F, 240.0F});
+    const EnvironmentNavigationRoute inside_destination_route =
+        environment_navigation_route(collision_map, 20.0F,
+                                     {220.0F, 240.0F}, {320.0F, 240.0F});
+    passed &= check(
+        multiple_segments_clear && !large_radius_route.waypoints.empty() &&
+            std::abs(large_radius_route.waypoints.front().y - 240.0F) >
+                std::abs(one_block_route.waypoints.front().y - 240.0F) &&
+            !near(inside_destination_route.resolved_destination.x, 320.0F) &&
+            environment_navigation_segment_clear(
+                collision_map, 20.0F, {220.0F, 240.0F},
+                inside_destination_route.waypoints.front()),
+        "multiple blockers, radius clearance, and inside-blocker destinations resolve without corner clipping");
+
     World blue_obstacle_world{default_match_rules, collision_map};
     blue_obstacle_world.units().clear();
     blue_obstacle_world.units().push_back(
         test_unit(90, Team::team_a, {220.0F, 240.0F}, 270.0F));
     Simulation blue_obstacle_simulation{blue_obstacle_world};
     blue_obstacle_simulation.update(2.0);
-    World red_obstacle_world{default_match_rules, collision_map};
+    constexpr std::array red_collision_environment{
+        EnvironmentObjectDefinition{
+            "red_route_block", EnvironmentObjectType::rock,
+            EnvironmentAsset::rock_02, {1'580.0F, 180.0F},
+            {1'580.0F, 180.0F, 80.0F, 120.0F},
+            EnvironmentOrientation::neutral, {true}},
+    };
+    MapDefinition red_collision_map = battlefield;
+    red_collision_map.environment_objects = red_collision_environment;
+    World red_obstacle_world{default_match_rules, red_collision_map};
     red_obstacle_world.units().clear();
     red_obstacle_world.units().push_back(
-        test_unit(91, Team::team_b, {420.0F, 240.0F}, 90.0F));
+        test_unit(91, Team::team_b, {1'720.0F, 240.0F}, 90.0F));
     Simulation red_obstacle_simulation{red_obstacle_world};
     red_obstacle_simulation.update(2.0);
+    for (int tick = 0; tick < 300; ++tick) {
+        blue_obstacle_simulation.update(1.0 / 60.0);
+        red_obstacle_simulation.update(1.0 / 60.0);
+    }
     passed &= check(
-        blue_obstacle_world.units()[0].position().x < 280.0F &&
-            red_obstacle_world.units()[0].position().x > 360.0F &&
+        blue_obstacle_world.units()[0].position().x > 340.0F &&
+            red_obstacle_world.units()[0].position().x < 1'560.0F &&
             !unit_overlaps_blocking_environment(
                 collision_map, blue_obstacle_world.units()[0].position(),
                 blue_obstacle_world.units()[0].hit_radius()) &&
             !unit_overlaps_blocking_environment(
-                collision_map, red_obstacle_world.units()[0].position(),
+                red_collision_map, red_obstacle_world.units()[0].position(),
                 red_obstacle_world.units()[0].hit_radius()),
-        "mirrored BLUE and RED autonomous movement cannot enter a blocker");
+        "mirrored BLUE and RED autonomous movement routes around a blocker without penetration");
 
     const auto command_obeys_obstacle = [&](const TacticalOrder order) {
-        World world{default_match_rules, collision_map};
+        constexpr std::array hold_environment{
+            EnvironmentObjectDefinition{
+                "hold_route_block", EnvironmentObjectType::crate,
+                EnvironmentAsset::crate_02, {300.0F, 220.0F},
+                {300.0F, 220.0F, 40.0F, 40.0F},
+                EnvironmentOrientation::neutral, {true}},
+        };
+        MapDefinition command_map = collision_map;
+        if (order == TacticalOrder::hold) {
+            command_map.environment_objects = hold_environment;
+        }
+        World world{default_match_rules, command_map};
         world.units().clear();
         world.units().push_back(
             test_unit(100 + static_cast<Unit::Id>(order), Team::team_a,
                       {220.0F, 240.0F}, 270.0F));
-        world.units()[0].set_tactical_order(order, Vec2{420.0F, 240.0F});
+        if (order == TacticalOrder::hold) {
+            world.units()[0].set_position({390.0F, 240.0F});
+            world.units()[0].set_tactical_order(order, Vec2{390.0F, 240.0F});
+            world.units()[0].set_position({250.0F, 240.0F});
+        } else {
+            world.units()[0].set_tactical_order(order, Vec2{420.0F, 240.0F});
+        }
         Simulation simulation{world};
-        simulation.update(2.0);
-        return world.units()[0].position().x < 280.0F &&
-               !unit_overlaps_blocking_environment(
-                   collision_map, world.units()[0].position(),
-                   world.units()[0].hit_radius());
+        for (int tick = 0; tick < 360; ++tick) {
+            simulation.update(1.0 / 60.0);
+        }
+        const bool clear = !unit_overlaps_blocking_environment(
+            command_map, world.units()[0].position(),
+            world.units()[0].hit_radius());
+        if (order == TacticalOrder::hold) {
+            const float return_start =
+                default_tactical_rules.hold_leash_radius *
+                default_tactical_rules.hold_return_start_fraction;
+            return clear &&
+                   length(world.units()[0].position() - Vec2{390.0F, 240.0F}) <=
+                       return_start + 0.5F;
+        }
+        return clear && world.units()[0].position().x > 340.0F;
     };
-    passed &= check(command_obeys_obstacle(TacticalOrder::advance) &&
-                        command_obeys_obstacle(TacticalOrder::hold) &&
-                        command_obeys_obstacle(TacticalOrder::regroup),
-                    "Advance, Hold, and Regroup share authoritative obstacle collision");
+    const bool advance_obeys_obstacle =
+        command_obeys_obstacle(TacticalOrder::advance);
+    const bool hold_obeys_obstacle =
+        command_obeys_obstacle(TacticalOrder::hold);
+    const bool regroup_obeys_obstacle =
+        command_obeys_obstacle(TacticalOrder::regroup);
+    passed &= check(advance_obeys_obstacle && hold_obeys_obstacle &&
+                        regroup_obeys_obstacle,
+                    "Advance, Hold, and Regroup share obstacle-aware navigation and collision");
 
     World obstacle_path_world{default_match_rules, collision_map};
     obstacle_path_world.units().clear();
     obstacle_path_world.units().push_back(
         test_unit(110, Team::team_a, {220.0F, 240.0F}, 270.0F));
-    obstacle_path_world.units()[0].replace_movement_path({{440.0F, 240.0F}});
+    obstacle_path_world.units()[0].replace_movement_path(
+        {{440.0F, 240.0F}, {520.0F, 340.0F}});
     Simulation obstacle_path_simulation{obstacle_path_world};
-    obstacle_path_simulation.update(2.0);
+    obstacle_path_simulation.update(1.0 / 60.0);
+    const bool authored_path_preserved_while_routing =
+        obstacle_path_world.units()[0].has_movement_path() &&
+        obstacle_path_world.units()[0].has_navigation_route() &&
+        obstacle_path_world.units()[0].remaining_waypoint_count() == 2 &&
+        near(obstacle_path_world.units()[0].current_waypoint()->x, 440.0F);
+    for (int tick = 1; tick < 480; ++tick) {
+        obstacle_path_simulation.update(1.0 / 60.0);
+    }
     passed &= check(
-        obstacle_path_world.units()[0].position().x < 280.0F &&
-            obstacle_path_world.units()[0].has_movement_path(),
-        "individual movement paths stop at blockers without discarding their remaining path");
+        authored_path_preserved_while_routing &&
+            obstacle_path_world.units()[0].position().x > 500.0F &&
+            !obstacle_path_world.units()[0].has_movement_path() &&
+            near(obstacle_path_world.units()[0].preferred_y(), 340.0F),
+        "temporary navigation preserves authored waypoint order and completes the final destination");
 
     constexpr std::array retreat_environment{
         EnvironmentObjectDefinition{
@@ -431,15 +584,15 @@ int main() {
     retreat_obstacle_world.units().push_back(
         test_unit(121, Team::team_b, {350.0F, 240.0F}, 90.0F));
     Simulation retreat_obstacle_simulation{retreat_obstacle_world};
-    retreat_obstacle_simulation.update(1.0);
+    retreat_obstacle_simulation.update(1.0 / 60.0);
     passed &= check(
         retreat_obstacle_world.units()[0].combat_movement_state() ==
                 CombatMovementState::retreating &&
-            retreat_obstacle_world.units()[0].position().x > 260.0F &&
+            retreat_obstacle_world.units()[0].has_navigation_route() &&
             !unit_overlaps_blocking_environment(
                 retreat_map, retreat_obstacle_world.units()[0].position(),
                 retreat_obstacle_world.units()[0].hit_radius()),
-        "combat retreat is constrained by the same swept obstacle resolver");
+        "combat retreat uses the shared route while swept collision remains authoritative");
 
     World obstacle_separation_world{default_match_rules, collision_map};
     obstacle_separation_world.units().clear();
@@ -508,6 +661,34 @@ int main() {
                 *obstacle_commander.last_deployment_position()) &&
             obstacle_commander.last_deployment_position()->y > 300.0F,
         "AI skips an obstructed authored lane and purchases through normal deployment validation");
+
+    World ai_navigation_world{default_match_rules, red_collision_map};
+    ai_navigation_world.units().clear();
+    ai_navigation_world.find_player(Team::team_b)->reset_cash(0);
+    ai_navigation_world.units().push_back(
+        test_unit(160, Team::team_b, {1'720.0F, 240.0F}, 90.0F));
+    ai_navigation_world.units().push_back(
+        test_unit(161, Team::team_a, {500.0F, 800.0F}, 270.0F));
+    update_zone_capture(ai_navigation_world, 0.0);
+    AiCommander navigation_commander{Team::team_b};
+    navigation_commander.update(ai_navigation_world, Team::team_a);
+    Simulation ai_navigation_simulation{ai_navigation_world};
+    ai_navigation_simulation.update(1.0 / 60.0);
+    const bool ai_started_shared_route =
+        ai_navigation_world.find_unit(160)->tactical_order() ==
+            TacticalOrder::advance &&
+        ai_navigation_world.find_unit(160)->has_navigation_route();
+    for (int tick = 1; tick < 300; ++tick) {
+        ai_navigation_simulation.update(1.0 / 60.0);
+    }
+    passed &= check(
+        ai_started_shared_route &&
+            ai_navigation_world.find_unit(160)->position().x < 1'560.0F &&
+            !unit_overlaps_blocking_environment(
+                red_collision_map,
+                ai_navigation_world.find_unit(160)->position(),
+                ai_navigation_world.find_unit(160)->hit_radius()),
+        "RED AI Advance uses the same obstacle route and final collision layer");
 
     World selection_world;
     selection_world.units().clear();
@@ -2377,7 +2558,9 @@ int main() {
                 TacticalOrder::hold,
         "Hold preserves target acquisition, tracking, and firing");
 
-    World regroup_world;
+    MapDefinition regroup_open_map = battlefield;
+    regroup_open_map.environment_objects = {};
+    World regroup_world{default_match_rules, regroup_open_map};
     regroup_world.units().clear();
     regroup_world.units().push_back(
         test_unit(5092, Team::team_a, {650.0F, 500.0F}, 270.0F));

@@ -161,6 +161,7 @@ void Unit::replace_movement_path(std::vector<Vec2> waypoints) {
 }
 
 void Unit::advance_movement_path() noexcept {
+    clear_navigation_route();
     if (movement_path_index_ < movement_path_.size()) {
         ++movement_path_index_;
     }
@@ -172,6 +173,55 @@ void Unit::advance_movement_path() noexcept {
 void Unit::clear_movement_path() noexcept {
     movement_path_.clear();
     movement_path_index_ = 0;
+    clear_navigation_route();
+}
+
+void Unit::set_navigation_route(const Vec2 requested_destination,
+                                const Vec2 resolved_destination,
+                                std::vector<Vec2> waypoints) {
+    navigation_destination_ = requested_destination;
+    navigation_resolved_destination_ = resolved_destination;
+    navigation_waypoints_ = std::move(waypoints);
+    navigation_waypoint_index_ = 0;
+    navigation_last_distance_ = has_navigation_route()
+        ? length(*current_navigation_waypoint() - position_)
+        : 0.0F;
+    navigation_stuck_ticks_ = 0;
+}
+
+void Unit::advance_navigation_route() noexcept {
+    if (navigation_waypoint_index_ < navigation_waypoints_.size()) {
+        ++navigation_waypoint_index_;
+    }
+    navigation_stuck_ticks_ = 0;
+    navigation_last_distance_ = has_navigation_route()
+        ? length(*current_navigation_waypoint() - position_)
+        : 0.0F;
+}
+
+void Unit::clear_navigation_route() noexcept {
+    navigation_destination_.reset();
+    navigation_resolved_destination_.reset();
+    navigation_waypoints_.clear();
+    navigation_waypoint_index_ = 0;
+    navigation_last_distance_ = 0.0F;
+    navigation_stuck_ticks_ = 0;
+}
+
+void Unit::record_navigation_progress() noexcept {
+    const auto waypoint = current_navigation_waypoint();
+    if (!waypoint.has_value()) {
+        navigation_stuck_ticks_ = 0;
+        navigation_last_distance_ = 0.0F;
+        return;
+    }
+    const float distance = length(*waypoint - position_);
+    if (distance < navigation_last_distance_ - 0.05F) {
+        navigation_stuck_ticks_ = 0;
+    } else {
+        ++navigation_stuck_ticks_;
+    }
+    navigation_last_distance_ = distance;
 }
 
 void Unit::set_preferred_y(const float preferred_y) noexcept {
@@ -273,6 +323,41 @@ std::span<const Vec2> Unit::remaining_waypoints() const noexcept {
     return has_movement_path()
         ? std::span<const Vec2>{movement_path_}.subspan(movement_path_index_)
         : std::span<const Vec2>{};
+}
+
+bool Unit::has_navigation_route() const noexcept {
+    return navigation_waypoint_index_ < navigation_waypoints_.size();
+}
+
+std::size_t Unit::remaining_navigation_waypoint_count() const noexcept {
+    return has_navigation_route()
+        ? navigation_waypoints_.size() - navigation_waypoint_index_
+        : 0;
+}
+
+std::optional<Vec2> Unit::current_navigation_waypoint() const noexcept {
+    return has_navigation_route()
+        ? std::optional<Vec2>{navigation_waypoints_[navigation_waypoint_index_]}
+        : std::nullopt;
+}
+
+std::span<const Vec2> Unit::remaining_navigation_waypoints() const noexcept {
+    return has_navigation_route()
+        ? std::span<const Vec2>{navigation_waypoints_}.subspan(
+              navigation_waypoint_index_)
+        : std::span<const Vec2>{};
+}
+
+std::optional<Vec2> Unit::navigation_destination() const noexcept {
+    return navigation_destination_;
+}
+
+std::optional<Vec2> Unit::navigation_resolved_destination() const noexcept {
+    return navigation_resolved_destination_;
+}
+
+std::uint32_t Unit::navigation_stuck_ticks() const noexcept {
+    return navigation_stuck_ticks_;
 }
 
 } // namespace siege

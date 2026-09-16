@@ -39,7 +39,7 @@ constexpr float left_panel_width = 256.0F;
 constexpr float unit_column_preferred_width = 190.0F;
 constexpr float unit_column_minimum_width = 148.0F;
 constexpr float unit_block_gap = 6.0F;
-constexpr std::size_t unit_block_line_count = 15;
+constexpr std::size_t unit_block_line_count = 18;
 
 struct TextCursor {
     FontSystem& fonts;
@@ -194,7 +194,7 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                            const std::size_t corpse_count,
                            const std::size_t firing_effect_count,
                            const std::size_t explosion_effect_count,
-                           const std::size_t selected_unit_count,
+                           const std::span<const std::uint32_t> selected_unit_ids,
                            const Team controlled_team,
                            const AiCommander& ai_commander) const {
     SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
@@ -325,6 +325,34 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
             return false;
         }
 
+        if (std::ranges::find(selected_unit_ids, unit.id()) !=
+                selected_unit_ids.end() &&
+            unit.navigation_destination().has_value()) {
+            set_color(renderer_, 208, 112, 255, 225);
+            Vec2 previous = position;
+            for (const Vec2 waypoint : unit.remaining_navigation_waypoints()) {
+                if (!draw_world_line(renderer_, transform, previous, waypoint)) {
+                    return false;
+                }
+                previous = waypoint;
+            }
+            const Vec2 destination =
+                *unit.navigation_resolved_destination();
+            constexpr float nav_marker_size = 7.0F;
+            if (!draw_world_line(renderer_, transform,
+                                 {destination.x - nav_marker_size,
+                                  destination.y - nav_marker_size},
+                                 {destination.x + nav_marker_size,
+                                  destination.y + nav_marker_size}) ||
+                !draw_world_line(renderer_, transform,
+                                 {destination.x - nav_marker_size,
+                                  destination.y + nav_marker_size},
+                                 {destination.x + nav_marker_size,
+                                  destination.y - nav_marker_size})) {
+                return false;
+            }
+        }
+
     }
 
     int output_width = 0;
@@ -361,7 +389,7 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
     global.format(FontRole::debug, debug_text, "pending: %zu",
                   world.pending_deployments().size());
     global.format(FontRole::debug, debug_text, "selected: %zu",
-                  selected_unit_count);
+                  selected_unit_ids.size());
     global.format(FontRole::debug, debug_text, "corpses: %zu", corpse_count);
     global.format(FontRole::debug, debug_text, "firing effects: %zu",
                   firing_effect_count);
@@ -588,6 +616,21 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                           waypoint->x, waypoint->y);
         } else {
             cursor.line(FontRole::debug, debug_muted, "waypoint: none");
+        }
+        cursor.format(FontRole::debug, debug_text, "nav: %s (%zu)",
+                      yes_no(unit.has_navigation_route()),
+                      unit.remaining_navigation_waypoint_count());
+        if (const auto destination = unit.navigation_destination()) {
+            cursor.format(FontRole::debug, debug_text, "nav dest: %.0f, %.0f",
+                          destination->x, destination->y);
+        } else {
+            cursor.line(FontRole::debug, debug_muted, "nav dest: none");
+        }
+        if (const auto waypoint = unit.current_navigation_waypoint()) {
+            cursor.format(FontRole::debug, debug_text, "nav point: %.0f, %.0f",
+                          waypoint->x, waypoint->y);
+        } else {
+            cursor.line(FontRole::debug, debug_muted, "nav point: none");
         }
         cursor.format(FontRole::debug, debug_text, "hp: %.0f/%.0f", unit.health(),
                       unit.max_health());

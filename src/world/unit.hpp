@@ -72,6 +72,12 @@ public:
     void replace_movement_path(std::vector<Vec2> waypoints);
     void advance_movement_path() noexcept;
     void clear_movement_path() noexcept;
+    void set_navigation_route(Vec2 requested_destination,
+                              Vec2 resolved_destination,
+                              std::vector<Vec2> waypoints);
+    void advance_navigation_route() noexcept;
+    void clear_navigation_route() noexcept;
+    void record_navigation_progress() noexcept;
     void set_preferred_y(float preferred_y) noexcept;
     void tick_weapon_cooldown(double delta_seconds) noexcept;
     void reset_weapon_cooldown() noexcept;
@@ -116,6 +122,17 @@ public:
     [[nodiscard]] std::size_t remaining_waypoint_count() const noexcept;
     [[nodiscard]] std::optional<Vec2> current_waypoint() const noexcept;
     [[nodiscard]] std::span<const Vec2> remaining_waypoints() const noexcept;
+    [[nodiscard]] bool has_navigation_route() const noexcept;
+    [[nodiscard]] std::size_t remaining_navigation_waypoint_count()
+        const noexcept;
+    [[nodiscard]] std::optional<Vec2> current_navigation_waypoint()
+        const noexcept;
+    [[nodiscard]] std::span<const Vec2> remaining_navigation_waypoints()
+        const noexcept;
+    [[nodiscard]] std::optional<Vec2> navigation_destination() const noexcept;
+    [[nodiscard]] std::optional<Vec2> navigation_resolved_destination()
+        const noexcept;
+    [[nodiscard]] std::uint32_t navigation_stuck_ticks() const noexcept;
 
 private:
     Id id_{};
@@ -154,6 +171,12 @@ private:
     std::optional<Vec2> tactical_position_{};
     std::vector<Vec2> movement_path_{};
     std::size_t movement_path_index_{};
+    std::optional<Vec2> navigation_destination_{};
+    std::optional<Vec2> navigation_resolved_destination_{};
+    std::vector<Vec2> navigation_waypoints_{};
+    std::size_t navigation_waypoint_index_{};
+    float navigation_last_distance_{};
+    std::uint32_t navigation_stuck_ticks_{};
 };
 
 } // namespace siege

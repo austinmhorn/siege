@@ -912,7 +912,7 @@ bool Renderer::render(const World& world, const AiCommander& ai_commander,
     if (debug_overlay_enabled_ &&
         !debug_renderer_.render(world, transform, render_fps, 60.0,
                                 corpses_.size(), firing_animations_.size(),
-                                explosions_.size(), selection_.size(),
+                                explosions_.size(), selection_.ids(),
                                 local_control_.team(), ai_commander)) {
         return false;
     }

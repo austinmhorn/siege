@@ -4,6 +4,7 @@
 #include "core/deployment.hpp"
 #include "core/economy.hpp"
 #include "core/environment_collision.hpp"
+#include "core/environment_navigation.hpp"
 #include "core/frontline.hpp"
 #include "core/movement_path.hpp"
 #include "core/projectile_collision.hpp"
@@ -16,8 +17,10 @@
 #include "world/world.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <cmath>
 #include <optional>
+#include <utility>
 #include <vector>
 
 namespace siege {
@@ -28,6 +31,10 @@ constexpr float separation_weight = 0.9F;
 constexpr float preferred_y_scale = 120.0F;
 constexpr float maximum_y_correction = 0.45F;
 constexpr float world_margin = 32.0F;
+constexpr float navigation_lookahead = 320.0F;
+constexpr float navigation_destination_change = 32.0F;
+constexpr float navigation_waypoint_reach = 1.5F;
+constexpr std::uint32_t navigation_stuck_recompute_ticks = 30;
 
 struct MotionIntent {
     Vec2 velocity;
@@ -36,6 +43,8 @@ struct MotionIntent {
     CombatMovementState combat_state;
     std::optional<Unit::Id> support_screen_id;
     Vec2 support_steering;
+    Vec2 separation;
+    std::optional<Vec2> navigation_destination;
 };
 
 Vec2 velocity_from_steering(const Vec2 steering, const float speed) noexcept {
@@ -132,6 +141,76 @@ Vec2 constrain_to_hold_leash(const Unit& unit, const Vec2 position) noexcept {
     }
     return *unit.tactical_position() +
            normalized(offset) * default_tactical_rules.hold_leash_radius;
+}
+
+Vec2 constrain_navigation_destination(const World& world, const Unit& unit,
+                                      Vec2 destination) noexcept {
+    destination = constrain_to_frontline(world, unit.team(), unit.position(),
+                                         destination);
+    destination = constrain_to_hold_leash(unit, destination);
+    destination.x = std::clamp(destination.x, world_margin,
+                               world.map().logical_width - world_margin);
+    destination.y = std::clamp(destination.y, world_margin,
+                               world.map().logical_height - world_margin);
+    return destination;
+}
+
+bool materially_different(const Vec2 left, const Vec2 right) noexcept {
+    return length_squared(left - right) >
+           navigation_destination_change * navigation_destination_change;
+}
+
+Vec2 completion_destination(const Unit& unit,
+                            const Vec2 intended) noexcept {
+    if (unit.navigation_destination().has_value() &&
+        unit.navigation_resolved_destination().has_value() &&
+        !materially_different(*unit.navigation_destination(), intended)) {
+        return *unit.navigation_resolved_destination();
+    }
+    return intended;
+}
+
+void update_navigation_route(const World& world, Unit& unit,
+                             const std::optional<Vec2> destination) {
+    if (!destination.has_value()) {
+        unit.clear_navigation_route();
+        return;
+    }
+    const Vec2 constrained =
+        constrain_navigation_destination(world, unit, *destination);
+    const bool changed = !unit.navigation_destination().has_value() ||
+                         materially_different(
+                             *unit.navigation_destination(), constrained);
+    const bool route_invalid = unit.current_navigation_waypoint().has_value() &&
+        !environment_navigation_segment_clear(
+            world.map(), unit.hit_radius(), unit.position(),
+            *unit.current_navigation_waypoint());
+    if (!changed && !route_invalid &&
+        unit.navigation_stuck_ticks() < navigation_stuck_recompute_ticks) {
+        return;
+    }
+
+    EnvironmentNavigationRoute route = environment_navigation_route(
+        world.map(), unit.hit_radius(), unit.position(), constrained);
+    for (Vec2& waypoint : route.waypoints) {
+        waypoint = constrain_navigation_destination(world, unit, waypoint);
+    }
+    while (!route.waypoints.empty() &&
+           length_squared(route.waypoints.front() - unit.position()) <=
+               navigation_waypoint_reach * navigation_waypoint_reach) {
+        route.waypoints.erase(route.waypoints.begin());
+    }
+
+    const bool resolved_destination =
+        materially_different(route.requested_destination,
+                             route.resolved_destination);
+    const bool temporary_detour = route.waypoints.size() > 1;
+    if (!resolved_destination && !temporary_detour) {
+        route.waypoints.clear();
+    }
+    unit.set_navigation_route(route.requested_destination,
+                              route.resolved_destination,
+                              std::move(route.waypoints));
 }
 
 struct ProjectileHit {
@@ -240,10 +319,19 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
     world_.remove_dead_units();
 
     for (auto& unit : units) {
+        while (unit.current_navigation_waypoint().has_value() &&
+               length(unit.position() -
+                      *unit.current_navigation_waypoint()) <=
+                   navigation_waypoint_reach) {
+            unit.advance_navigation_route();
+        }
         while (unit.current_waypoint().has_value() &&
-               length(unit.position() - *unit.current_waypoint()) <=
+               length(unit.position() -
+                      completion_destination(unit,
+                                             *unit.current_waypoint())) <=
                    default_movement_path_rules.waypoint_reach_radius) {
-            const Vec2 reached = *unit.current_waypoint();
+            const Vec2 reached = completion_destination(
+                unit, *unit.current_waypoint());
             const bool final_waypoint = unit.remaining_waypoint_count() == 1;
             unit.advance_movement_path();
             if (final_waypoint) {
@@ -253,7 +341,8 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
         }
         if (unit.tactical_order() == TacticalOrder::regroup &&
             unit.tactical_position().has_value() &&
-            length(unit.position() - *unit.tactical_position()) <=
+            length(unit.position() - completion_destination(
+                       unit, *unit.tactical_position())) <=
                 default_tactical_rules.regroup_completion_radius) {
             unit.set_tactical_order(TacticalOrder::automatic);
         }
@@ -272,7 +361,8 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
         if (!unit.is_alive()) {
             intents.push_back(MotionIntent{
                 {}, unit.facing_angle(), MovementState::idle,
-                CombatMovementState::inactive, std::nullopt, {}});
+                CombatMovementState::inactive, std::nullopt, {}, {},
+                std::nullopt});
             continue;
         }
 
@@ -293,6 +383,7 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
         MovementState state = MovementState::idle;
         CombatMovementState combat_state = CombatMovementState::advancing;
         const Vec2 separation = separation_for(unit, units);
+        std::optional<Vec2> navigation_destination;
         SupportPositioning support =
             support_positioning_for(unit, units, world_.map());
         if (unit.team() != Team::none && !reached_edge) {
@@ -303,6 +394,11 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
                            maximum_y_correction),
             };
             primary_steering = primary_steering + support.steering;
+            if (length_squared(primary_steering) > 0.0001F) {
+                navigation_destination =
+                    unit.position() + normalized(primary_steering) *
+                                          navigation_lookahead;
+            }
             const Vec2 steering = primary_steering + separation;
             velocity = length_squared(support.steering) > 0.0001F
                            ? weighted_steering_velocity(steering,
@@ -321,6 +417,7 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
             const Unit* target = world_.find_unit(*target_ids[index]);
             const Vec2 target_direction = target->position() - unit.position();
             combat_state = combat_movement_for(unit, *target);
+            navigation_destination.reset();
             if (length_squared(target_direction) > 0.0001F) {
                 const Vec2 toward_target = normalized(target_direction);
                 desired_facing = facing_from_direction(target_direction);
@@ -328,6 +425,7 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
                 case CombatMovementState::inactive:
                     break;
                 case CombatMovementState::closing:
+                    navigation_destination = target->position();
                     velocity = length_squared(support.steering) > 0.0001F
                         ? weighted_steering_velocity(
                               toward_target + separation + support.steering,
@@ -339,11 +437,18 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
                                   std::clamp(unit.aggression(), 0.0F, 1.0F));
                     break;
                 case CombatMovementState::engaging:
+                    if (length_squared(support.steering) > 0.0001F) {
+                        navigation_destination =
+                            unit.position() + normalized(support.steering) *
+                                                  navigation_lookahead;
+                    }
                     velocity = soft_separation_velocity(
                         separation + support.steering, unit.move_speed());
                     break;
                 case CombatMovementState::retreating:
                     support = {};
+                    navigation_destination =
+                        unit.position() - toward_target * navigation_lookahead;
                     velocity = velocity_from_steering(
                         toward_target * -1.0F + separation,
                         unit.move_speed() * std::clamp(unit.retreat_bias(), 0.0F, 1.0F));
@@ -368,6 +473,11 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
                 ? velocity
                 : soft_separation_velocity(separation, unit.move_speed());
             velocity = hold_velocity_for(unit, desired_velocity, separation);
+            if (returning_to_hold_anchor(unit)) {
+                navigation_destination = unit.tactical_position();
+            } else if (!target_ids[index].has_value()) {
+                navigation_destination.reset();
+            }
             if (!target_ids[index].has_value()) {
                 desired_facing = forward_facing;
                 if (returning_to_hold_anchor(unit) &&
@@ -383,6 +493,7 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
             support = {};
             const Vec2 toward_regroup =
                 *unit.tactical_position() - unit.position();
+            navigation_destination = unit.tactical_position();
             velocity = velocity_from_steering(toward_regroup + separation,
                                               unit.move_speed());
             if (!target_ids[index].has_value() &&
@@ -401,6 +512,7 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
                 target_ids[index].has_value() &&
                 combat_state == CombatMovementState::retreating;
             if (!immediate_combat_danger) {
+                navigation_destination = unit.current_waypoint();
                 velocity = velocity_from_steering(toward_waypoint + separation,
                                                   unit.move_speed());
                 if (!target_ids[index].has_value() &&
@@ -414,14 +526,42 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
         }
         intents.push_back(MotionIntent{velocity, desired_facing, state,
                                        combat_state, support.screen_id,
-                                       support.steering});
+                                       support.steering, separation,
+                                       navigation_destination});
     }
 
     for (std::size_t index = 0; index < units.size(); ++index) {
         auto& unit = units[index];
         const auto& intent = intents[index];
+        update_navigation_route(world_, unit, intent.navigation_destination);
+        Vec2 velocity = intent.velocity;
+        float desired_facing = intent.desired_facing;
+        if (const auto nav_waypoint = unit.current_navigation_waypoint()) {
+            const Vec2 toward_navigation = *nav_waypoint - unit.position();
+            const float intended_speed = length(velocity);
+            if (length_squared(toward_navigation) > 0.0001F &&
+                intended_speed > 0.0F) {
+                const float waypoint_speed = static_cast<float>(
+                    length(toward_navigation) /
+                    std::max(fixed_delta_seconds, 0.000001));
+                velocity = velocity_from_steering(
+                    normalized(toward_navigation) + intent.separation,
+                    std::min(intended_speed, waypoint_speed));
+                if (!target_ids[index].has_value()) {
+                    desired_facing = facing_from_direction(toward_navigation);
+                }
+            }
+        } else if (unit.navigation_destination().has_value() &&
+                   unit.navigation_resolved_destination().has_value() &&
+                   materially_different(*unit.navigation_destination(),
+                                        *unit.navigation_resolved_destination()) &&
+                   length(unit.position() -
+                          *unit.navigation_resolved_destination()) <=
+                       navigation_waypoint_reach) {
+            velocity = {};
+        }
         const auto unconstrained_position =
-            unit.position() + intent.velocity * static_cast<float>(fixed_delta_seconds);
+            unit.position() + velocity * static_cast<float>(fixed_delta_seconds);
         const auto frontline_position = constrain_to_frontline(
             world_, unit.team(), unit.position(), unconstrained_position);
         const auto next_position = constrain_to_hold_leash(unit, frontline_position);
@@ -436,8 +576,9 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
         const bool moved =
             length_squared(final_position - unit.position()) > 0.0001F;
         unit.set_position(final_position);
+        unit.record_navigation_progress();
         unit.set_target_id(target_ids[index]);
-        unit.set_desired_facing_angle(intent.desired_facing);
+        unit.set_desired_facing_angle(desired_facing);
         unit.rotate_toward_desired(fixed_delta_seconds);
         unit.set_movement_state(
             intent.state == MovementState::moving && moved

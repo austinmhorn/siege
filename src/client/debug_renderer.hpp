@@ -3,6 +3,8 @@
 #include "client/font_system.hpp"
 
 #include <cstddef>
+#include <cstdint>
+#include <span>
 
 struct SDL_Renderer;
 
@@ -22,7 +24,7 @@ public:
                               std::size_t corpse_count,
                               std::size_t firing_effect_count,
                               std::size_t explosion_effect_count,
-                              std::size_t selected_unit_count,
+                              std::span<const std::uint32_t> selected_unit_ids,
                               Team controlled_team,
                               const AiCommander& ai_commander) const;
 
