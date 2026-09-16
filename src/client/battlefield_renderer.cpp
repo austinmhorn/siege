@@ -302,6 +302,7 @@ bool render_authored_terrain(SDL_Renderer* renderer, TextureCache& textures,
 
 bool render_environment_texture(SDL_Renderer* renderer, TextureCache& textures,
                                 const EnvironmentObjectDefinition& object,
+                                const MapDefinition& map,
                                 const WorldTransform& transform,
                                 const bool shadow) {
     const std::filesystem::path path =
@@ -319,7 +320,19 @@ bool render_environment_texture(SDL_Renderer* renderer, TextureCache& textures,
         Bounds{object.position.x, object.position.y, width, height});
     const SDL_FRect destination{drawable.x, drawable.y, drawable.width,
                                 drawable.height};
-    return SDL_RenderTexture(renderer, texture, nullptr, &destination);
+    float angle = 0.0F;
+    switch (object.orientation) {
+    case EnvironmentOrientation::neutral:
+        break;
+    case EnvironmentOrientation::team_a_forward:
+        angle = team_forward_facing_angle(map, Team::team_a);
+        break;
+    case EnvironmentOrientation::team_b_forward:
+        angle = team_forward_facing_angle(map, Team::team_b);
+        break;
+    }
+    return SDL_RenderTextureRotated(renderer, texture, nullptr, &destination,
+                                    angle, nullptr, SDL_FLIP_NONE);
 }
 
 bool render_environment(SDL_Renderer* renderer, TextureCache& textures,
@@ -339,14 +352,14 @@ bool render_environment(SDL_Renderer* renderer, TextureCache& textures,
     });
 
     for (const auto* object : ordered) {
-        if (!render_environment_texture(renderer, textures, *object, transform,
-                                        true)) {
+        if (!render_environment_texture(renderer, textures, *object, map,
+                                        transform, true)) {
             return false;
         }
     }
     for (const auto* object : ordered) {
-        if (!render_environment_texture(renderer, textures, *object, transform,
-                                        false)) {
+        if (!render_environment_texture(renderer, textures, *object, map,
+                                        transform, false)) {
             return false;
         }
     }

@@ -214,6 +214,15 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
         }
     }
 
+    set_color(renderer_, 255, 154, 72, 175);
+    for (const EnvironmentObjectDefinition& object :
+         world.map().environment_objects) {
+        if (object.physical.blocks_unit_movement &&
+            !draw_world_bounds(renderer_, transform, object.footprint)) {
+            return false;
+        }
+    }
+
     for (const auto& unit : world.units()) {
         const Vec2 position = unit.position();
         const auto marker = transform.world_to_drawable(Point{position.x, position.y});

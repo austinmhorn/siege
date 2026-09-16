@@ -1304,8 +1304,8 @@ bool Renderer::render_deployment_ui(const World& world,
         return true;
     }
     const Vec2 position{world_point->x, world_point->y};
-    const bool valid =
-        is_valid_deployment_location(world, local_control_.team(), position);
+    const bool valid = is_valid_deployment_location(
+        world, local_control_.team(), *selected_troop_, position);
     set_color(renderer_, valid ? Color{120, 255, 160, 235}
                                : Color{255, 100, 100, 235});
     const auto marker = transform.world_to_drawable(*world_point);

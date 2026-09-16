@@ -1,5 +1,6 @@
 #include "core/deployment.hpp"
 
+#include "core/environment_collision.hpp"
 #include "core/troop_definition.hpp"
 #include "core/zone_capture.hpp"
 #include "world/world.hpp"
@@ -29,6 +30,16 @@ bool is_valid_deployment_location(const World& world, const Team team,
     return bounds.has_value() && contains(*bounds, position);
 }
 
+bool is_valid_deployment_location(const World& world, const Team team,
+                                  const TroopType troop_type,
+                                  const Vec2 position) noexcept {
+    const TroopDefinition* definition = troop_definition_for(troop_type);
+    return definition != nullptr &&
+           is_valid_deployment_location(world, team, position) &&
+           !unit_overlaps_blocking_environment(
+               world.map(), position, definition->hit_radius);
+}
+
 DeploymentResult request_deployment(World& world, const Team team,
                                     const TroopType troop_type,
                                     const Vec2 position) {
@@ -39,7 +50,7 @@ DeploymentResult request_deployment(World& world, const Team team,
     if (definition == nullptr || team == Team::none) {
         return DeploymentResult::invalid_troop;
     }
-    if (!is_valid_deployment_location(world, team, position)) {
+    if (!is_valid_deployment_location(world, team, troop_type, position)) {
         return DeploymentResult::invalid_location;
     }
 

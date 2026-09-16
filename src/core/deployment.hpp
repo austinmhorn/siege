@@ -17,6 +17,9 @@ enum class DeploymentResult {
 
 [[nodiscard]] bool is_valid_deployment_location(
     const World& world, Team team, Vec2 position) noexcept;
+[[nodiscard]] bool is_valid_deployment_location(
+    const World& world, Team team, TroopType troop_type,
+    Vec2 position) noexcept;
 
 [[nodiscard]] DeploymentResult request_deployment(
     World& world, Team team, TroopType troop_type, Vec2 position);

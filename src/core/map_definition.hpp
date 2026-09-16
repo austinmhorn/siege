@@ -63,12 +63,24 @@ enum class EnvironmentAsset {
     barrel_01,
 };
 
+enum class EnvironmentOrientation {
+    neutral,
+    team_a_forward,
+    team_b_forward,
+};
+
+struct EnvironmentPhysicalProperties {
+    bool blocks_unit_movement;
+};
+
 struct EnvironmentObjectDefinition {
     std::string_view id;
     EnvironmentObjectType type;
     EnvironmentAsset asset;
     Vec2 position;
     Bounds footprint;
+    EnvironmentOrientation orientation;
+    EnvironmentPhysicalProperties physical;
 };
 
 struct MapDefinition {
@@ -99,5 +111,8 @@ struct MapDefinition {
 // therefore resolve to the later ordered zone exactly once.
 [[nodiscard]] std::optional<std::size_t> map_zone_index_for_position(
     const MapDefinition& map, Vec2 position) noexcept;
+
+[[nodiscard]] bool validate_environment_objects(
+    const MapDefinition& map) noexcept;
 
 } // namespace siege

@@ -32,83 +32,135 @@ constexpr std::array<std::size_t, 3> battlefield_01_team_a_order{1, 2, 3};
 constexpr std::array<std::size_t, 3> battlefield_01_team_b_order{3, 2, 1};
 constexpr float battlefield_01_tile_size = 64.0F;
 
-// Regions are painted in order. The grass base covers the complete map; later
-// regions add authored lanes and ground features without affecting gameplay.
+// Regions are painted in order. A broad east/west supply road joins both home
+// areas, while two quieter dirt lanes leave the objective space open and make
+// the battlefield read as an intentionally used military position.
 constexpr std::array battlefield_01_terrain{
     TerrainRegionDefinition{"grass_base", TerrainType::grass,
                             {0.0F, 0.0F, battlefield_01_width,
                              battlefield_01_height},
                             11},
     TerrainRegionDefinition{"north_dirt_lane", TerrainType::dirt,
-                            {256.0F, 256.0F, 1'408.0F, 64.0F}, 23},
+                            {192.0F, 224.0F, 1'536.0F, 128.0F}, 23},
     TerrainRegionDefinition{"south_dirt_lane", TerrainType::dirt,
-                            {256.0F, 768.0F, 1'408.0F, 64.0F}, 37},
-    TerrainRegionDefinition{"center_road", TerrainType::asphalt,
-                            {896.0F, 0.0F, 128.0F,
-                             battlefield_01_height},
-                            41},
-    TerrainRegionDefinition{"southeast_sand", TerrainType::sand,
-                            {1'280.0F, 896.0F, 256.0F, 184.0F}, 53},
-    TerrainRegionDefinition{"southeast_water", TerrainType::water,
-                            {1'344.0F, 960.0F, 128.0F, 120.0F}, 67},
+                            {192.0F, 704.0F, 1'536.0F, 128.0F}, 37},
+    TerrainRegionDefinition{"home_supply_road", TerrainType::asphalt,
+                            {0.0F, 480.0F, battlefield_01_width, 128.0F}, 41},
+    TerrainRegionDefinition{"center_worn_crossing", TerrainType::dirt,
+                            {384.0F, 480.0F, 1'152.0F, 128.0F}, 47},
+    TerrainRegionDefinition{"south_drainage_bank", TerrainType::sand,
+                            {832.0F, 896.0F, 256.0F, 184.0F}, 53},
+    TerrainRegionDefinition{"south_drainage_pond", TerrainType::water,
+                            {896.0F, 960.0F, 128.0F, 120.0F}, 67},
 };
 
-constexpr std::array battlefield_01_environment{
-    EnvironmentObjectDefinition{"blue_home_house",
-                                EnvironmentObjectType::house,
-                                EnvironmentAsset::house_01,
-                                {96.0F, 104.0F},
-                                {112.0F, 208.0F, 100.0F, 24.0F}},
-    EnvironmentObjectDefinition{"red_home_watchtower",
-                                EnvironmentObjectType::watchtower,
-                                EnvironmentAsset::watchtower_01,
-                                {1'736.0F, 112.0F},
-                                {1'750.0F, 160.0F, 44.0F, 22.0F}},
-    EnvironmentObjectDefinition{"west_tree", EnvironmentObjectType::tree,
-                                EnvironmentAsset::tree_02,
-                                {320.0F, 856.0F},
-                                {350.0F, 928.0F, 45.0F, 24.0F}},
-    EnvironmentObjectDefinition{"east_tree", EnvironmentObjectType::tree,
-                                EnvironmentAsset::tree_02,
-                                {1'488.0F, 104.0F},
-                                {1'518.0F, 176.0F, 45.0F, 24.0F}},
-    EnvironmentObjectDefinition{"center_rock", EnvironmentObjectType::rock,
-                                EnvironmentAsset::rock_02,
-                                {824.0F, 520.0F},
-                                {836.0F, 562.0F, 30.0F, 18.0F}},
-    EnvironmentObjectDefinition{"east_rock", EnvironmentObjectType::rock,
-                                EnvironmentAsset::rock_02,
-                                {1'392.0F, 840.0F},
-                                {1'404.0F, 882.0F, 30.0F, 18.0F}},
-    EnvironmentObjectDefinition{"west_sandbags",
-                                EnvironmentObjectType::sandbags,
-                                EnvironmentAsset::sandbags_01,
-                                {584.0F, 432.0F},
-                                {592.0F, 442.0F, 69.0F, 13.0F}},
-    EnvironmentObjectDefinition{"east_sandbags",
-                                EnvironmentObjectType::sandbags,
-                                EnvironmentAsset::sandbags_01,
-                                {1'240.0F, 616.0F},
-                                {1'248.0F, 626.0F, 69.0F, 13.0F}},
-    EnvironmentObjectDefinition{"center_crate",
-                                EnvironmentObjectType::crate,
-                                EnvironmentAsset::crate_02,
-                                {928.0F, 648.0F},
-                                {933.0F, 668.0F, 20.0F, 11.0F}},
-    EnvironmentObjectDefinition{"center_barrel",
-                                EnvironmentObjectType::barrel,
-                                EnvironmentAsset::barrel_01,
-                                {968.0F, 656.0F},
-                                {972.0F, 668.0F, 12.0F, 8.0F}},
-    EnvironmentObjectDefinition{"west_bush", EnvironmentObjectType::bush,
-                                EnvironmentAsset::bush_02,
-                                {432.0F, 168.0F},
-                                {442.0F, 184.0F, 46.0F, 12.0F}},
-    EnvironmentObjectDefinition{"east_bush", EnvironmentObjectType::bush,
-                                EnvironmentAsset::bush_02,
-                                {1'424.0F, 872.0F},
-                                {1'434.0F, 888.0F, 46.0F, 12.0F}},
-};
+constexpr std::array<EnvironmentObjectDefinition, 24>
+    battlefield_01_environment{{
+    {"blue_home_house", EnvironmentObjectType::house,
+     EnvironmentAsset::house_01, {48.0F, 72.0F},
+     {62.0F, 152.0F, 104.0F, 44.0F},
+     EnvironmentOrientation::team_a_forward, {true}},
+    {"red_home_house", EnvironmentObjectType::house,
+     EnvironmentAsset::house_01, {1'740.0F, 72.0F},
+     {1'754.0F, 152.0F, 104.0F, 44.0F},
+     EnvironmentOrientation::team_b_forward, {true}},
+    {"blue_home_watchtower", EnvironmentObjectType::watchtower,
+     EnvironmentAsset::watchtower_01, {192.0F, 912.0F},
+     {214.0F, 934.0F, 28.0F, 28.0F},
+     EnvironmentOrientation::team_a_forward, {true}},
+    {"red_home_watchtower", EnvironmentObjectType::watchtower,
+     EnvironmentAsset::watchtower_01, {1'656.0F, 912.0F},
+     {1'678.0F, 934.0F, 28.0F, 28.0F},
+     EnvironmentOrientation::team_b_forward, {true}},
+
+    // Mirrored defensive lines sit behind the outer objectives and leave
+    // generous north, center, and south routes around them.
+    {"blue_north_sandbags", EnvironmentObjectType::sandbags,
+     EnvironmentAsset::sandbags_01, {500.0F, 216.0F},
+     {536.0F, 193.0F, 13.0F, 69.0F},
+     EnvironmentOrientation::team_a_forward, {true}},
+    {"blue_center_sandbags", EnvironmentObjectType::sandbags,
+     EnvironmentAsset::sandbags_01, {500.0F, 518.0F},
+     {536.0F, 495.0F, 13.0F, 69.0F},
+     EnvironmentOrientation::team_a_forward, {true}},
+    {"blue_south_sandbags", EnvironmentObjectType::sandbags,
+     EnvironmentAsset::sandbags_01, {500.0F, 790.0F},
+     {536.0F, 767.0F, 13.0F, 69.0F},
+     EnvironmentOrientation::team_a_forward, {true}},
+    {"red_north_sandbags", EnvironmentObjectType::sandbags,
+     EnvironmentAsset::sandbags_01, {1'335.0F, 216.0F},
+     {1'371.0F, 193.0F, 13.0F, 69.0F},
+     EnvironmentOrientation::team_b_forward, {true}},
+    {"red_center_sandbags", EnvironmentObjectType::sandbags,
+     EnvironmentAsset::sandbags_01, {1'335.0F, 518.0F},
+     {1'371.0F, 495.0F, 13.0F, 69.0F},
+     EnvironmentOrientation::team_b_forward, {true}},
+    {"red_south_sandbags", EnvironmentObjectType::sandbags,
+     EnvironmentAsset::sandbags_01, {1'335.0F, 790.0F},
+     {1'371.0F, 767.0F, 13.0F, 69.0F},
+     EnvironmentOrientation::team_b_forward, {true}},
+
+    {"blue_north_tree", EnvironmentObjectType::tree,
+     EnvironmentAsset::tree_02, {296.0F, 48.0F},
+     {326.0F, 120.0F, 45.0F, 24.0F},
+     EnvironmentOrientation::neutral, {true}},
+    {"blue_south_tree", EnvironmentObjectType::tree,
+     EnvironmentAsset::tree_02, {304.0F, 856.0F},
+     {334.0F, 928.0F, 45.0F, 24.0F},
+     EnvironmentOrientation::neutral, {true}},
+    {"red_north_tree", EnvironmentObjectType::tree,
+     EnvironmentAsset::tree_02, {1'520.0F, 48.0F},
+     {1'550.0F, 120.0F, 45.0F, 24.0F},
+     EnvironmentOrientation::neutral, {true}},
+    {"red_south_tree", EnvironmentObjectType::tree,
+     EnvironmentAsset::tree_02, {1'512.0F, 856.0F},
+     {1'542.0F, 928.0F, 45.0F, 24.0F},
+     EnvironmentOrientation::neutral, {true}},
+
+    {"blue_north_rock", EnvironmentObjectType::rock,
+     EnvironmentAsset::rock_02, {680.0F, 112.0F},
+     {692.0F, 154.0F, 30.0F, 18.0F},
+     EnvironmentOrientation::neutral, {true}},
+    {"blue_south_rock", EnvironmentObjectType::rock,
+     EnvironmentAsset::rock_02, {680.0F, 872.0F},
+     {692.0F, 914.0F, 30.0F, 18.0F},
+     EnvironmentOrientation::neutral, {true}},
+    {"red_north_rock", EnvironmentObjectType::rock,
+     EnvironmentAsset::rock_02, {1'192.0F, 112.0F},
+     {1'204.0F, 154.0F, 30.0F, 18.0F},
+     EnvironmentOrientation::neutral, {true}},
+    {"red_south_rock", EnvironmentObjectType::rock,
+     EnvironmentAsset::rock_02, {1'192.0F, 872.0F},
+     {1'204.0F, 914.0F, 30.0F, 18.0F},
+     EnvironmentOrientation::neutral, {true}},
+
+    {"blue_supply_crate", EnvironmentObjectType::crate,
+     EnvironmentAsset::crate_02, {192.0F, 144.0F},
+     {197.0F, 164.0F, 20.0F, 11.0F},
+     EnvironmentOrientation::team_a_forward, {true}},
+    {"blue_supply_barrel", EnvironmentObjectType::barrel,
+     EnvironmentAsset::barrel_01, {230.0F, 154.0F},
+     {234.0F, 166.0F, 12.0F, 8.0F},
+     EnvironmentOrientation::neutral, {true}},
+    {"red_supply_crate", EnvironmentObjectType::crate,
+     EnvironmentAsset::crate_02, {1'698.0F, 144.0F},
+     {1'703.0F, 164.0F, 20.0F, 11.0F},
+     EnvironmentOrientation::team_b_forward, {true}},
+    {"red_supply_barrel", EnvironmentObjectType::barrel,
+     EnvironmentAsset::barrel_01, {1'670.0F, 154.0F},
+     {1'674.0F, 166.0F, 12.0F, 8.0F},
+     EnvironmentOrientation::neutral, {true}},
+
+    // Bushes soften the lane transitions but deliberately remain passable.
+    {"blue_lane_bush", EnvironmentObjectType::bush,
+     EnvironmentAsset::bush_02, {632.0F, 382.0F},
+     {642.0F, 398.0F, 46.0F, 12.0F},
+     EnvironmentOrientation::neutral, {false}},
+    {"red_lane_bush", EnvironmentObjectType::bush,
+     EnvironmentAsset::bush_02, {1'222.0F, 670.0F},
+     {1'232.0F, 686.0F, 46.0F, 12.0F},
+     EnvironmentOrientation::neutral, {false}},
+}};
 
 constexpr MapDefinition battlefield_01{
     .id = battlefield_01_id,
@@ -173,6 +225,28 @@ std::optional<std::size_t> map_zone_index_for_position(
         }
     }
     return std::nullopt;
+}
+
+bool validate_environment_objects(const MapDefinition& map) noexcept {
+    for (std::size_t index = 0; index < map.environment_objects.size(); ++index) {
+        const EnvironmentObjectDefinition& object =
+            map.environment_objects[index];
+        const Bounds& footprint = object.footprint;
+        if (object.id.empty() || footprint.width <= 0.0F ||
+            footprint.height <= 0.0F || footprint.x < 0.0F ||
+            footprint.y < 0.0F ||
+            footprint.x + footprint.width > map.logical_width ||
+            footprint.y + footprint.height > map.logical_height) {
+            return false;
+        }
+        for (std::size_t other = index + 1;
+             other < map.environment_objects.size(); ++other) {
+            if (object.id == map.environment_objects[other].id) {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 } // namespace siege

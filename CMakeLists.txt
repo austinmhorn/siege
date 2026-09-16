@@ -57,6 +57,7 @@ add_executable(siege
     src/core/combat_behavior.cpp
     src/core/deployment.cpp
     src/core/economy.cpp
+    src/core/environment_collision.cpp
     src/core/frontline.cpp
     src/core/launch_options.cpp
     src/core/map_definition.cpp
@@ -115,6 +116,7 @@ if(BUILD_TESTING)
         src/core/combat_behavior.cpp
         src/core/deployment.cpp
         src/core/economy.cpp
+        src/core/environment_collision.cpp
         src/core/frontline.cpp
         src/core/launch_options.cpp
         src/core/map_definition.cpp

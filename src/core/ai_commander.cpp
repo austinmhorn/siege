@@ -413,25 +413,41 @@ void AiCommander::make_purchase_decision(World& world) {
     const float forward_fraction = forward->x_direction > 0.0F
         ? rules_.forward_position_fraction
         : 1.0F - rules_.forward_position_fraction;
-    const float y_fraction = rules_.deployment_y_fractions[
-        placement_cursor_ % rules_.deployment_y_fractions.size()];
-    const Vec2 position{
-        bounds->x + bounds->width * forward_fraction,
-        bounds->y + bounds->height * y_fraction,
-    };
+    std::optional<Vec2> position;
+    std::size_t selected_placement_offset = 0;
+    for (std::size_t offset = 0;
+         offset < rules_.deployment_y_fractions.size(); ++offset) {
+        const float y_fraction = rules_.deployment_y_fractions[
+            (placement_cursor_ + offset) %
+            rules_.deployment_y_fractions.size()];
+        const Vec2 candidate{
+            bounds->x + bounds->width * forward_fraction,
+            bounds->y + bounds->height * y_fraction,
+        };
+        if (is_valid_deployment_location(world, team_, troop_type,
+                                         candidate)) {
+            position = candidate;
+            selected_placement_offset = offset;
+            break;
+        }
+    }
+    if (!position.has_value()) {
+        last_result_ = AiDecisionResult::no_valid_deployment;
+        return;
+    }
     const DeploymentResult result =
-        request_deployment(world, team_, troop_type, position);
+        request_deployment(world, team_, troop_type, *position);
     if (result != DeploymentResult::accepted) {
         last_result_ = AiDecisionResult::rejected;
         return;
     }
 
     last_result_ = AiDecisionResult::purchased;
-    last_deployment_position_ = position;
+    last_deployment_position_ = *position;
     if (selected_index.has_value()) {
         troop_mix_cursor_ = (*selected_index + 1) % rules_.troop_mix.size();
     }
-    ++placement_cursor_;
+    placement_cursor_ += selected_placement_offset + 1;
     ++successful_deployments_;
 }
 

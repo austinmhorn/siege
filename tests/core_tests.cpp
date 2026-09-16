@@ -7,6 +7,7 @@
 #include "core/ai_commander.hpp"
 #include "core/deployment.hpp"
 #include "core/economy.hpp"
+#include "core/environment_collision.hpp"
 #include "core/frontline.hpp"
 #include "core/launch_options.hpp"
 #include "core/map_definition.hpp"
@@ -242,6 +243,8 @@ int main() {
 
     bool environment_bounds_valid = !battlefield.environment_objects.empty();
     bool environment_ids_unique = true;
+    std::array<bool, 8> blocking_types{};
+    bool bushes_are_passable = true;
     for (std::size_t index = 0;
          index < battlefield.environment_objects.size(); ++index) {
         const auto& object = battlefield.environment_objects[index];
@@ -259,36 +262,252 @@ int main() {
             environment_ids_unique &=
                 object.id != battlefield.environment_objects[other].id;
         }
+        if (object.type == EnvironmentObjectType::bush) {
+            bushes_are_passable &= !object.physical.blocks_unit_movement;
+        } else if (object.physical.blocks_unit_movement) {
+            blocking_types[static_cast<std::size_t>(object.type)] = true;
+        }
     }
     passed &= check(environment_bounds_valid && environment_ids_unique &&
+                        validate_environment_objects(battlefield) &&
+                        bushes_are_passable &&
+                        blocking_types[static_cast<std::size_t>(
+                            EnvironmentObjectType::house)] &&
+                        blocking_types[static_cast<std::size_t>(
+                            EnvironmentObjectType::rock)] &&
+                        blocking_types[static_cast<std::size_t>(
+                            EnvironmentObjectType::sandbags)] &&
+                        blocking_types[static_cast<std::size_t>(
+                            EnvironmentObjectType::tree)] &&
+                        blocking_types[static_cast<std::size_t>(
+                            EnvironmentObjectType::watchtower)] &&
+                        blocking_types[static_cast<std::size_t>(
+                            EnvironmentObjectType::crate)] &&
+                        blocking_types[static_cast<std::size_t>(
+                            EnvironmentObjectType::barrel)] &&
                         battlefield.environment_objects.front().id ==
                             "blue_home_house" &&
                         battlefield.environment_objects.back().id ==
-                            "east_bush",
-                    "environment objects have deterministic unique IDs and in-map footprints");
+                            "red_lane_bush",
+                    "environment objects have valid unique IDs, authored blocking metadata, and passable bushes");
 
-    MapDefinition environment_free_map = battlefield;
-    environment_free_map.environment_objects = {};
-    World environment_world{default_match_rules, battlefield};
-    World environment_free_world{default_match_rules, environment_free_map};
-    environment_world.units().clear();
-    environment_free_world.units().clear();
-    const Vec2 environment_start{140.0F, 216.0F};
-    environment_world.units().push_back(
-        test_unit(90, Team::team_a, environment_start, 270.0F));
-    environment_free_world.units().push_back(
-        test_unit(90, Team::team_a, environment_start, 270.0F));
-    Simulation environment_simulation{environment_world};
-    Simulation environment_free_simulation{environment_free_world};
-    environment_simulation.update(0.5);
-    environment_free_simulation.update(0.5);
+    bool directional_layout_valid = true;
+    for (const auto& object : battlefield.environment_objects) {
+        if (object.id.starts_with("blue_") &&
+            (object.type == EnvironmentObjectType::house ||
+             object.type == EnvironmentObjectType::sandbags ||
+             object.type == EnvironmentObjectType::watchtower)) {
+            directional_layout_valid &=
+                object.orientation == EnvironmentOrientation::team_a_forward;
+        }
+        if (object.id.starts_with("red_") &&
+            (object.type == EnvironmentObjectType::house ||
+             object.type == EnvironmentObjectType::sandbags ||
+             object.type == EnvironmentObjectType::watchtower)) {
+            directional_layout_valid &=
+                object.orientation == EnvironmentOrientation::team_b_forward;
+        }
+    }
     passed &= check(
-        environment_world.units()[0].position().x > environment_start.x &&
-            near(environment_world.units()[0].position().x,
-                 environment_free_world.units()[0].position().x) &&
-            near(environment_world.units()[0].position().y,
-                 environment_free_world.units()[0].position().y),
-        "environment metadata is SDL-free visual data and does not block simulation movement");
+        directional_layout_valid,
+        "mirrored battlefield defenses carry map-authored team-forward orientation");
+
+    constexpr std::array collision_environment{
+        EnvironmentObjectDefinition{
+            "movement_block", EnvironmentObjectType::rock,
+            EnvironmentAsset::rock_02, {296.0F, 180.0F},
+            {300.0F, 180.0F, 40.0F, 120.0F},
+            EnvironmentOrientation::neutral, {true}},
+        EnvironmentObjectDefinition{
+            "deployment_block", EnvironmentObjectType::crate,
+            EnvironmentAsset::crate_02, {180.0F, 500.0F},
+            {180.0F, 500.0F, 40.0F, 40.0F},
+            EnvironmentOrientation::neutral, {true}},
+        EnvironmentObjectDefinition{
+            "passable_bush", EnvironmentObjectType::bush,
+            EnvironmentAsset::bush_02, {96.0F, 640.0F},
+            {100.0F, 640.0F, 40.0F, 40.0F},
+            EnvironmentOrientation::neutral, {false}},
+    };
+    MapDefinition collision_map = battlefield;
+    collision_map.environment_objects = collision_environment;
+
+    auto malformed_environment = collision_environment;
+    malformed_environment[0].footprint.width = 0.0F;
+    MapDefinition malformed_map = collision_map;
+    malformed_map.environment_objects = malformed_environment;
+    auto duplicate_environment = collision_environment;
+    duplicate_environment[1].id = duplicate_environment[0].id;
+    MapDefinition duplicate_map = collision_map;
+    duplicate_map.environment_objects = duplicate_environment;
+    passed &= check(
+        validate_environment_objects(collision_map) &&
+            !validate_environment_objects(malformed_map) &&
+            !validate_environment_objects(duplicate_map),
+        "map validation rejects non-positive footprints and duplicate stable IDs without repair");
+
+    const Vec2 tunneled = resolve_unit_environment_movement(
+        collision_map, {220.0F, 240.0F}, {440.0F, 240.0F}, 20.0F);
+    const Vec2 slid = resolve_unit_environment_movement(
+        collision_map, {220.0F, 220.0F}, {380.0F, 340.0F}, 20.0F);
+    const Vec2 through_bush = resolve_unit_environment_movement(
+        collision_map, {60.0F, 660.0F}, {180.0F, 660.0F}, 20.0F);
+    passed &= check(
+        tunneled.x < 280.0F &&
+            !unit_overlaps_blocking_environment(collision_map, tunneled,
+                                                20.0F) &&
+            slid.x < 280.0F && slid.y > 300.0F &&
+            !unit_overlaps_blocking_environment(collision_map, slid, 20.0F) &&
+            near(through_bush.x, 180.0F) && near(through_bush.y, 660.0F),
+        "swept collision prevents tunneling, slides deterministically, and leaves bushes passable");
+
+    World blue_obstacle_world{default_match_rules, collision_map};
+    blue_obstacle_world.units().clear();
+    blue_obstacle_world.units().push_back(
+        test_unit(90, Team::team_a, {220.0F, 240.0F}, 270.0F));
+    Simulation blue_obstacle_simulation{blue_obstacle_world};
+    blue_obstacle_simulation.update(2.0);
+    World red_obstacle_world{default_match_rules, collision_map};
+    red_obstacle_world.units().clear();
+    red_obstacle_world.units().push_back(
+        test_unit(91, Team::team_b, {420.0F, 240.0F}, 90.0F));
+    Simulation red_obstacle_simulation{red_obstacle_world};
+    red_obstacle_simulation.update(2.0);
+    passed &= check(
+        blue_obstacle_world.units()[0].position().x < 280.0F &&
+            red_obstacle_world.units()[0].position().x > 360.0F &&
+            !unit_overlaps_blocking_environment(
+                collision_map, blue_obstacle_world.units()[0].position(),
+                blue_obstacle_world.units()[0].hit_radius()) &&
+            !unit_overlaps_blocking_environment(
+                collision_map, red_obstacle_world.units()[0].position(),
+                red_obstacle_world.units()[0].hit_radius()),
+        "mirrored BLUE and RED autonomous movement cannot enter a blocker");
+
+    const auto command_obeys_obstacle = [&](const TacticalOrder order) {
+        World world{default_match_rules, collision_map};
+        world.units().clear();
+        world.units().push_back(
+            test_unit(100 + static_cast<Unit::Id>(order), Team::team_a,
+                      {220.0F, 240.0F}, 270.0F));
+        world.units()[0].set_tactical_order(order, Vec2{420.0F, 240.0F});
+        Simulation simulation{world};
+        simulation.update(2.0);
+        return world.units()[0].position().x < 280.0F &&
+               !unit_overlaps_blocking_environment(
+                   collision_map, world.units()[0].position(),
+                   world.units()[0].hit_radius());
+    };
+    passed &= check(command_obeys_obstacle(TacticalOrder::advance) &&
+                        command_obeys_obstacle(TacticalOrder::hold) &&
+                        command_obeys_obstacle(TacticalOrder::regroup),
+                    "Advance, Hold, and Regroup share authoritative obstacle collision");
+
+    World obstacle_path_world{default_match_rules, collision_map};
+    obstacle_path_world.units().clear();
+    obstacle_path_world.units().push_back(
+        test_unit(110, Team::team_a, {220.0F, 240.0F}, 270.0F));
+    obstacle_path_world.units()[0].replace_movement_path({{440.0F, 240.0F}});
+    Simulation obstacle_path_simulation{obstacle_path_world};
+    obstacle_path_simulation.update(2.0);
+    passed &= check(
+        obstacle_path_world.units()[0].position().x < 280.0F &&
+            obstacle_path_world.units()[0].has_movement_path(),
+        "individual movement paths stop at blockers without discarding their remaining path");
+
+    constexpr std::array retreat_environment{
+        EnvironmentObjectDefinition{
+            "retreat_block", EnvironmentObjectType::sandbags,
+            EnvironmentAsset::sandbags_01, {220.0F, 210.0F},
+            {220.0F, 210.0F, 20.0F, 60.0F},
+            EnvironmentOrientation::team_a_forward, {true}},
+    };
+    MapDefinition retreat_map = battlefield;
+    retreat_map.environment_objects = retreat_environment;
+    World retreat_obstacle_world{default_match_rules, retreat_map};
+    retreat_obstacle_world.units().clear();
+    retreat_obstacle_world.units().push_back(
+        test_unit(120, Team::team_a, {270.0F, 240.0F}, 270.0F));
+    retreat_obstacle_world.units().push_back(
+        test_unit(121, Team::team_b, {350.0F, 240.0F}, 90.0F));
+    Simulation retreat_obstacle_simulation{retreat_obstacle_world};
+    retreat_obstacle_simulation.update(1.0);
+    passed &= check(
+        retreat_obstacle_world.units()[0].combat_movement_state() ==
+                CombatMovementState::retreating &&
+            retreat_obstacle_world.units()[0].position().x > 260.0F &&
+            !unit_overlaps_blocking_environment(
+                retreat_map, retreat_obstacle_world.units()[0].position(),
+                retreat_obstacle_world.units()[0].hit_radius()),
+        "combat retreat is constrained by the same swept obstacle resolver");
+
+    World obstacle_separation_world{default_match_rules, collision_map};
+    obstacle_separation_world.units().clear();
+    obstacle_separation_world.units().push_back(
+        test_unit(130, Team::team_a, {220.0F, 220.0F}, 270.0F));
+    obstacle_separation_world.units().push_back(
+        test_unit(131, Team::team_a, {220.0F, 260.0F}, 270.0F));
+    World obstacle_replay_world = obstacle_separation_world;
+    Simulation obstacle_separation_simulation{obstacle_separation_world};
+    Simulation obstacle_replay_simulation{obstacle_replay_world};
+    for (int tick = 0; tick < 120; ++tick) {
+        obstacle_separation_simulation.update(1.0 / 60.0);
+        obstacle_replay_simulation.update(1.0 / 60.0);
+    }
+    bool obstacle_replay_matches = true;
+    for (std::size_t index = 0;
+         index < obstacle_separation_world.units().size(); ++index) {
+        const Unit& left = obstacle_separation_world.units()[index];
+        const Unit& right = obstacle_replay_world.units()[index];
+        obstacle_replay_matches &= near(left.position().x, right.position().x) &&
+                                   near(left.position().y, right.position().y) &&
+                                   !unit_overlaps_blocking_environment(
+                                       collision_map, left.position(),
+                                       left.hit_radius());
+    }
+    passed &= check(
+        obstacle_replay_matches &&
+            length(obstacle_separation_world.units()[0].position() -
+                   obstacle_separation_world.units()[1].position()) > 1.0F,
+        "unit separation remains deterministic beside blocking footprints");
+
+    World obstacle_deployment_world{default_match_rules, collision_map};
+    const Money cash_before_obstacle =
+        obstacle_deployment_world.find_player(Team::team_a)->cash();
+    const DeploymentResult blocked_deployment = request_deployment(
+        obstacle_deployment_world, Team::team_a, TroopType::rifle,
+        {200.0F, 520.0F});
+    const DeploymentResult bush_deployment = request_deployment(
+        obstacle_deployment_world, Team::team_a, TroopType::rifle,
+        {120.0F, 660.0F});
+    passed &= check(
+        blocked_deployment == DeploymentResult::invalid_location &&
+            bush_deployment == DeploymentResult::accepted &&
+            obstacle_deployment_world.find_player(Team::team_a)->cash() ==
+                cash_before_obstacle - rifle_definition.purchase_cost,
+        "player deployment rejects blocker overlap without charging and accepts passable bushes");
+
+    constexpr std::array ai_environment{
+        EnvironmentObjectDefinition{
+            "red_first_lane_block", EnvironmentObjectType::watchtower,
+            EnvironmentAsset::watchtower_01, {1'660.0F, 200.0F},
+            {1'665.0F, 205.0F, 50.0F, 65.0F},
+            EnvironmentOrientation::team_b_forward, {true}},
+    };
+    MapDefinition ai_obstacle_map = battlefield;
+    ai_obstacle_map.environment_objects = ai_environment;
+    World ai_obstacle_world{default_match_rules, ai_obstacle_map};
+    AiCommander obstacle_commander{Team::team_b};
+    obstacle_commander.update(ai_obstacle_world, Team::team_a, 120);
+    passed &= check(
+        obstacle_commander.last_result() == AiDecisionResult::purchased &&
+            obstacle_commander.last_deployment_position().has_value() &&
+            is_valid_deployment_location(
+                ai_obstacle_world, Team::team_b,
+                *obstacle_commander.last_troop_choice(),
+                *obstacle_commander.last_deployment_position()) &&
+            obstacle_commander.last_deployment_position()->y > 300.0F,
+        "AI skips an obstructed authored lane and purchases through normal deployment validation");
 
     World selection_world;
     selection_world.units().clear();
@@ -3661,7 +3880,9 @@ int main() {
     passed &= check(!can_perceive(dead_target_units[0], dead_target_units[1]),
                     "dead unit cannot be targeted through perception");
 
-    World world;
+    MapDefinition movement_profile_map = battlefield;
+    movement_profile_map.environment_objects = {};
+    World world{default_match_rules, movement_profile_map};
     Simulation simulation{world};
     std::vector<Vec2> spawn_positions(world.units().size());
     for (std::size_t index = 0; index < world.units().size(); ++index) {

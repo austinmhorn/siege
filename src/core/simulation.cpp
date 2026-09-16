@@ -3,6 +3,7 @@
 #include "core/combat_behavior.hpp"
 #include "core/deployment.hpp"
 #include "core/economy.hpp"
+#include "core/environment_collision.hpp"
 #include "core/frontline.hpp"
 #include "core/movement_path.hpp"
 #include "core/projectile_collision.hpp"
@@ -424,12 +425,14 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
         const auto frontline_position = constrain_to_frontline(
             world_, unit.team(), unit.position(), unconstrained_position);
         const auto next_position = constrain_to_hold_leash(unit, frontline_position);
-        const Vec2 final_position{
+        const Vec2 world_position{
             std::clamp(next_position.x, world_margin,
                        world_.map().logical_width - world_margin),
             std::clamp(next_position.y, world_margin,
                        world_.map().logical_height - world_margin),
         };
+        const Vec2 final_position = resolve_unit_environment_movement(
+            world_.map(), unit.position(), world_position, unit.hit_radius());
         const bool moved =
             length_squared(final_position - unit.position()) > 0.0001F;
         unit.set_position(final_position);
