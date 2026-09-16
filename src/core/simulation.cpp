@@ -439,7 +439,9 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
             navigation_destination.reset();
             if (length_squared(target_direction) > 0.0001F) {
                 const Vec2 toward_target = normalized(target_direction);
-                desired_facing = facing_from_direction(target_direction);
+                if (!unit.has_independent_turret()) {
+                    desired_facing = facing_from_direction(target_direction);
+                }
                 switch (combat_state) {
                 case CombatMovementState::inactive:
                     break;
@@ -566,7 +568,8 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
                 velocity = velocity_from_steering(
                     normalized(toward_navigation) + intent.separation,
                     std::min(intended_speed, waypoint_speed));
-                if (!target_ids[index].has_value()) {
+                if (!target_ids[index].has_value() ||
+                    unit.has_independent_turret()) {
                     desired_facing = facing_from_direction(toward_navigation);
                 }
             }
@@ -592,6 +595,10 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
         };
         const Vec2 final_position = resolve_unit_environment_movement(
             world_.map(), unit.position(), world_position, unit.hit_radius());
+        if (unit.has_independent_turret() &&
+            length_squared(velocity) > 0.0001F) {
+            desired_facing = facing_from_direction(velocity);
+        }
         const bool moved =
             length_squared(final_position - unit.position()) > 0.0001F;
         unit.set_position(final_position);
@@ -599,6 +606,20 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
         unit.set_target_id(target_ids[index]);
         unit.set_desired_facing_angle(desired_facing);
         unit.rotate_toward_desired(fixed_delta_seconds);
+        if (target_ids[index].has_value()) {
+            const Unit* target = world_.find_unit(*target_ids[index]);
+            if (target != nullptr) {
+                const Vec2 target_direction =
+                    target->position() - unit.position();
+                if (length_squared(target_direction) > 0.0001F) {
+                    unit.set_desired_turret_angle(
+                        facing_from_direction(target_direction));
+                }
+            }
+        } else {
+            unit.set_desired_turret_angle(unit.facing_angle());
+        }
+        unit.rotate_turret_toward_desired(fixed_delta_seconds);
         unit.set_movement_state(
             intent.state == MovementState::moving && moved
                 ? MovementState::moving

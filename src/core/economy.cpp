@@ -13,6 +13,8 @@ Money kill_reward_for(const TroopType troop_type,
         return rules.machine_gun_kill_reward;
     case TroopType::bazooka:
         return rules.bazooka_kill_reward;
+    case TroopType::medium_tank:
+        return rules.medium_tank_kill_reward;
     }
     return 0;
 }

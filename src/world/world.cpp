@@ -152,6 +152,7 @@ Unit& World::spawn_unit(const TroopType troop_type, const Team team,
         definition->support_positioning_bias,
         definition->support_rear_distance, definition->support_search_radius,
         definition->max_health, definition->hit_radius, definition->weapon,
+        definition->independent_turret, definition->turret_rotation_speed,
         initial_facing);
 }
 
@@ -212,7 +213,7 @@ void World::remove_dead_units() {
         if (!unit.is_alive()) {
             death_events_.push_back(DeathEvent{
                 unit.id(), unit.troop_type(), unit.team(), unit.position(),
-                unit.facing_angle(),
+                unit.facing_angle(), unit.turret_angle(),
             });
         }
     }
@@ -267,6 +268,8 @@ void World::spawn_test_units() {
                             definition.support_search_radius,
                             definition.max_health,
                             definition.hit_radius, definition.weapon,
+                            definition.independent_turret,
+                            definition.turret_rotation_speed,
                             initial_facing);
     };
 

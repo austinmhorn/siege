@@ -16,6 +16,7 @@ enum class TroopType {
     rifle,
     machine_gun,
     bazooka,
+    medium_tank,
 };
 
 enum class MovementState {
@@ -55,14 +56,17 @@ public:
          float frontline_screen_weight, float support_positioning_bias,
          float support_rear_distance, float support_search_radius,
          float max_health, float hit_radius, WeaponDefinition weapon,
+         bool independent_turret, float turret_rotation_speed,
          float initial_facing_angle) noexcept;
 
     void begin_simulation_step() noexcept;
     void set_position(Vec2 position) noexcept;
     void set_desired_facing_angle(float angle) noexcept;
+    void set_desired_turret_angle(float angle) noexcept;
     void set_target_id(std::optional<Id> target_id) noexcept;
     void clear_target() noexcept;
     void rotate_toward_desired(double delta_seconds) noexcept;
+    void rotate_turret_toward_desired(double delta_seconds) noexcept;
     void set_movement_state(MovementState state) noexcept;
     void set_combat_movement_state(CombatMovementState state) noexcept;
     void set_support_positioning(std::optional<Id> screen_id,
@@ -91,6 +95,12 @@ public:
     [[nodiscard]] float facing_angle() const noexcept;
     [[nodiscard]] float previous_facing_angle() const noexcept;
     [[nodiscard]] float desired_facing_angle() const noexcept;
+    [[nodiscard]] bool has_independent_turret() const noexcept;
+    [[nodiscard]] float turret_angle() const noexcept;
+    [[nodiscard]] float previous_turret_angle() const noexcept;
+    [[nodiscard]] float desired_turret_angle() const noexcept;
+    [[nodiscard]] float turret_rotation_speed() const noexcept;
+    [[nodiscard]] float weapon_facing_angle() const noexcept;
     [[nodiscard]] std::optional<Id> target_id() const noexcept;
     [[nodiscard]] float preferred_y() const noexcept;
     [[nodiscard]] float move_speed() const noexcept;
@@ -143,6 +153,11 @@ private:
     float facing_angle_{};
     float previous_facing_angle_{};
     float desired_facing_angle_{};
+    bool independent_turret_{};
+    float turret_angle_{};
+    float previous_turret_angle_{};
+    float desired_turret_angle_{};
+    float turret_rotation_speed_{};
     std::optional<Id> target_id_{};
     float preferred_y_{};
     float move_speed_{};

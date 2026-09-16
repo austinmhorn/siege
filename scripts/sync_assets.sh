@@ -6,6 +6,7 @@ project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source_root="${1:-$project_root/.local_assets/soldiers}"
 font_source_root="${2:-$project_root/.local_assets/fonts/dogica}"
 terrain_source_root="${3:-$project_root/.local_assets/terrain/tilesets}"
+tank_source_root="${4:-$project_root/.local_assets/tanks}"
 pack_root="${source_root%/}/PNG"
 soldier_source="$pack_root/soldiers_color2/soldier1"
 shadow_source="$pack_root/Shadows"
@@ -13,6 +14,7 @@ destination="$project_root/assets/soldiers/color2/soldier1"
 shadow_destination="$project_root/assets/soldiers/shared/shadows"
 font_destination="$project_root/assets/fonts/dogica"
 terrain_destination="$project_root/assets/terrain/battlefield"
+tank_destination="$project_root/assets/tanks/medium_tank"
 
 required_files=()
 for index in 1 2 3 4 5 6 7; do
@@ -72,6 +74,38 @@ terrain_runtime_files=(
     "shadows/crate_02.png"
     "shadows/barrel_01.png"
 )
+tank_source_files=(
+    "$tank_source_root/PNG/Tanks_base/tank2_color3.png"
+    "$tank_source_root/PNG/Cannons_color3/cannon2_1.png"
+    "$tank_source_root/PNG/Cannons_color3/cannon2_2.png"
+    "$tank_source_root/PNG/Cannons_color3/cannon2_3.png"
+    "$tank_source_root/PNG/Cannons_color3/cannon2_4.png"
+    "$tank_source_root/PNG/Shadows/tank2_color1.png"
+    "$tank_source_root/PNG/Shadows/cannon2_1.png"
+    "$tank_source_root/PNG/Shadows/cannon2_2.png"
+    "$tank_source_root/PNG/Shadows/cannon2_3.png"
+    "$tank_source_root/PNG/Shadows/cannon2_4.png"
+    "$tank_source_root/PNG/Broken_assets/tank2_color1_broken.png"
+    "$tank_source_root/PNG/Broken_assets/cannon2_1_broken.png"
+    "$tank_source_root/PNG/Shadows/tank2_color1_broken.png"
+    "$tank_source_root/PNG/Shadows/cannon2_1_broken.png"
+)
+tank_runtime_files=(
+    "hull.png"
+    "turret_1.png"
+    "turret_2.png"
+    "turret_3.png"
+    "turret_4.png"
+    "shadows/hull.png"
+    "shadows/turret_1.png"
+    "shadows/turret_2.png"
+    "shadows/turret_3.png"
+    "shadows/turret_4.png"
+    "broken/hull.png"
+    "broken/turret.png"
+    "shadows/broken_hull.png"
+    "shadows/broken_turret.png"
+)
 for index in 1 2 3 4 5 6 7 8 9; do
     required_files+=(
         "$soldier_source/rifle/rifle${index}.png"
@@ -124,6 +158,16 @@ for file in "${terrain_source_files[@]}"; do
         exit 1
     fi
 done
+if [[ ! -d "$tank_source_root" ]]; then
+    echo "error: tank source pack not found: $tank_source_root" >&2
+    exit 1
+fi
+for file in "${tank_source_files[@]}"; do
+    if [[ ! -f "$file" ]]; then
+        echo "error: required tank asset not found: $file" >&2
+        exit 1
+    fi
+done
 
 mkdir -p \
     "$destination/legs" \
@@ -141,6 +185,7 @@ mkdir -p \
     "$terrain_destination/tiles" \
     "$terrain_destination/objects" \
     "$terrain_destination/shadows"
+mkdir -p "$tank_destination/shadows" "$tank_destination/broken"
 
 for index in 1 2 3 4 5 6 7; do
     cp "$soldier_source/legs/legs${index}.png" "$destination/legs/legs${index}.png"
@@ -180,8 +225,13 @@ for index in "${!terrain_source_files[@]}"; do
     cp "${terrain_source_files[$index]}" \
         "$terrain_destination/${terrain_runtime_files[$index]}"
 done
+for index in "${!tank_source_files[@]}"; do
+    cp "${tank_source_files[$index]}" \
+        "$tank_destination/${tank_runtime_files[$index]}"
+done
 
 echo "Synced authored blue soldier PNG files to: $destination"
 echo "Synced shared shadow PNG files to: $shadow_destination"
 echo "Synced Dogica Pixel regular, bold, and license files to: $font_destination"
 echo "Synced battlefield_01 terrain and environment PNG files to: $terrain_destination"
+echo "Synced Medium Tank hull, cannon, shadow, and broken PNG files to: $tank_destination"

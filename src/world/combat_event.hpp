@@ -14,6 +14,7 @@ struct DeathEvent {
     Team team;
     Vec2 position;
     float facing_angle;
+    float turret_angle;
 };
 
 struct FireEvent {

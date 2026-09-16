@@ -26,6 +26,8 @@ struct TroopDefinition {
     float support_search_radius;
     float max_health;
     float hit_radius;
+    bool independent_turret;
+    float turret_rotation_speed;
     float zone_control_weight;
     Money purchase_cost;
     double deployment_seconds;
@@ -50,6 +52,8 @@ inline constexpr TroopDefinition rifle_definition{
     .support_search_radius = 0.0F,
     .max_health = 100.0F,
     .hit_radius = 20.0F,
+    .independent_turret = false,
+    .turret_rotation_speed = 0.0F,
     .zone_control_weight = 1.0F,
     .purchase_cost = 2500,
     .deployment_seconds = 0.75,
@@ -83,6 +87,8 @@ inline constexpr TroopDefinition machine_gun_definition{
     .support_search_radius = 420.0F,
     .max_health = 100.0F,
     .hit_radius = 22.0F,
+    .independent_turret = false,
+    .turret_rotation_speed = 0.0F,
     .zone_control_weight = 1.0F,
     .purchase_cost = 4000,
     .deployment_seconds = 1.25,
@@ -116,6 +122,8 @@ inline constexpr TroopDefinition bazooka_definition{
     .support_search_radius = 500.0F,
     .max_health = 80.0F,
     .hit_radius = 20.0F,
+    .independent_turret = false,
+    .turret_rotation_speed = 0.0F,
     .zone_control_weight = 1.0F,
     .purchase_cost = 6000,
     .deployment_seconds = 1.75,
@@ -131,6 +139,41 @@ inline constexpr TroopDefinition bazooka_definition{
     },
 };
 
+inline constexpr TroopDefinition medium_tank_definition{
+    .type = TroopType::medium_tank,
+    .display_name = "Medium Tank",
+    .move_speed = 36.0F,
+    .rotation_speed = 35.0F,
+    .vision_range = 700.0F,
+    .vision_angle = 90.0F,
+    .awareness_radius = 120.0F,
+    .preferred_combat_range = 520.0F,
+    .range_tolerance = 50.0F,
+    .aggression = 0.55F,
+    .retreat_bias = 0.90F,
+    .frontline_screen_weight = 0.0F,
+    .support_positioning_bias = 0.70F,
+    .support_rear_distance = 90.0F,
+    .support_search_radius = 500.0F,
+    .max_health = 600.0F,
+    .hit_radius = 34.0F,
+    .independent_turret = true,
+    .turret_rotation_speed = 55.0F,
+    .zone_control_weight = 1.0F,
+    .purchase_cost = 12'000,
+    .deployment_seconds = 3.0,
+    .weapon = WeaponDefinition{
+        .type = WeaponType::tank_cannon,
+        .projectile_speed = 620.0F,
+        .fire_interval = 2.4F,
+        .range = 650.0F,
+        .firing_arc = 6.0F,
+        .projectile_max_distance = 760.0F,
+        .projectile_damage = 120.0F,
+        .splash_radius = 90.0F,
+    },
+};
+
 [[nodiscard]] constexpr const TroopDefinition* troop_definition_for(
     const TroopType type) noexcept {
     switch (type) {
@@ -140,6 +183,8 @@ inline constexpr TroopDefinition bazooka_definition{
         return &machine_gun_definition;
     case TroopType::bazooka:
         return &bazooka_definition;
+    case TroopType::medium_tank:
+        return &medium_tank_definition;
     }
     return nullptr;
 }

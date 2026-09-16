@@ -40,7 +40,7 @@ constexpr float left_panel_width = 256.0F;
 constexpr float unit_column_preferred_width = 190.0F;
 constexpr float unit_column_minimum_width = 148.0F;
 constexpr float unit_block_gap = 6.0F;
-constexpr std::size_t unit_block_line_count = 19;
+constexpr std::size_t unit_block_line_count = 20;
 
 struct TextCursor {
     FontSystem& fonts;
@@ -279,6 +279,14 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
             position + direction_from_facing(unit.desired_facing_angle()) * direction_length;
         if (!draw_world_line(renderer_, transform, position, desired_end)) {
             return false;
+        }
+        if (unit.has_independent_turret()) {
+            set_color(renderer_, 255, 145, 70, 235);
+            const Vec2 turret_end = position +
+                direction_from_facing(unit.turret_angle()) * direction_length;
+            if (!draw_world_line(renderer_, transform, position, turret_end)) {
+                return false;
+            }
         }
 
         if (length_squared(unit.support_steering()) > 0.0001F) {
@@ -658,8 +666,15 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                       unit.preferred_y());
         cursor.format(FontRole::debug, debug_text, "move: %.0f",
                       unit.move_speed());
-        cursor.format(FontRole::debug, debug_text, "rotation: %.0f",
-                      unit.rotation_speed());
+        cursor.format(FontRole::debug, debug_text, "hull: %.0f / %.0fdeg/s",
+                      unit.facing_angle(), unit.rotation_speed());
+        if (unit.has_independent_turret()) {
+            cursor.format(FontRole::debug, debug_text,
+                          "turret: %.0f / %.0fdeg/s", unit.turret_angle(),
+                          unit.turret_rotation_speed());
+        } else {
+            cursor.line(FontRole::debug, debug_muted, "turret: n/a");
+        }
         cursor.format(FontRole::debug, debug_text, "vision: %.0f / %.0fdeg",
                       unit.vision_range(), unit.vision_angle());
         cursor.format(FontRole::debug, debug_text, "range: %.0f +/-%.0f",

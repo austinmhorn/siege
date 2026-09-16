@@ -64,6 +64,7 @@ siege::Unit test_unit(const siege::Unit::Id id, const siege::Team team,
                            .projectile_damage = 25.0F,
                            .splash_radius = 0.0F,
                        },
+                       false, 0.0F,
                        facing};
 }
 
@@ -84,7 +85,9 @@ siege::Unit unit_from_definition(const siege::Unit::Id id,
                        definition.support_rear_distance,
                        definition.support_search_radius,
                        definition.max_health,
-                       definition.hit_radius, definition.weapon, facing};
+                       definition.hit_radius, definition.weapon,
+                       definition.independent_turret,
+                       definition.turret_rotation_speed, facing};
 }
 
 void arrange_combat_scenario(siege::World& world,
@@ -1206,10 +1209,10 @@ int main() {
             hard_purchase_world_a.pending_deployments()[1].troop_type ==
                 TroopType::machine_gun &&
             hard_purchase_world_a.pending_deployments()[2].troop_type ==
-                TroopType::bazooka &&
+                TroopType::medium_tank &&
             hard_purchase_world_a.find_player(Team::team_b)->cash() ==
                 hard_purchase_world_b.find_player(Team::team_b)->cash() &&
-            hard_purchase_world_a.find_player(Team::team_b)->cash() == 10'000,
+            hard_purchase_world_a.find_player(Team::team_b)->cash() == 500,
         "Hard composition-aware purchases are deterministic, affordable, and use legal pending deployments");
 
     const std::array all_difficulties{AiDifficulty::easy,
@@ -1356,8 +1359,8 @@ int main() {
     AiCommander mix_commander{Team::team_b};
     mix_commander.update(ai_mix_world, Team::team_a, 361);
     const std::array<TroopType, 4> expected_ai_mix{
-        TroopType::rifle, TroopType::machine_gun, TroopType::rifle,
-        TroopType::bazooka};
+        TroopType::rifle, TroopType::machine_gun, TroopType::medium_tank,
+        TroopType::rifle};
     bool mixed_pending = ai_mix_world.pending_deployments().size() ==
                          expected_ai_mix.size();
     for (std::size_t index = 0;
@@ -1378,7 +1381,7 @@ int main() {
                 default_economy_rules.starting_cash -
                     rifle_definition.purchase_cost * 2 -
                     machine_gun_definition.purchase_cost -
-                    bazooka_definition.purchase_cost,
+                    medium_tank_definition.purchase_cost,
         "AI follows the centralized deterministic weighted troop mix");
 
     World ai_front_world;
@@ -2906,6 +2909,91 @@ int main() {
                         near(bazooka_definition.max_health, 80.0F) &&
                         near(bazooka_definition.zone_control_weight, 1.0F),
                     "bazooka definition exposes its explosive long-range profile");
+    passed &= check(
+        medium_tank_definition.type == TroopType::medium_tank &&
+            troop_definition_for(TroopType::medium_tank) ==
+                &medium_tank_definition &&
+            troop_display_name(TroopType::medium_tank) == "Medium Tank" &&
+            to_string(TroopType::medium_tank) == "medium_tank" &&
+            near(medium_tank_definition.move_speed, 36.0F) &&
+            near(medium_tank_definition.rotation_speed, 35.0F) &&
+            near(medium_tank_definition.turret_rotation_speed, 55.0F) &&
+            medium_tank_definition.independent_turret &&
+            near(medium_tank_definition.max_health, 600.0F) &&
+            near(medium_tank_definition.hit_radius, 34.0F) &&
+            near(medium_tank_definition.vision_range, 700.0F) &&
+            near(medium_tank_definition.awareness_radius, 120.0F) &&
+            near(medium_tank_definition.preferred_combat_range, 520.0F) &&
+            near(medium_tank_definition.range_tolerance, 50.0F) &&
+            medium_tank_definition.purchase_cost == 12'000 &&
+            near(static_cast<float>(medium_tank_definition.deployment_seconds),
+                 3.0F) &&
+            medium_tank_definition.weapon.type == WeaponType::tank_cannon &&
+            near(medium_tank_definition.weapon.projectile_speed, 620.0F) &&
+            near(medium_tank_definition.weapon.fire_interval, 2.4F) &&
+            near(medium_tank_definition.weapon.range, 650.0F) &&
+            near(medium_tank_definition.weapon.projectile_max_distance, 760.0F) &&
+            near(medium_tank_definition.weapon.projectile_damage, 120.0F) &&
+            near(medium_tank_definition.weapon.splash_radius, 90.0F) &&
+            kill_reward_for(TroopType::medium_tank) == 1'200,
+        "medium tank definition centralizes vehicle, economy, and cannon tuning");
+
+    Unit turret_tank = unit_from_definition(
+        980, Team::team_a, {100.0F, 100.0F}, 0.0F,
+        medium_tank_definition);
+    Unit turret_target =
+        test_unit(981, Team::team_b, {200.0F, 100.0F}, 90.0F);
+    turret_tank.set_target_id(turret_target.id());
+    const float original_hull_angle = turret_tank.facing_angle();
+    passed &= check(!can_fire_at(turret_tank, turret_target),
+                    "tank cannon cannot fire before its turret is aligned");
+    turret_tank.begin_simulation_step();
+    turret_tank.set_desired_turret_angle(270.0F);
+    turret_tank.rotate_turret_toward_desired(1.0);
+    passed &= check(near(turret_tank.turret_angle(), 305.0F) &&
+                        near(turret_tank.facing_angle(), original_hull_angle) &&
+                        !can_fire_at(turret_tank, turret_target),
+                    "turret tracks independently at 55 degrees per second");
+    turret_tank.rotate_turret_toward_desired(1.0);
+    passed &= check(near(turret_tank.turret_angle(), 270.0F) &&
+                        can_fire_at(turret_tank, turret_target),
+                    "aligned independent turret authorizes cannon fire");
+    turret_tank.clear_target();
+    turret_tank.set_desired_turret_angle(turret_tank.facing_angle());
+    turret_tank.rotate_turret_toward_desired(1.0);
+    passed &= check(near(turret_tank.turret_angle(), 325.0F),
+                    "targetless turret gradually returns toward hull forward");
+    turret_tank.set_desired_facing_angle(270.0F);
+    turret_tank.rotate_toward_desired(1.0);
+    passed &= check(near(turret_tank.facing_angle(), 325.0F),
+                    "medium tank hull turns gradually at its own rotation speed");
+
+    World tank_deployment_world;
+    tank_deployment_world.units().clear();
+    passed &= check(
+        request_deployment(tank_deployment_world, Team::team_a,
+                           TroopType::medium_tank, {100.0F, 540.0F}) ==
+                DeploymentResult::accepted &&
+            tank_deployment_world.find_player(Team::team_a)->cash() == 13'000 &&
+            tank_deployment_world.pending_deployments().size() == 1 &&
+            near(static_cast<float>(tank_deployment_world
+                                        .pending_deployments()[0]
+                                        .remaining_seconds),
+                 3.0F),
+        "medium tank purchase uses normal cash and pending deployment rules");
+    for (int tick = 0; tick < 179; ++tick) {
+        update_pending_deployments(tank_deployment_world, 1.0 / 60.0);
+    }
+    const bool tank_waited_for_timer = tank_deployment_world.units().empty();
+    update_pending_deployments(tank_deployment_world, 1.0 / 60.0);
+    passed &= check(
+        tank_waited_for_timer &&
+            tank_deployment_world.pending_deployments().empty() &&
+            tank_deployment_world.units().size() == 1 &&
+            tank_deployment_world.units()[0].troop_type() ==
+                TroopType::medium_tank &&
+            near(tank_deployment_world.units()[0].hit_radius(), 34.0F),
+        "medium tank spawns generically after its deterministic three-second timer");
 
     World presence_world;
     presence_world.units().clear();
@@ -3675,6 +3763,26 @@ int main() {
     passed &= check(!can_fire_at(weapon_observer, weapon_outside_arc),
                     "target outside current-facing firing arc cannot be fired upon");
 
+    World tank_firing_world{default_match_rules, navigation_open_map};
+    tank_firing_world.units().clear();
+    tank_firing_world.units().push_back(unit_from_definition(
+        345, Team::team_a, {100.0F, 500.0F}, 270.0F,
+        medium_tank_definition));
+    tank_firing_world.units().push_back(
+        test_unit(346, Team::team_b, {600.0F, 500.0F}, 90.0F));
+    Simulation tank_firing_simulation{tank_firing_world};
+    tank_firing_simulation.update(1.0 / 60.0);
+    passed &= check(
+        tank_firing_world.units()[0].target_id() == 346 &&
+            near(tank_firing_world.units()[0].facing_angle(), 270.0F) &&
+            near(tank_firing_world.units()[0].turret_angle(), 270.0F) &&
+            tank_firing_world.projectiles().size() == 1 &&
+            tank_firing_world.projectiles()[0].weapon_type() ==
+                WeaponType::tank_cannon &&
+            near(tank_firing_world.projectiles()[0].splash_radius(), 90.0F) &&
+            tank_firing_world.fire_events().size() == 1,
+        "aligned medium tank fires a normal authoritative explosive shell without turning its hull at the target");
+
     World firing_world;
     arrange_combat_scenario(firing_world, {500.0F, 200.0F},
                             {500.0F, 480.0F});
@@ -3935,6 +4043,29 @@ int main() {
     passed &= check(near(protected_world.find_unit(902)->health(), 100.0F) &&
                         protected_world.projectiles().empty(),
                     "swept environment impact removes a fast bullet before a protected unit");
+
+    World tank_cover_world{default_match_rules, projectile_cover_map};
+    tank_cover_world.units().clear();
+    tank_cover_world.units().push_back(unit_from_definition(
+        905, Team::team_a, {100.0F, 100.0F}, 270.0F,
+        medium_tank_definition));
+    tank_cover_world.units().push_back(
+        test_unit(906, Team::team_b, {320.0F, 100.0F}, 90.0F));
+    tank_cover_world.units().push_back(
+        test_unit(907, Team::team_b, {400.0F, 100.0F}, 90.0F));
+    tank_cover_world.spawn_projectile(
+        WeaponType::tank_cannon, Team::team_a, 905, {100.0F, 100.0F},
+        {24'000.0F, 0.0F}, 760.0F, 120.0F, 90.0F);
+    Simulation tank_cover_simulation{tank_cover_world};
+    tank_cover_simulation.update(1.0 / 60.0);
+    passed &= check(
+        tank_cover_world.projectiles().empty() &&
+            tank_cover_world.explosion_events().size() == 1 &&
+            near(tank_cover_world.explosion_events()[0].position.x, 250.0F) &&
+            tank_cover_world.find_unit(906) == nullptr &&
+            tank_cover_world.find_unit(907) != nullptr &&
+            near(tank_cover_world.find_unit(907)->health(), 100.0F),
+        "tank shell detonates at swept environment contact and applies hostile-only splash from the exact impact point");
 
     constexpr std::array tied_impact_environment{
         EnvironmentObjectDefinition{

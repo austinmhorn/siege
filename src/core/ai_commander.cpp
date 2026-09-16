@@ -164,6 +164,8 @@ std::size_t troop_index(const TroopType troop) noexcept {
         return 1;
     case TroopType::bazooka:
         return 2;
+    case TroopType::medium_tank:
+        return 3;
     }
     return 0;
 }
@@ -176,8 +178,8 @@ std::optional<TroopType> composition_purchase(const World& world,
     if (player == nullptr) {
         return std::nullopt;
     }
-    std::array<int, 3> current{};
-    std::array<int, 3> desired{};
+    std::array<int, 4> current{};
+    std::array<int, 4> desired{};
     for (const Unit& unit : world.units()) {
         if (unit.is_alive() && unit.team() == team) {
             ++current[troop_index(unit.troop_type())];
@@ -191,10 +193,12 @@ std::optional<TroopType> composition_purchase(const World& world,
     for (const TroopType troop : profile.rules.troop_mix) {
         ++desired[troop_index(troop)];
     }
-    const std::array<TroopType, 3> attack_priority{
-        TroopType::rifle, TroopType::machine_gun, TroopType::bazooka};
-    const std::array<TroopType, 3> defend_priority{
-        TroopType::machine_gun, TroopType::rifle, TroopType::bazooka};
+    const std::array<TroopType, 4> attack_priority{
+        TroopType::rifle, TroopType::machine_gun, TroopType::medium_tank,
+        TroopType::bazooka};
+    const std::array<TroopType, 4> defend_priority{
+        TroopType::machine_gun, TroopType::rifle, TroopType::medium_tank,
+        TroopType::bazooka};
     const auto& priority = strategy == AiStrategy::defend
         ? defend_priority
         : attack_priority;
@@ -263,7 +267,8 @@ AiProfile make_ai_profile(const AiDifficulty difficulty,
         break;
     case AiPlaystyle::aggressive:
         rules.troop_mix = {TroopType::rifle, TroopType::machine_gun,
-                           TroopType::rifle, TroopType::machine_gun};
+                           TroopType::rifle, TroopType::medium_tank,
+                           TroopType::machine_gun};
         rules.forward_position_fraction = 0.90F;
         rules.defense_enemy_threshold = 2;
         rules.regroup_outnumber_ratio += 0.35F;
@@ -274,7 +279,8 @@ AiProfile make_ai_profile(const AiDifficulty difficulty,
         break;
     case AiPlaystyle::defensive:
         rules.troop_mix = {TroopType::rifle, TroopType::machine_gun,
-                           TroopType::machine_gun, TroopType::bazooka};
+                           TroopType::machine_gun, TroopType::bazooka,
+                           TroopType::medium_tank};
         rules.forward_position_fraction = 0.65F;
         rules.force_selection_margin += 80.0F;
         rules.fallback_force_limit += 2;

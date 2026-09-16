@@ -31,7 +31,8 @@ bool can_fire_at(const Unit& observer, const Unit& target) noexcept {
 
     const float target_bearing = facing_from_direction(offset);
     const float angular_difference =
-        std::abs(shortest_angle_delta(observer.facing_angle(), target_bearing));
+        std::abs(shortest_angle_delta(observer.weapon_facing_angle(),
+                                      target_bearing));
     const float half_arc =
         std::clamp(observer.weapon().firing_arc, 0.0F, 360.0F) * 0.5F;
     return angular_difference <= half_arc + angular_boundary_epsilon;

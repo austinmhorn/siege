@@ -6,6 +6,7 @@ enum class WeaponType {
     rifle,
     machine_gun,
     bazooka,
+    tank_cannon,
 };
 
 struct WeaponDefinition {

@@ -148,6 +148,19 @@ constexpr std::array<std::size_t, 6> machine_gun_firing_frames{11, 12, 13,
 constexpr std::array<std::size_t, 13> bazooka_firing_frames{
     13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1,
 };
+constexpr std::array<std::size_t, 3> tank_cannon_firing_frames{2, 3, 4};
+
+struct TankVisualLayout {
+    float canvas_size;
+    Vec2 hull_anchor;
+    Vec2 turret_anchor;
+};
+
+constexpr TankVisualLayout medium_tank_layout{
+    .canvas_size = 128.0F,
+    .hull_anchor = {64.0F, 64.0F},
+    .turret_anchor = {64.0F, 32.0F},
+};
 
 constexpr TroopVisualDefinition rifle_visual{
     .troop_type = TroopType::rifle,
@@ -202,12 +215,15 @@ const TroopVisualDefinition* visual_for(const TroopType troop_type) noexcept {
         return &machine_gun_visual;
     case TroopType::bazooka:
         return &bazooka_visual;
+    case TroopType::medium_tank:
+        return nullptr;
     }
     return nullptr;
 }
 
-constexpr std::array<TroopType, 3> purchasable_troops{
-    TroopType::rifle, TroopType::machine_gun, TroopType::bazooka};
+constexpr std::array<TroopType, 4> purchasable_troops{
+    TroopType::rifle, TroopType::machine_gun, TroopType::bazooka,
+    TroopType::medium_tank};
 
 SDL_FRect deployment_button_rect(const std::size_t index,
                                  const int output_width,
@@ -339,6 +355,10 @@ std::filesystem::path shadow_frame_path(const std::string_view layer,
                                         const std::size_t frame) {
     return std::filesystem::path{"soldiers/shared/shadows"} / layer /
            (std::string{prefix} + std::to_string(frame) + ".png");
+}
+
+std::filesystem::path tank_frame_path(const std::string_view name) {
+    return std::filesystem::path{"tanks/medium_tank"} / name;
 }
 
 bool render_soldier_layer(SDL_Renderer* renderer, TextureCache& textures,
@@ -570,6 +590,9 @@ void Renderer::update(const World& world, const double fixed_delta_seconds) {
     }
 
     for (const auto& unit : world.units()) {
+        if (unit.troop_type() == TroopType::medium_tank) {
+            continue;
+        }
         auto [entry, inserted] = leg_animations_.try_emplace(
             unit.id(), std::vector<std::size_t>{1, 2, 3, 4, 5, 6, 7}, 0.10, true);
         static_cast<void>(inserted);
@@ -588,6 +611,18 @@ void Renderer::update(const World& world, const double fixed_delta_seconds) {
     });
 
     for (const auto& event : world.fire_events()) {
+        if (event.troop_type == TroopType::medium_tank &&
+            event.weapon_type == WeaponType::tank_cannon) {
+            auto [animation, inserted] = firing_animations_.try_emplace(
+                event.unit_id,
+                std::vector<std::size_t>{tank_cannon_firing_frames.begin(),
+                                         tank_cannon_firing_frames.end()},
+                0.06, false);
+            if (!inserted) {
+                animation->second.reset();
+            }
+            continue;
+        }
         const TroopVisualDefinition* visual = visual_for(event.troop_type);
         if (visual == nullptr || event.weapon_type != visual->weapon_type) {
             continue;
@@ -618,9 +653,13 @@ void Renderer::update(const World& world, const double fixed_delta_seconds) {
     }
     if (match_active) {
         for (auto& corpse : corpses_) {
-            corpse.animation.update(fixed_delta_seconds);
-            if (corpse.animation.finished()) {
+            if (corpse.death.troop_type == TroopType::medium_tank) {
                 corpse.fade_elapsed += fixed_delta_seconds;
+            } else {
+                corpse.animation.update(fixed_delta_seconds);
+                if (corpse.animation.finished()) {
+                    corpse.fade_elapsed += fixed_delta_seconds;
+                }
             }
         }
         std::erase_if(corpses_, [](const CorpseVisual& corpse) {
@@ -1375,7 +1414,8 @@ bool Renderer::render_projectiles(const World& world,
                             draw_position.x, draw_position.y)) {
             return false;
         }
-        if (projectile.weapon_type() == WeaponType::bazooka) {
+        if (projectile.weapon_type() == WeaponType::bazooka ||
+            projectile.weapon_type() == WeaponType::tank_cannon) {
             set_color(renderer_, rocket_core);
             if (!SDL_RenderPoint(renderer_, draw_position.x, draw_position.y) ||
                 !SDL_RenderPoint(renderer_, draw_position.x - 1.0F, draw_position.y) ||
@@ -1411,12 +1451,47 @@ bool Renderer::render_explosions(const WorldTransform& transform) const {
 
 bool Renderer::render_corpses(const WorldTransform& transform) const {
     for (const auto& corpse : corpses_) {
+        const float opacity = static_cast<float>(
+            1.0 - std::clamp(corpse.fade_elapsed / corpse_fade_seconds, 0.0, 1.0));
+        if (corpse.death.troop_type == TroopType::medium_tank) {
+            constexpr Color blue_wreck_modulation{115, 165, 255, 255};
+            const Color wreck_modulation = corpse.death.team == Team::team_b
+                ? team_visual_variant(corpse.death.team).modulation
+                : blue_wreck_modulation;
+            if (!render_soldier_layer(
+                    renderer_, textures_, transform,
+                    tank_frame_path("shadows/broken_hull.png"),
+                    corpse.death.position, corpse.death.facing_angle,
+                    medium_tank_layout.canvas_size,
+                    medium_tank_layout.hull_anchor, opacity) ||
+                !render_soldier_layer(
+                    renderer_, textures_, transform,
+                    tank_frame_path("shadows/broken_turret.png"),
+                    corpse.death.position, corpse.death.turret_angle,
+                    medium_tank_layout.canvas_size,
+                    medium_tank_layout.turret_anchor, opacity) ||
+                !render_soldier_layer(
+                    renderer_, textures_, transform,
+                    tank_frame_path("broken/hull.png"),
+                    corpse.death.position, corpse.death.facing_angle,
+                    medium_tank_layout.canvas_size,
+                    medium_tank_layout.hull_anchor, opacity,
+                    wreck_modulation) ||
+                !render_soldier_layer(
+                    renderer_, textures_, transform,
+                    tank_frame_path("broken/turret.png"),
+                    corpse.death.position, corpse.death.turret_angle,
+                    medium_tank_layout.canvas_size,
+                    medium_tank_layout.turret_anchor, opacity,
+                    wreck_modulation)) {
+                return false;
+            }
+            continue;
+        }
         if (visual_for(corpse.death.troop_type) == nullptr) {
             continue;
         }
         const std::size_t frame = corpse.animation.current_frame();
-        const float opacity = static_cast<float>(
-            1.0 - std::clamp(corpse.fade_elapsed / corpse_fade_seconds, 0.0, 1.0));
         if (!render_soldier_layer(
                 renderer_, textures_, transform,
                 shadow_frame_path("death1", "death1_", frame),
@@ -1437,15 +1512,54 @@ bool Renderer::render_corpses(const WorldTransform& transform) const {
 bool Renderer::render_units(const World& world, const WorldTransform& transform,
                             const double interpolation_alpha) const {
     for (const auto& unit : world.units()) {
+        const float alpha = static_cast<float>(interpolation_alpha);
+        const Vec2 position =
+            lerp(unit.previous_position(), unit.position(), alpha);
+        const float facing =
+            lerp_angle(unit.previous_facing_angle(), unit.facing_angle(), alpha);
+        if (unit.troop_type() == TroopType::medium_tank) {
+            const float turret_facing = lerp_angle(
+                unit.previous_turret_angle(), unit.turret_angle(), alpha);
+            std::size_t turret_frame = 1;
+            if (const auto animation = firing_animations_.find(unit.id());
+                animation != firing_animations_.end()) {
+                turret_frame = animation->second.current_frame();
+            }
+            const Color team_modulation =
+                team_visual_variant(unit.team()).modulation;
+            if (!render_soldier_layer(
+                    renderer_, textures_, transform,
+                    tank_frame_path("shadows/hull.png"), position, facing,
+                    medium_tank_layout.canvas_size,
+                    medium_tank_layout.hull_anchor) ||
+                !render_soldier_layer(
+                    renderer_, textures_, transform,
+                    tank_frame_path("shadows/turret_" +
+                                    std::to_string(turret_frame) + ".png"),
+                    position, turret_facing, medium_tank_layout.canvas_size,
+                    medium_tank_layout.turret_anchor) ||
+                !render_soldier_layer(
+                    renderer_, textures_, transform,
+                    tank_frame_path("hull.png"), position, facing,
+                    medium_tank_layout.canvas_size,
+                    medium_tank_layout.hull_anchor, 1.0F,
+                    team_modulation) ||
+                !render_soldier_layer(
+                    renderer_, textures_, transform,
+                    tank_frame_path("turret_" +
+                                    std::to_string(turret_frame) + ".png"),
+                    position, turret_facing, medium_tank_layout.canvas_size,
+                    medium_tank_layout.turret_anchor, 1.0F,
+                    team_modulation)) {
+                return false;
+            }
+            continue;
+        }
         const TroopVisualDefinition* visual = visual_for(unit.troop_type());
         if (visual == nullptr) {
             continue;
         }
 
-        const float alpha = static_cast<float>(interpolation_alpha);
-        const Vec2 position = lerp(unit.previous_position(), unit.position(), alpha);
-        const float facing =
-            lerp_angle(unit.previous_facing_angle(), unit.facing_angle(), alpha);
         std::size_t leg_frame = 1;
         if (const auto animation = leg_animations_.find(unit.id());
             animation != leg_animations_.end()) {

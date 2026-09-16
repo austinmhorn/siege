@@ -14,6 +14,8 @@ std::string_view to_string(const TroopType type) noexcept {
         return "machine_gun";
     case TroopType::bazooka:
         return "bazooka";
+    case TroopType::medium_tank:
+        return "medium_tank";
     }
     return "unknown";
 }
@@ -81,11 +83,17 @@ Unit::Unit(const Id id, const TroopType troop_type, const Team team,
            const float support_rear_distance,
            const float support_search_radius,
            const float max_health, const float hit_radius,
-           const WeaponDefinition weapon, const float initial_facing_angle) noexcept
+           const WeaponDefinition weapon, const bool independent_turret,
+           const float turret_rotation_speed,
+           const float initial_facing_angle) noexcept
     : id_(id), troop_type_(troop_type), team_(team), position_(spawn_position),
       previous_position_(spawn_position),
       facing_angle_(normalized_angle(initial_facing_angle)),
       previous_facing_angle_(facing_angle_), desired_facing_angle_(facing_angle_),
+      independent_turret_(independent_turret), turret_angle_(facing_angle_),
+      previous_turret_angle_(turret_angle_),
+      desired_turret_angle_(turret_angle_),
+      turret_rotation_speed_(std::max(turret_rotation_speed, 0.0F)),
       preferred_y_(spawn_position.y), move_speed_(move_speed),
       rotation_speed_(rotation_speed), vision_range_(vision_range),
       vision_angle_(vision_angle), awareness_radius_(awareness_radius),
@@ -104,6 +112,7 @@ Unit::Unit(const Id id, const TroopType troop_type, const Team team,
 void Unit::begin_simulation_step() noexcept {
     previous_position_ = position_;
     previous_facing_angle_ = facing_angle_;
+    previous_turret_angle_ = turret_angle_;
 }
 
 void Unit::set_position(const Vec2 position) noexcept {
@@ -112,6 +121,10 @@ void Unit::set_position(const Vec2 position) noexcept {
 
 void Unit::set_desired_facing_angle(const float angle) noexcept {
     desired_facing_angle_ = normalized_angle(angle);
+}
+
+void Unit::set_desired_turret_angle(const float angle) noexcept {
+    desired_turret_angle_ = normalized_angle(angle);
 }
 
 void Unit::set_target_id(const std::optional<Id> target_id) noexcept {
@@ -127,6 +140,19 @@ void Unit::rotate_toward_desired(const double delta_seconds) noexcept {
     const float maximum_step = rotation_speed_ * static_cast<float>(delta_seconds);
     facing_angle_ = normalized_angle(
         facing_angle_ + std::clamp(delta, -maximum_step, maximum_step));
+}
+
+void Unit::rotate_turret_toward_desired(const double delta_seconds) noexcept {
+    if (!independent_turret_) {
+        turret_angle_ = facing_angle_;
+        desired_turret_angle_ = desired_facing_angle_;
+        return;
+    }
+    const float delta = shortest_angle_delta(turret_angle_, desired_turret_angle_);
+    const float maximum_step =
+        turret_rotation_speed_ * static_cast<float>(delta_seconds);
+    turret_angle_ = normalized_angle(
+        turret_angle_ + std::clamp(delta, -maximum_step, maximum_step));
 }
 
 void Unit::set_movement_state(const MovementState state) noexcept {
@@ -263,6 +289,22 @@ Vec2 Unit::previous_position() const noexcept { return previous_position_; }
 float Unit::facing_angle() const noexcept { return facing_angle_; }
 float Unit::previous_facing_angle() const noexcept { return previous_facing_angle_; }
 float Unit::desired_facing_angle() const noexcept { return desired_facing_angle_; }
+bool Unit::has_independent_turret() const noexcept {
+    return independent_turret_;
+}
+float Unit::turret_angle() const noexcept { return turret_angle_; }
+float Unit::previous_turret_angle() const noexcept {
+    return previous_turret_angle_;
+}
+float Unit::desired_turret_angle() const noexcept {
+    return desired_turret_angle_;
+}
+float Unit::turret_rotation_speed() const noexcept {
+    return turret_rotation_speed_;
+}
+float Unit::weapon_facing_angle() const noexcept {
+    return independent_turret_ ? turret_angle_ : facing_angle_;
+}
 std::optional<Unit::Id> Unit::target_id() const noexcept { return target_id_; }
 float Unit::preferred_y() const noexcept { return preferred_y_; }
 float Unit::move_speed() const noexcept { return move_speed_; }
