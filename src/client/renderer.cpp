@@ -10,6 +10,7 @@
 #include "core/math.hpp"
 #include "core/movement_path.hpp"
 #include "core/tactical_command.hpp"
+#include "core/tactical_group.hpp"
 #include "core/troop_definition.hpp"
 #include "core/zone_capture.hpp"
 #include "world/unit.hpp"
@@ -61,25 +62,71 @@ constexpr float score_panel_y = 42.0F;
 constexpr float result_panel_width = 320.0F;
 constexpr float result_panel_height = 88.0F;
 
-constexpr std::array<TacticalOrder, 4> tactical_commands{
-    TacticalOrder::advance,
-    TacticalOrder::hold,
-    TacticalOrder::regroup,
-    TacticalOrder::automatic,
+enum class CommandMenuAction {
+    advance,
+    hold,
+    regroup,
+    resume_auto,
+    group,
+    ungroup,
 };
 
-std::string_view command_display_name(const TacticalOrder order) noexcept {
-    switch (order) {
-    case TacticalOrder::advance:
+constexpr std::array<CommandMenuAction, 6> tactical_commands{
+    CommandMenuAction::advance,
+    CommandMenuAction::hold,
+    CommandMenuAction::regroup,
+    CommandMenuAction::resume_auto,
+    CommandMenuAction::group,
+    CommandMenuAction::ungroup,
+};
+
+std::string_view command_display_name(const CommandMenuAction action) noexcept {
+    switch (action) {
+    case CommandMenuAction::advance:
         return "Advance";
-    case TacticalOrder::hold:
+    case CommandMenuAction::hold:
         return "Hold Position";
-    case TacticalOrder::regroup:
+    case CommandMenuAction::regroup:
         return "Regroup";
-    case TacticalOrder::automatic:
+    case CommandMenuAction::resume_auto:
         return "Resume Auto";
+    case CommandMenuAction::group:
+        return "Group";
+    case CommandMenuAction::ungroup:
+        return "Ungroup";
     }
     return "Unknown";
+}
+
+std::optional<TacticalOrder> tactical_order_for(
+    const CommandMenuAction action) noexcept {
+    switch (action) {
+    case CommandMenuAction::advance:
+        return TacticalOrder::advance;
+    case CommandMenuAction::hold:
+        return TacticalOrder::hold;
+    case CommandMenuAction::regroup:
+        return TacticalOrder::regroup;
+    case CommandMenuAction::resume_auto:
+        return TacticalOrder::automatic;
+    case CommandMenuAction::group:
+    case CommandMenuAction::ungroup:
+        return std::nullopt;
+    }
+    return std::nullopt;
+}
+
+bool command_action_enabled(const CommandMenuAction action, const World& world,
+                            const std::span<const Unit::Id> selected_ids,
+                            const Team controlled_team) {
+    if (action == CommandMenuAction::group) {
+        return can_group_selected_units(world, selected_ids, controlled_team);
+    }
+    if (action == CommandMenuAction::ungroup) {
+        return can_ungroup_selected_units(world, selected_ids,
+                                          controlled_team);
+    }
+    return world.match_state().active() && !selected_ids.empty();
 }
 
 std::string format_match_time(const std::uint32_t total_seconds) {
@@ -936,9 +983,21 @@ void Renderer::handle_primary_pointer_press(World& world,
         for (std::size_t index = 0; index < tactical_commands.size(); ++index) {
             if (contains(command_item_rect(menu, index), click)) {
                 selection_.prune(world, local_control_.team());
-                (void)apply_tactical_order(world, selection_.ids(),
-                                           tactical_commands[index],
-                                           local_control_.team());
+                const CommandMenuAction action = tactical_commands[index];
+                if (command_action_enabled(action, world, selection_.ids(),
+                                           local_control_.team())) {
+                    if (action == CommandMenuAction::group) {
+                        (void)group_selected_units(
+                            world, selection_.ids(), local_control_.team());
+                    } else if (action == CommandMenuAction::ungroup) {
+                        (void)ungroup_selected_units(
+                            world, selection_.ids(), local_control_.team());
+                    } else if (const auto order = tactical_order_for(action)) {
+                        (void)apply_tactical_order(
+                            world, selection_.ids(), *order,
+                            local_control_.team());
+                    }
+                }
                 command_menu_position_.reset();
                 return;
             }
@@ -1145,7 +1204,7 @@ bool Renderer::render(const World& world, const AiCommander& ai_commander,
         return false;
     }
 
-    if (!render_command_menu(output_width, output_height)) {
+    if (!render_command_menu(world, output_width, output_height)) {
         return false;
     }
 
@@ -1577,7 +1636,7 @@ bool Renderer::render_deployment_ui(const World& world,
                           marker.x, marker.y + cursor_size);
 }
 
-bool Renderer::render_command_menu(const int output_width,
+bool Renderer::render_command_menu(const World& world, const int output_width,
                                    const int output_height) const {
     if (!command_menu_position_.has_value()) {
         return true;
@@ -1594,8 +1653,12 @@ bool Renderer::render_command_menu(const int output_width,
     for (std::size_t index = 0; index < tactical_commands.size(); ++index) {
         const SDL_FRect item = command_item_rect(menu, index);
         const bool hovered = contains(item, pointer_drawable_);
-        set_color(renderer_, hovered ? Color{60, 91, 120, 245}
-                                     : Color{34, 42, 50, 245});
+        const bool enabled = command_action_enabled(
+            tactical_commands[index], world, selection_.ids(),
+            local_control_.team());
+        set_color(renderer_, !enabled ? Color{28, 32, 36, 225}
+                                      : hovered ? Color{60, 91, 120, 245}
+                                                : Color{34, 42, 50, 245});
         if (!SDL_RenderFillRect(renderer_, &item)) {
             return false;
         }
@@ -1607,7 +1670,8 @@ bool Renderer::render_command_menu(const int output_width,
             command_display_name(tactical_commands[index]);
         if (!fonts_.draw(item.x + 10.0F, item.y + 8.0F, label,
                          FontRole::body_bold,
-                         FontColor{245, 245, 245, 255})) {
+                         enabled ? FontColor{245, 245, 245, 255}
+                                 : FontColor{125, 132, 138, 255})) {
             return false;
         }
     }

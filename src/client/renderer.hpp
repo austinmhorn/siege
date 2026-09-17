@@ -101,7 +101,8 @@ private:
     [[nodiscard]] bool render_deployment_ui(
         const World& world, const class WorldTransform& transform,
         int output_width, int output_height) const;
-    [[nodiscard]] bool render_command_menu(int output_width,
+    [[nodiscard]] bool render_command_menu(const World& world,
+                                           int output_width,
                                            int output_height) const;
     [[nodiscard]] bool render_match_hud(const World& world,
                                         int output_width) const;

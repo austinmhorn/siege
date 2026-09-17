@@ -11,6 +11,7 @@
 #include "core/mortar_observation.hpp"
 #include "core/scoring.hpp"
 #include "core/tactical_command.hpp"
+#include "core/tactical_group.hpp"
 #include "core/troop_definition.hpp"
 #include "core/zone_capture.hpp"
 #include "world/unit.hpp"
@@ -41,7 +42,7 @@ constexpr float left_panel_width = 256.0F;
 constexpr float unit_column_preferred_width = 190.0F;
 constexpr float unit_column_minimum_width = 148.0F;
 constexpr float unit_block_gap = 6.0F;
-constexpr std::size_t unit_block_line_count = 26;
+constexpr std::size_t unit_block_line_count = 27;
 
 struct TextCursor {
     FontSystem& fonts;
@@ -701,6 +702,13 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
         const auto order = to_string(unit.tactical_order());
         cursor.format(FontRole::debug, debug_text, "order: %.*s",
                       static_cast<int>(order.size()), order.data());
+        if (const auto group_id = unit.group_id()) {
+            cursor.format(FontRole::debug, debug_text, "group: #%u (%zu)",
+                          *group_id,
+                          tactical_group_members(world, *group_id).size());
+        } else {
+            cursor.line(FontRole::debug, debug_muted, "group: none");
+        }
         cursor.format(FontRole::debug, debug_text, "path: %s (%zu)",
                       yes_no(unit.has_movement_path()),
                       unit.remaining_waypoint_count());

@@ -24,6 +24,7 @@
 #include "core/simulation.hpp"
 #include "core/support_positioning.hpp"
 #include "core/tactical_command.hpp"
+#include "core/tactical_group.hpp"
 #include "core/targeting.hpp"
 #include "core/troop_definition.hpp"
 #include "core/zone_capture.hpp"
@@ -1020,6 +1021,141 @@ int main() {
             !assign_movement_path(command_filter_world, 201,
                                   {{180.0F, 220.0F}}, Team::team_b),
         "RED individual paths apply only to living Team B units");
+
+    World group_world;
+    group_world.units().clear();
+    for (Unit::Id id = 401; id <= 404; ++id) {
+        group_world.units().push_back(
+            test_unit(id, Team::team_a,
+                      {200.0F + static_cast<float>(id - 401) * 40.0F, 240.0F},
+                      270.0F));
+    }
+    group_world.units().push_back(
+        test_unit(405, Team::team_b, {400.0F, 240.0F}, 90.0F));
+    group_world.units().push_back(
+        test_unit(406, Team::team_a, {440.0F, 240.0F}, 270.0F));
+    group_world.units().back().apply_damage(100.0F);
+    const std::array<Unit::Id, 4> first_group_ids{404, 402, 401, 403};
+    (void)apply_tactical_order(group_world, first_group_ids,
+                               TacticalOrder::advance);
+    const auto first_group = group_selected_units(
+        group_world, first_group_ids, Team::team_a);
+    passed &= check(
+        first_group == 1 &&
+            tactical_group_members(group_world, *first_group) ==
+                std::vector<Unit::Id>({401, 402, 403, 404}) &&
+            std::ranges::all_of(
+                std::span{group_world.units()}.first(4), [](const Unit& unit) {
+                    return unit.tactical_order() == TacticalOrder::advance;
+                }),
+        "grouping deterministically assigns one stable ID without changing tactical orders");
+
+    const std::array<Unit::Id, 1> split_id{401};
+    const std::size_t split_count = ungroup_selected_units(
+        group_world, split_id, Team::team_a);
+    const auto remaining_first_group =
+        tactical_group_members(group_world, *first_group);
+    (void)apply_tactical_order(group_world, split_id, TacticalOrder::hold);
+    passed &= check(
+        split_count == 1 && !group_world.find_unit(401)->group_id().has_value() &&
+            remaining_first_group == std::vector<Unit::Id>({402, 403, 404}) &&
+            group_world.find_unit(401)->tactical_order() == TacticalOrder::hold &&
+            group_world.find_unit(402)->tactical_order() ==
+                TacticalOrder::advance &&
+            group_world.find_unit(403)->tactical_order() ==
+                TacticalOrder::advance &&
+            group_world.find_unit(404)->tactical_order() ==
+                TacticalOrder::advance,
+        "ungrouping one member leaves the remaining group and its orders unchanged");
+
+    const std::array<Unit::Id, 2> second_group_ids{401, 402};
+    const auto second_group = group_selected_units(
+        group_world, second_group_ids, Team::team_a);
+    const std::array<Unit::Id, 2> reassigned_ids{402, 403};
+    const auto third_group = group_selected_units(
+        group_world, reassigned_ids, Team::team_a);
+    passed &= check(
+        second_group == 2 && third_group == 3 &&
+            !group_world.find_unit(401)->group_id().has_value() &&
+            group_world.find_unit(402)->group_id() == third_group &&
+            group_world.find_unit(403)->group_id() == third_group &&
+            !group_world.find_unit(404)->group_id().has_value(),
+        "reassigning members uses unique deterministic IDs and dissolves singleton old groups");
+
+    const std::array<Unit::Id, 2> ungroup_pair{402, 403};
+    passed &= check(
+        ungroup_selected_units(group_world, ungroup_pair, Team::team_a) == 2 &&
+            !group_world.find_unit(402)->group_id().has_value() &&
+            !group_world.find_unit(403)->group_id().has_value(),
+        "ungrouping multiple selected members clears the group cleanly");
+
+    const std::array<Unit::Id, 4> invalid_group_ids{401, 405, 406, 999};
+    passed &= check(
+        !can_group_selected_units(group_world, invalid_group_ids,
+                                  Team::team_a) &&
+            !group_selected_units(group_world, invalid_group_ids,
+                                  Team::team_a)
+                 .has_value(),
+        "grouping rejects enemy, dead, missing, and insufficient eligible selections");
+
+    const std::vector<Vec2> preserved_path{{260.0F, 260.0F},
+                                           {320.0F, 280.0F}};
+    (void)assign_movement_path(group_world, 401, preserved_path,
+                               Team::team_a);
+    const std::array<Unit::Id, 2> path_group_ids{401, 404};
+    const auto path_group = group_selected_units(
+        group_world, path_group_ids, Team::team_a);
+    const auto path_before_ungroup =
+        group_world.find_unit(401)->remaining_waypoints();
+    const std::vector<Vec2> preserved_path_copy(path_before_ungroup.begin(),
+                                                path_before_ungroup.end());
+    (void)ungroup_selected_units(group_world, path_group_ids, Team::team_a);
+    passed &= check(
+        path_group == 4 && group_world.find_unit(401)->has_movement_path() &&
+            group_world.find_unit(401)->remaining_waypoint_count() == 2 &&
+            near(group_world.find_unit(401)->remaining_waypoints()[0].x,
+                 preserved_path_copy[0].x) &&
+            near(group_world.find_unit(401)->remaining_waypoints()[0].y,
+                 preserved_path_copy[0].y) &&
+            near(group_world.find_unit(401)->remaining_waypoints()[1].x,
+                 preserved_path_copy[1].x) &&
+            near(group_world.find_unit(401)->remaining_waypoints()[1].y,
+                 preserved_path_copy[1].y) &&
+            group_world.find_unit(404)->tactical_order() ==
+                TacticalOrder::advance,
+        "Group and Ungroup preserve authored paths and existing tactical orders");
+
+    const auto death_group = group_selected_units(
+        group_world, path_group_ids, Team::team_a);
+    group_world.find_unit(404)->apply_damage(100.0F);
+    group_world.remove_dead_units();
+    passed &= check(
+        death_group == 5 && group_world.find_unit(404) == nullptr &&
+            !group_world.find_unit(401)->group_id().has_value(),
+        "death removal cleans invalid singleton tactical groups");
+
+    World deterministic_group_world;
+    deterministic_group_world.units().clear();
+    deterministic_group_world.units().push_back(
+        test_unit(501, Team::team_a, {200.0F, 200.0F}, 270.0F));
+    deterministic_group_world.units().push_back(
+        test_unit(502, Team::team_a, {240.0F, 200.0F}, 270.0F));
+    const std::array<Unit::Id, 2> deterministic_ids{502, 501};
+    const auto deterministic_group = group_selected_units(
+        deterministic_group_world, deterministic_ids, Team::team_a);
+    deterministic_group_world.reset_for_sudden_death();
+    deterministic_group_world.units().push_back(
+        test_unit(503, Team::team_a, {200.0F, 200.0F}, 270.0F));
+    deterministic_group_world.units().push_back(
+        test_unit(504, Team::team_a, {240.0F, 200.0F}, 270.0F));
+    const std::array<Unit::Id, 2> reset_ids{503, 504};
+    const auto reset_group = group_selected_units(
+        deterministic_group_world, reset_ids, Team::team_a);
+    passed &= check(
+        deterministic_group == 1 && reset_group == 1 &&
+            tactical_group_members(deterministic_group_world, *reset_group) ==
+                std::vector<Unit::Id>({503, 504}),
+        "sudden-death reset clears membership and restarts deterministic group IDs");
 
     World red_deployment_world;
     red_deployment_world.units().clear();

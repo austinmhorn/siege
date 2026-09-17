@@ -43,6 +43,7 @@ public:
     PendingDeployment& queue_deployment(Team team, TroopType troop_type,
                                         Vec2 position, double total_seconds);
     Unit& spawn_unit(TroopType troop_type, Team team, Vec2 position);
+    [[nodiscard]] Unit::GroupId allocate_tactical_group_id() noexcept;
     [[nodiscard]] const std::vector<Projectile>& projectiles() const noexcept;
     [[nodiscard]] std::vector<Projectile>& projectiles() noexcept;
     [[nodiscard]] const std::vector<DeathEvent>& death_events() const noexcept;
@@ -88,6 +89,7 @@ private:
     std::vector<ExplosionEvent> explosion_events_;
     std::vector<ZoneOwnershipEvent> zone_ownership_events_;
     Unit::Id next_unit_id_{1};
+    Unit::GroupId next_tactical_group_id_{1};
     PendingDeployment::Id next_pending_deployment_id_{1};
     Projectile::Id next_projectile_id_{1};
     std::uint64_t scoring_tick_progress_{};

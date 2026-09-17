@@ -277,6 +277,14 @@ void Unit::set_preferred_y(const float preferred_y) noexcept {
     preferred_y_ = preferred_y;
 }
 
+void Unit::set_group_id(const std::optional<GroupId> group_id) noexcept {
+    group_id_ = group_id;
+}
+
+void Unit::clear_group_id() noexcept {
+    group_id_.reset();
+}
+
 void Unit::tick_weapon_cooldown(const double delta_seconds) noexcept {
     weapon_cooldown_remaining_ =
         std::max(0.0F, weapon_cooldown_remaining_ -
@@ -330,6 +338,9 @@ float Unit::weapon_facing_angle() const noexcept {
 }
 std::optional<Unit::Id> Unit::target_id() const noexcept { return target_id_; }
 float Unit::preferred_y() const noexcept { return preferred_y_; }
+std::optional<Unit::GroupId> Unit::group_id() const noexcept {
+    return group_id_;
+}
 float Unit::move_speed() const noexcept { return move_speed_; }
 float Unit::rotation_speed() const noexcept { return rotation_speed_; }
 float Unit::vision_range() const noexcept { return vision_range_; }

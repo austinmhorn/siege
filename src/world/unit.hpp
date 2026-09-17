@@ -58,6 +58,7 @@ enum class TacticalOrder {
 class Unit {
 public:
     using Id = std::uint32_t;
+    using GroupId = std::uint32_t;
 
     Unit(Id id, TroopType troop_type, Team team, Vec2 spawn_position,
          float move_speed, float rotation_speed, float vision_range,
@@ -95,6 +96,8 @@ public:
     void clear_navigation_route() noexcept;
     void record_navigation_progress() noexcept;
     void set_preferred_y(float preferred_y) noexcept;
+    void set_group_id(std::optional<GroupId> group_id) noexcept;
+    void clear_group_id() noexcept;
     void tick_weapon_cooldown(double delta_seconds) noexcept;
     void reset_weapon_cooldown() noexcept;
     void apply_damage(float damage) noexcept;
@@ -115,6 +118,7 @@ public:
     [[nodiscard]] float weapon_facing_angle() const noexcept;
     [[nodiscard]] std::optional<Id> target_id() const noexcept;
     [[nodiscard]] float preferred_y() const noexcept;
+    [[nodiscard]] std::optional<GroupId> group_id() const noexcept;
     [[nodiscard]] float move_speed() const noexcept;
     [[nodiscard]] float rotation_speed() const noexcept;
     [[nodiscard]] float vision_range() const noexcept;
@@ -175,6 +179,7 @@ private:
     float desired_turret_angle_{};
     float turret_rotation_speed_{};
     std::optional<Id> target_id_{};
+    std::optional<GroupId> group_id_{};
     float preferred_y_{};
     float move_speed_{};
     float rotation_speed_{};

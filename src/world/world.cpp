@@ -2,6 +2,7 @@
 
 #include "core/economy.hpp"
 #include "core/math.hpp"
+#include "core/tactical_group.hpp"
 #include "core/troop_definition.hpp"
 
 #include <algorithm>
@@ -157,6 +158,10 @@ Unit& World::spawn_unit(const TroopType troop_type, const Team team,
         initial_facing, definition->mobility_mode);
 }
 
+Unit::GroupId World::allocate_tactical_group_id() noexcept {
+    return next_tactical_group_id_++;
+}
+
 const std::vector<Projectile>& World::projectiles() const noexcept {
     return projectiles_;
 }
@@ -195,6 +200,7 @@ void World::clear_transient_events() noexcept {
 
 void World::reset_for_sudden_death() noexcept {
     units_.clear();
+    next_tactical_group_id_ = 1;
     projectiles_.clear();
     pending_deployments_.clear();
     clear_transient_events();
@@ -219,6 +225,7 @@ void World::remove_dead_units() {
         }
     }
     std::erase_if(units_, [](const Unit& unit) { return !unit.is_alive(); });
+    cleanup_tactical_groups(*this);
 }
 
 void World::emit_fire_event(const Unit& unit) {
