@@ -3714,24 +3714,60 @@ int main() {
     update_zone_capture(terminal_a_world, 0.0);
     const auto terminal_a_frontline =
         frontline_objective(terminal_a_world, Team::team_a);
+    const auto terminal_a_rifle_standoff = terminal_frontline_standoff(
+        terminal_a_world, Team::team_a, rifle_definition.hit_radius);
+    const auto terminal_a_medium_standoff = terminal_frontline_standoff(
+        terminal_a_world, Team::team_a, medium_tank_definition.hit_radius);
+    const auto terminal_a_heavy_standoff = terminal_frontline_standoff(
+        terminal_a_world, Team::team_a, heavy_tank_definition.hit_radius);
+    passed &= check(
+        terminal_a_rifle_standoff.has_value() &&
+            terminal_a_medium_standoff.has_value() &&
+            terminal_a_heavy_standoff.has_value() &&
+            near(terminal_a_rifle_standoff->boundary_x, 2'048.0F) &&
+            near(terminal_a_rifle_standoff->position_x, 2'000.0F) &&
+            near(terminal_a_rifle_standoff->clearance, 48.0F) &&
+            near(terminal_a_medium_standoff->position_x, 1'990.0F) &&
+            near(terminal_a_medium_standoff->clearance, 58.0F) &&
+            near(terminal_a_heavy_standoff->position_x, 1'984.0F) &&
+            near(terminal_a_heavy_standoff->clearance, 64.0F),
+        "Team A terminal standoff derives infantry and tank clearance from enemy-home geometry and hit radius");
     terminal_a_world.units().push_back(
-        test_unit(5140, Team::team_a, {2'047.5F, 400.0F}, 270.0F));
+        test_unit(5140, Team::team_a, {1'900.0F, 400.0F}, 270.0F));
     Simulation terminal_a_simulation{terminal_a_world};
-    terminal_a_simulation.update(1.0);
+    for (int tick = 0; tick < 180; ++tick) {
+        terminal_a_simulation.update(1.0 / 60.0);
+    }
+    const float settled_terminal_a_x = terminal_a_world.units()[0].position().x;
+    bool terminal_a_remained_settled = true;
+    for (int tick = 0; tick < 120; ++tick) {
+        terminal_a_simulation.update(1.0 / 60.0);
+        terminal_a_remained_settled &= near(
+            terminal_a_world.units()[0].position().x,
+            settled_terminal_a_x, 0.001F);
+    }
     passed &= check(
         terminal_a_frontline.has_value() &&
             terminal_a_frontline->zone_index == 3 &&
             near(terminal_a_frontline->forward_boundary_x, 2'048.0F) &&
-            terminal_a_world.units()[0].position().x < 2'048.0F,
-        "Team A terminal frontline prevents autonomous entry into Team B home");
+            near(settled_terminal_a_x,
+                 terminal_a_rifle_standoff->position_x, 0.01F) &&
+            terminal_a_world.units()[0].movement_state() ==
+                MovementState::idle &&
+            terminal_a_remained_settled,
+        "targetless Team A Auto stops once at terminal standoff without repeated forward jitter");
 
-    terminal_a_world.units()[0].set_position({2'047.5F, 400.0F});
+    terminal_a_world.units()[0].set_position({1'900.0F, 400.0F});
     const std::array<Unit::Id, 1> terminal_advance_ids{5140};
     (void)apply_tactical_order(terminal_a_world, terminal_advance_ids,
                                TacticalOrder::advance);
-    terminal_a_simulation.update(1.0);
+    for (int tick = 0; tick < 180; ++tick) {
+        terminal_a_simulation.update(1.0 / 60.0);
+    }
     const bool terminal_advance_blocked =
-        terminal_a_world.units()[0].position().x < 2'048.0F;
+        near(terminal_a_world.units()[0].position().x,
+             terminal_a_rifle_standoff->position_x, 0.01F) &&
+        terminal_a_world.units()[0].movement_state() == MovementState::idle;
     terminal_a_world.units()[0].set_position({2'047.5F, 400.0F});
     terminal_a_world.units()[0].replace_movement_path({{2'400.0F, 400.0F}});
     terminal_a_simulation.update(1.0);
@@ -3744,19 +3780,20 @@ int main() {
     terminal_a_world.units()[0].clear_movement_path();
     terminal_a_world.units()[0].set_tactical_order(TacticalOrder::automatic);
     terminal_a_world.units()[0].set_position(
-        {terminal_a_frontline->hold_x, 400.0F});
+        {terminal_a_rifle_standoff->position_x, 400.0F});
     for (int tick = 0; tick < 120; ++tick) {
         terminal_a_simulation.update(1.0 / 60.0);
     }
     passed &= check(
         std::abs(terminal_a_world.units()[0].position().x -
-                 terminal_a_frontline->hold_x) < 1.0F &&
+                 terminal_a_rifle_standoff->position_x) < 1.0F &&
             terminal_a_world.units()[0].position().x < 2'048.0F,
-        "owning every objective holds targetless Team A troops inside zone 3");
+        "owning every objective forms targetless Team A troops at the terminal standoff");
 
     terminal_a_world.units().clear();
     terminal_a_world.units().push_back(test_unit(
-        5141, Team::team_a, {terminal_a_frontline->hold_x, 400.0F}, 0.0F));
+        5141, Team::team_a,
+        {terminal_a_rifle_standoff->position_x, 400.0F}, 0.0F));
     terminal_a_simulation.update(1.0 / 60.0);
     const bool terminal_blue_faces_forward_gradually =
         terminal_a_world.units()[0].movement_state() == MovementState::idle &&
@@ -3778,12 +3815,15 @@ int main() {
         idle_target_facing_world.zones()[index].advance_capture(100.0F);
     }
     update_zone_capture(idle_target_facing_world, 0.0);
-    const auto idle_target_frontline =
-        frontline_objective(idle_target_facing_world, Team::team_a);
+    const auto idle_target_standoff = terminal_frontline_standoff(
+        idle_target_facing_world, Team::team_a,
+        rifle_definition.hit_radius);
     idle_target_facing_world.units().push_back(test_unit(
-        5142, Team::team_a, {idle_target_frontline->hold_x, 300.0F}, 270.0F));
+        5142, Team::team_a, {idle_target_standoff->position_x, 300.0F},
+        270.0F));
     idle_target_facing_world.units().push_back(test_unit(
-        5143, Team::team_b, {idle_target_frontline->hold_x, 380.0F}, 90.0F));
+        5143, Team::team_b, {idle_target_standoff->position_x, 380.0F},
+        90.0F));
     Simulation idle_target_facing_simulation{idle_target_facing_world};
     idle_target_facing_simulation.update(1.0 / 60.0);
     const bool target_overrode_idle_facing =
@@ -3809,26 +3849,184 @@ int main() {
     update_zone_capture(terminal_b_world, 0.0);
     const auto terminal_b_frontline =
         frontline_objective(terminal_b_world, Team::team_b);
+    const auto terminal_b_rifle_standoff = terminal_frontline_standoff(
+        terminal_b_world, Team::team_b, rifle_definition.hit_radius);
+    const auto terminal_b_heavy_standoff = terminal_frontline_standoff(
+        terminal_b_world, Team::team_b, heavy_tank_definition.hit_radius);
     terminal_b_world.units().push_back(
-        test_unit(5150, Team::team_b, {512.5F, 400.0F}, 90.0F));
+        test_unit(5150, Team::team_b, {660.0F, 400.0F}, 90.0F));
     Simulation terminal_b_simulation{terminal_b_world};
-    terminal_b_simulation.update(1.0);
+    for (int tick = 0; tick < 180; ++tick) {
+        terminal_b_simulation.update(1.0 / 60.0);
+    }
     passed &= check(
         terminal_b_frontline.has_value() &&
             terminal_b_frontline->zone_index == 1 &&
             near(terminal_b_frontline->forward_boundary_x, 512.0F) &&
-            terminal_b_world.units()[0].position().x > 512.0F,
-        "Team B terminal frontline mirrors the opposing-home restriction");
+            terminal_b_rifle_standoff.has_value() &&
+            terminal_b_heavy_standoff.has_value() &&
+            near(terminal_b_rifle_standoff->position_x, 560.0F) &&
+            near(terminal_b_heavy_standoff->position_x, 576.0F) &&
+            near(terminal_b_world.units()[0].position().x, 560.0F, 0.01F) &&
+            terminal_b_world.units()[0].movement_state() == MovementState::idle,
+        "Team B terminal standoff mirrors infantry and tank clearance from Team A home");
 
     terminal_b_world.units().clear();
     terminal_b_world.units().push_back(test_unit(
-        5151, Team::team_b, {terminal_b_frontline->hold_x, 400.0F}, 0.0F));
+        5151, Team::team_b,
+        {terminal_b_rifle_standoff->position_x, 400.0F}, 0.0F));
     terminal_b_simulation.update(1.0 / 60.0);
     passed &= check(
         terminal_b_world.units()[0].movement_state() == MovementState::idle &&
             near(terminal_b_world.units()[0].desired_facing_angle(), 90.0F) &&
             near(terminal_b_world.units()[0].facing_angle(), 1.5F),
         "terminal Team B idle facing mirrors gradually toward Team A");
+
+    passed &= check(
+        !terminal_frontline_standoff(frontline_world, Team::team_a,
+                                     rifle_definition.hit_radius)
+             .has_value() &&
+            near(autonomous_advance_x(frontline_world, Team::team_a,
+                                      {600.0F, 400.0F}),
+                 1.0F),
+        "non-terminal frontline advancement remains unchanged");
+
+    World terminal_return_world = terminal_a_world;
+    terminal_return_world.units().clear();
+    terminal_return_world.units().push_back(test_unit(
+        5152, Team::team_a, {2'030.0F, 440.0F}, 270.0F));
+    Simulation terminal_return_simulation{terminal_return_world};
+    terminal_return_simulation.update(1.0 / 60.0);
+    const float first_return_x = terminal_return_world.units()[0].position().x;
+    for (int tick = 1; tick < 120; ++tick) {
+        terminal_return_simulation.update(1.0 / 60.0);
+    }
+    passed &= check(
+        first_return_x < 2'030.0F && first_return_x > 2'000.0F &&
+            near(terminal_return_world.units()[0].position().x,
+                 2'000.0F, 0.01F),
+        "unit already closer than terminal clearance walks back to standoff without teleporting");
+
+    World terminal_combat_world = terminal_a_world;
+    terminal_combat_world.units().clear();
+    terminal_combat_world.units().push_back(test_unit(
+        5153, Team::team_a, {2'000.0F, 500.0F}, 270.0F));
+    terminal_combat_world.units().push_back(test_unit(
+        5154, Team::team_b, {2'400.0F, 500.0F}, 90.0F));
+    Simulation terminal_combat_simulation{terminal_combat_world};
+    terminal_combat_simulation.update(1.0);
+    passed &= check(
+        terminal_combat_world.units()[0].target_id() == 5154 &&
+            terminal_combat_world.units()[0].combat_movement_state() ==
+                CombatMovementState::closing &&
+            terminal_combat_world.units()[0].position().x > 2'000.0F &&
+            terminal_combat_world.units()[0].position().x < 2'048.0F,
+        "valid target overrides terminal standoff while enemy-home boundary remains authoritative");
+
+    World terminal_hold_world = terminal_a_world;
+    terminal_hold_world.units().clear();
+    terminal_hold_world.units().push_back(test_unit(
+        5155, Team::team_a, {2'030.0F, 540.0F}, 270.0F));
+    const std::array<Unit::Id, 1> terminal_hold_ids{5155};
+    (void)apply_tactical_order(terminal_hold_world, terminal_hold_ids,
+                               TacticalOrder::hold);
+    Simulation terminal_hold_simulation{terminal_hold_world};
+    terminal_hold_simulation.update(0.5);
+
+    World terminal_path_world = terminal_a_world;
+    terminal_path_world.units().clear();
+    terminal_path_world.units().push_back(test_unit(
+        5156, Team::team_a, {1'990.0F, 580.0F}, 270.0F));
+    terminal_path_world.units()[0].replace_movement_path(
+        {{2'030.0F, 580.0F}});
+    Simulation terminal_path_simulation{terminal_path_world};
+    terminal_path_simulation.update(0.5);
+
+    World terminal_regroup_world = terminal_a_world;
+    terminal_regroup_world.units().clear();
+    terminal_regroup_world.units().push_back(test_unit(
+        5157, Team::team_a, {1'980.0F, 620.0F}, 270.0F));
+    terminal_regroup_world.units().push_back(test_unit(
+        5158, Team::team_a, {2'070.0F, 620.0F}, 270.0F));
+    const std::array<Unit::Id, 2> terminal_regroup_ids{5157, 5158};
+    (void)apply_tactical_order(terminal_regroup_world, terminal_regroup_ids,
+                               TacticalOrder::regroup);
+    Simulation terminal_regroup_simulation{terminal_regroup_world};
+    terminal_regroup_simulation.update(0.5);
+    passed &= check(
+        near(terminal_hold_world.units()[0].position().x, 2'030.0F) &&
+            terminal_hold_world.units()[0].tactical_order() ==
+                TacticalOrder::hold &&
+            terminal_path_world.units()[0].position().x > 2'000.0F &&
+            terminal_path_world.units()[0].has_movement_path() &&
+            terminal_regroup_world.units()[0].tactical_order() ==
+                TacticalOrder::regroup &&
+            terminal_regroup_world.units()[0].navigation_destination()
+                .has_value() &&
+            near(terminal_regroup_world.units()[0]
+                     .navigation_destination()
+                     ->x,
+                 2'025.0F),
+        "terminal standoff does not alter Hold, Regroup, or authored path movement");
+
+    std::array<ZoneDefinition, 5> enlarged_zone_definitions{};
+    std::ranges::copy(battlefield.zones, enlarged_zone_definitions.begin());
+    for (ZoneDefinition& zone : enlarged_zone_definitions) {
+        zone.bounds.x *= 2.0F;
+        zone.bounds.width *= 2.0F;
+    }
+    MapDefinition enlarged_map = battlefield;
+    enlarged_map.id = "terminal_standoff_test";
+    enlarged_map.logical_width *= 2.0F;
+    enlarged_map.zones = enlarged_zone_definitions;
+    enlarged_map.environment_objects = {};
+    World enlarged_terminal_world{default_match_rules, enlarged_map};
+    enlarged_terminal_world.units().clear();
+    for (const std::size_t index : enlarged_map.objective_zone_indices) {
+        enlarged_terminal_world.zones()[index].advance_capture(100.0F);
+    }
+    update_zone_capture(enlarged_terminal_world, 0.0);
+    const auto enlarged_standoff = terminal_frontline_standoff(
+        enlarged_terminal_world, Team::team_a,
+        rifle_definition.hit_radius);
+    passed &= check(
+        enlarged_standoff.has_value() &&
+            near(enlarged_standoff->boundary_x, 4'096.0F) &&
+            near(enlarged_standoff->position_x, 4'048.0F),
+        "terminal standoff follows map-authored enemy-home geometry after map resizing");
+
+    World terminal_escort_world = terminal_a_world;
+    terminal_escort_world.units().clear();
+    terminal_escort_world.units().push_back(unit_from_definition(
+        5159, Team::team_a, {1'800.0F, 700.0F}, 270.0F,
+        medium_tank_definition));
+    terminal_escort_world.units().push_back(unit_from_definition(
+        5160, Team::team_a, {1'650.0F, 700.0F}, 270.0F,
+        anti_tank_definition));
+    terminal_escort_world.units()[0].set_group_id(90);
+    terminal_escort_world.units()[1].set_group_id(90);
+    World terminal_replay_world = terminal_escort_world;
+    Simulation terminal_escort_simulation{terminal_escort_world};
+    Simulation terminal_replay_simulation{terminal_replay_world};
+    for (int tick = 0; tick < 600; ++tick) {
+        terminal_escort_simulation.update(1.0 / 60.0);
+        terminal_replay_simulation.update(1.0 / 60.0);
+    }
+    const Unit* terminal_tank = terminal_escort_world.find_unit(5159);
+    const Unit* terminal_escort = terminal_escort_world.find_unit(5160);
+    const Unit* replay_tank = terminal_replay_world.find_unit(5159);
+    const Unit* replay_escort = terminal_replay_world.find_unit(5160);
+    passed &= check(
+        terminal_tank != nullptr && terminal_escort != nullptr &&
+            replay_tank != nullptr && replay_escort != nullptr &&
+            near(terminal_tank->position().x, 1'990.0F, 0.01F) &&
+            terminal_escort->position().x < terminal_tank->position().x &&
+            near(terminal_tank->position().x, replay_tank->position().x) &&
+            near(terminal_escort->position().x,
+                 replay_escort->position().x) &&
+            near(terminal_escort->position().y,
+                 replay_escort->position().y),
+        "terminal tank formation keeps grouped Anti-Tank behind and replays deterministically");
 
     passed &= check(near(capture_bar_fraction(100.0F), 0.0F) &&
                         near(capture_bar_fraction(0.0F), 0.5F) &&

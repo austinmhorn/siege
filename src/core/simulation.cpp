@@ -46,6 +46,7 @@ struct MotionIntent {
     Vec2 support_steering;
     Vec2 separation;
     std::optional<Vec2> navigation_destination;
+    bool terminal_standoff_active;
 };
 
 Vec2 velocity_from_steering(const Vec2 steering, const float speed) noexcept {
@@ -402,13 +403,26 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
             intents.push_back(MotionIntent{
                 {}, unit.facing_angle(), MovementState::idle,
                 CombatMovementState::inactive, std::nullopt, {}, {},
-                std::nullopt});
+                std::nullopt, false});
             continue;
         }
 
-        const float advance_x = unit.tactical_order() == TacticalOrder::advance
-            ? team_advance_direction(world_, unit.team())
-            : autonomous_advance_x(world_, unit.team(), unit.position());
+        const bool targetless_auto_advance =
+            !target_ids[index].has_value() &&
+            !unit.has_movement_path() &&
+            unit.mobility_mode() == MobilityMode::autonomous &&
+            (unit.tactical_order() == TacticalOrder::automatic ||
+             unit.tactical_order() == TacticalOrder::advance);
+        const auto terminal_standoff = targetless_auto_advance
+            ? terminal_frontline_standoff(world_, unit.team(),
+                                          unit.hit_radius())
+            : std::nullopt;
+        const float advance_x = terminal_standoff.has_value()
+            ? terminal_standoff_advance_x(unit.position(),
+                                          *terminal_standoff)
+            : unit.tactical_order() == TacticalOrder::advance
+                ? team_advance_direction(world_, unit.team())
+                : autonomous_advance_x(world_, unit.team(), unit.position());
         const float team_direction = team_advance_direction(world_, unit.team());
         const bool reached_edge =
             (team_direction > 0.0F &&
@@ -435,9 +449,12 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
             };
             primary_steering = primary_steering + support.steering;
             if (length_squared(primary_steering) > 0.0001F) {
-                navigation_destination =
-                    unit.position() + normalized(primary_steering) *
-                                          navigation_lookahead;
+                navigation_destination = terminal_standoff.has_value()
+                    ? std::optional<Vec2>{Vec2{terminal_standoff->position_x,
+                                              unit.preferred_y()}}
+                    : std::optional<Vec2>{
+                          unit.position() + normalized(primary_steering) *
+                                                navigation_lookahead};
             }
             const Vec2 steering = primary_steering + separation;
             velocity = length_squared(support.steering) > 0.0001F
@@ -631,7 +648,8 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
         intents.push_back(MotionIntent{velocity, desired_facing, state,
                                        combat_state, support.screen_id,
                                        support.steering, separation,
-                                       navigation_destination});
+                                       navigation_destination,
+                                       terminal_standoff.has_value()});
     }
 
     for (std::size_t index = 0; index < units.size(); ++index) {
@@ -669,7 +687,12 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
             unit.position() + velocity * static_cast<float>(fixed_delta_seconds);
         const auto frontline_position = constrain_to_frontline(
             world_, unit.team(), unit.position(), unconstrained_position);
-        const auto next_position = constrain_to_hold_leash(unit, frontline_position);
+        const auto standoff_position = intent.terminal_standoff_active
+            ? constrain_to_terminal_standoff(
+                  world_, unit.team(), unit.hit_radius(), unit.position(),
+                  frontline_position)
+            : frontline_position;
+        const auto next_position = constrain_to_hold_leash(unit, standoff_position);
         const Vec2 world_position{
             std::clamp(next_position.x, world_margin,
                        world_.map().logical_width - world_margin),
