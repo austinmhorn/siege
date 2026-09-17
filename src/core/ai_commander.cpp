@@ -84,7 +84,8 @@ ForceAssessment assess_force(const World& world, const Team team,
         }
         const float distance_squared =
             squared_distance_to_bounds(unit.position(), bounds);
-        if (unit.team() == team) {
+        if (unit.team() == team &&
+            unit.mobility_mode() != MobilityMode::player_path_only) {
             friendly_candidates.emplace_back(distance_squared, unit.id());
             if (distance_squared <= margin_squared) {
                 assessment.unit_ids.push_back(unit.id());
@@ -169,6 +170,8 @@ std::size_t troop_index(const TroopType troop) noexcept {
         return 3;
     case TroopType::anti_tank:
         return 4;
+    case TroopType::mortar:
+        return 5;
     }
     return 0;
 }
@@ -181,8 +184,8 @@ std::optional<TroopType> composition_purchase(const World& world,
     if (player == nullptr) {
         return std::nullopt;
     }
-    std::array<int, 5> current{};
-    std::array<int, 5> desired{};
+    std::array<int, 6> current{};
+    std::array<int, 6> desired{};
     for (const Unit& unit : world.units()) {
         if (unit.is_alive() && unit.team() == team) {
             ++current[troop_index(unit.troop_type())];
@@ -196,12 +199,12 @@ std::optional<TroopType> composition_purchase(const World& world,
     for (const TroopType troop : profile.rules.troop_mix) {
         ++desired[troop_index(troop)];
     }
-    const std::array<TroopType, 5> attack_priority{
+    const std::array<TroopType, 6> attack_priority{
         TroopType::rifle, TroopType::machine_gun, TroopType::medium_tank,
-        TroopType::bazooka, TroopType::anti_tank};
-    const std::array<TroopType, 5> defend_priority{
+        TroopType::bazooka, TroopType::anti_tank, TroopType::mortar};
+    const std::array<TroopType, 6> defend_priority{
         TroopType::machine_gun, TroopType::rifle, TroopType::medium_tank,
-        TroopType::anti_tank, TroopType::bazooka};
+        TroopType::anti_tank, TroopType::mortar, TroopType::bazooka};
     const auto& priority = strategy == AiStrategy::defend
         ? defend_priority
         : attack_priority;
@@ -274,7 +277,7 @@ AiProfile make_ai_profile(const AiDifficulty difficulty,
         rules.decision_interval_seconds = 4.0;
         rules.strategy_interval_seconds = 3.0;
         rules.deployment_y_fractions = {0.20F, 0.80F, 0.50F,
-                                        0.35F, 0.65F, 0.50F};
+                                        0.35F, 0.65F, 0.50F, 0.30F};
         rules.force_selection_margin = 170.0F;
         rules.fallback_force_limit = 4;
         rules.maximum_local_force = 4;
@@ -289,7 +292,7 @@ AiProfile make_ai_profile(const AiDifficulty difficulty,
         rules.decision_interval_seconds = 1.0;
         rules.strategy_interval_seconds = 0.5;
         rules.deployment_y_fractions = {0.50F, 0.35F, 0.65F,
-                                        0.25F, 0.75F, 0.50F};
+                                        0.25F, 0.75F, 0.50F, 0.20F};
         rules.force_selection_margin = 300.0F;
         rules.fallback_force_limit = 8;
         rules.regroup_outnumber_ratio = 1.35F;
@@ -306,7 +309,8 @@ AiProfile make_ai_profile(const AiDifficulty difficulty,
     case AiPlaystyle::aggressive:
         rules.troop_mix = {TroopType::rifle, TroopType::machine_gun,
                            TroopType::rifle, TroopType::medium_tank,
-                           TroopType::machine_gun, TroopType::anti_tank};
+                           TroopType::machine_gun, TroopType::anti_tank,
+                           TroopType::mortar};
         rules.forward_position_fraction = 0.90F;
         rules.defense_enemy_threshold = 2;
         rules.regroup_outnumber_ratio += 0.35F;
@@ -318,7 +322,8 @@ AiProfile make_ai_profile(const AiDifficulty difficulty,
     case AiPlaystyle::defensive:
         rules.troop_mix = {TroopType::rifle, TroopType::machine_gun,
                            TroopType::machine_gun, TroopType::bazooka,
-                           TroopType::medium_tank, TroopType::anti_tank};
+                           TroopType::medium_tank, TroopType::anti_tank,
+                           TroopType::mortar};
         rules.forward_position_fraction = 0.65F;
         rules.force_selection_margin += 80.0F;
         rules.fallback_force_limit += 2;
@@ -462,9 +467,13 @@ void AiCommander::make_purchase_decision(World& world) {
         return;
     }
 
+    const bool rear_emplacement = troop_type == TroopType::mortar;
+    const float placement_fraction = rear_emplacement
+        ? 0.25F
+        : rules_.forward_position_fraction;
     const float forward_fraction = forward->x_direction > 0.0F
-        ? rules_.forward_position_fraction
-        : 1.0F - rules_.forward_position_fraction;
+        ? placement_fraction
+        : 1.0F - placement_fraction;
     std::optional<Vec2> position;
     std::size_t selected_placement_offset = 0;
     for (std::size_t offset = 0;

@@ -18,6 +18,12 @@ enum class TroopType {
     bazooka,
     medium_tank,
     anti_tank,
+    mortar,
+};
+
+enum class MobilityMode {
+    autonomous,
+    player_path_only,
 };
 
 enum class MovementState {
@@ -60,7 +66,8 @@ public:
          float max_health, float hit_radius, WeaponDefinition weapon,
          TargetCategory target_category, bool prefers_vehicle_targets,
          bool independent_turret, float turret_rotation_speed,
-         float initial_facing_angle) noexcept;
+         float initial_facing_angle,
+         MobilityMode mobility_mode = MobilityMode::autonomous) noexcept;
 
     void begin_simulation_step() noexcept;
     void set_position(Vec2 position) noexcept;
@@ -128,6 +135,8 @@ public:
     [[nodiscard]] float hit_radius() const noexcept;
     [[nodiscard]] TargetCategory target_category() const noexcept;
     [[nodiscard]] bool prefers_vehicle_targets() const noexcept;
+    [[nodiscard]] MobilityMode mobility_mode() const noexcept;
+    [[nodiscard]] bool is_relocating() const noexcept;
     [[nodiscard]] bool is_alive() const noexcept;
     [[nodiscard]] MovementState movement_state() const noexcept;
     [[nodiscard]] CombatMovementState combat_movement_state() const noexcept;
@@ -187,6 +196,7 @@ private:
     float hit_radius_{};
     TargetCategory target_category_{TargetCategory::infantry};
     bool prefers_vehicle_targets_{};
+    MobilityMode mobility_mode_{MobilityMode::autonomous};
     MovementState movement_state_{MovementState::idle};
     CombatMovementState combat_movement_state_{CombatMovementState::advancing};
     TacticalOrder tactical_order_{TacticalOrder::automatic};

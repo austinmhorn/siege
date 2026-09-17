@@ -40,7 +40,7 @@ constexpr float left_panel_width = 256.0F;
 constexpr float unit_column_preferred_width = 190.0F;
 constexpr float unit_column_minimum_width = 148.0F;
 constexpr float unit_block_gap = 6.0F;
-constexpr std::size_t unit_block_line_count = 22;
+constexpr std::size_t unit_block_line_count = 26;
 
 struct TextCursor {
     FontSystem& fonts;
@@ -229,28 +229,33 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
         const auto marker = transform.world_to_drawable(Point{position.x, position.y});
         const float marker_size = 8.0F;
 
-        set_color(renderer_, 255, 214, 64, 115);
-        if (!draw_vision_cone(renderer_, transform, unit)) {
-            return false;
+        if (unit.troop_type() != TroopType::mortar) {
+            set_color(renderer_, 255, 214, 64, 115);
+            if (!draw_vision_cone(renderer_, transform, unit)) {
+                return false;
+            }
+
+            set_color(renderer_, 99, 230, 155, 150);
+            if (!draw_world_circle(renderer_, transform, position,
+                                   unit.awareness_radius())) {
+                return false;
+            }
         }
 
-        set_color(renderer_, 99, 230, 155, 150);
-        if (!draw_world_circle(renderer_, transform, position,
-                               unit.awareness_radius())) {
-            return false;
-        }
-
-        set_color(renderer_, 105, 165, 255, 80);
-        if (!draw_world_circle(renderer_, transform, position,
-                               unit.preferred_combat_range())) {
-            return false;
+        if (unit.troop_type() != TroopType::mortar) {
+            set_color(renderer_, 105, 165, 255, 80);
+            if (!draw_world_circle(renderer_, transform, position,
+                                   unit.preferred_combat_range())) {
+                return false;
+            }
         }
 
         if (unit.target_id().has_value()) {
             const Unit* target = world.find_unit(*unit.target_id());
             if (target != nullptr) {
-                const bool clear = environment_line_of_sight_clear(
-                    world.map(), position, target->position());
+                const bool clear = unit.troop_type() == TroopType::mortar ||
+                    environment_line_of_sight_clear(
+                        world.map(), position, target->position());
                 set_color(renderer_, clear ? 112 : 255,
                           clear ? 220 : 92, clear ? 150 : 92, 205);
                 if (!draw_world_line(renderer_, transform, position,
@@ -335,6 +340,15 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                              {position.x - preferred_half_width, unit.preferred_y()},
                              {position.x + preferred_half_width, unit.preferred_y()})) {
             return false;
+        }
+
+        if (std::ranges::find(selected_unit_ids, unit.id()) !=
+                selected_unit_ids.end() && unit.troop_type() == TroopType::mortar) {
+            set_color(renderer_, 255, 156, 72, 205);
+            if (!draw_world_circle(renderer_, transform, position,
+                                   unit.weapon().minimum_range)) {
+                return false;
+            }
         }
 
         if (std::ranges::find(selected_unit_ids, unit.id()) !=
@@ -676,12 +690,17 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                 cursor.format(FontRole::debug, debug_text, "target: #%u / missing",
                               *unit.target_id());
             }
-            const bool clear = target != nullptr &&
-                environment_line_of_sight_clear(
-                    world.map(), unit.position(), target->position());
-            cursor.format(FontRole::debug,
-                          clear ? debug_text : debug_heading, "los: %s",
-                          clear ? "clear" : "blocked");
+            if (unit.troop_type() == TroopType::mortar) {
+                cursor.line(FontRole::debug, debug_text,
+                            "los: ignored (indirect)");
+            } else {
+                const bool clear = target != nullptr &&
+                    environment_line_of_sight_clear(
+                        world.map(), unit.position(), target->position());
+                cursor.format(FontRole::debug,
+                              clear ? debug_text : debug_heading, "los: %s",
+                              clear ? "clear" : "blocked");
+            }
         } else {
             cursor.line(FontRole::debug, debug_muted, "target: none");
             cursor.line(FontRole::debug, debug_muted, "los: none");
@@ -701,14 +720,55 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
         } else {
             cursor.line(FontRole::debug, debug_muted, "turret: n/a");
         }
-        cursor.format(FontRole::debug, debug_text, "vision: %.0f / %.0fdeg",
-                      unit.vision_range(), unit.vision_angle());
-        cursor.format(FontRole::debug, debug_text, "range: %.0f +/-%.0f",
-                      unit.preferred_combat_range(), unit.range_tolerance());
+        if (unit.troop_type() == TroopType::mortar) {
+            cursor.line(FontRole::debug, debug_heading,
+                        "targeting: map-wide");
+            cursor.line(FontRole::debug, debug_text,
+                        "excluded: enemy home");
+            cursor.format(FontRole::debug, debug_text, "min range: %.0f",
+                          unit.weapon().minimum_range);
+            cursor.format(FontRole::debug, debug_text,
+                          "max range: map (%.0f)",
+                          effective_weapon_range(world.map(), unit.weapon()));
+        } else {
+            cursor.format(FontRole::debug, debug_text,
+                          "vision: %.0f / %.0fdeg", unit.vision_range(),
+                          unit.vision_angle());
+            if (unit.weapon().minimum_range > 0.0F) {
+                cursor.format(FontRole::debug, debug_text,
+                              "weapon: %.0f..%.0f",
+                              unit.weapon().minimum_range,
+                              unit.weapon().range);
+            } else {
+                cursor.format(FontRole::debug, debug_text,
+                              "range: %.0f +/-%.0f",
+                              unit.preferred_combat_range(),
+                              unit.range_tolerance());
+            }
+            cursor.line(FontRole::debug, debug_muted,
+                        "targeting: normal");
+            cursor.line(FontRole::debug, debug_muted, "excluded: none");
+        }
         cursor.format(FontRole::debug, debug_text, "cooldown: %.2f",
                       unit.weapon_cooldown_remaining());
         cursor.format(FontRole::debug, debug_text, "vs vehicle: x%.1f",
                       unit.weapon().vehicle_damage_multiplier);
+        cursor.format(FontRole::debug, debug_text, "emplacement: %s",
+                      unit.is_relocating() ? "relocating" : "stationary");
+        const auto shell = std::ranges::find_if(
+            world.projectiles(), [&unit](const Projectile& projectile) {
+                return projectile.source_unit_id() == unit.id() &&
+                       projectile.is_indirect();
+            });
+        if (shell != world.projectiles().end()) {
+            cursor.format(FontRole::debug, debug_text,
+                          "shell: %.0f,%.0f %.0f%%",
+                          shell->impact_position().x,
+                          shell->impact_position().y,
+                          shell->flight_progress() * 100.0F);
+        } else {
+            cursor.line(FontRole::debug, debug_muted, "shell: none");
+        }
         if (!cursor.succeeded) {
             return false;
         }

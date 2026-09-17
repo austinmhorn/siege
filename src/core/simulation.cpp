@@ -296,6 +296,18 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
         projectile.advance(fixed_delta_seconds);
     }
     for (auto projectile = projectiles.begin(); projectile != projectiles.end();) {
+        if (projectile->is_indirect()) {
+            if (projectile->expired()) {
+                world_.emit_explosion_event(*projectile,
+                                            projectile->impact_position());
+                apply_explosion(world_, *projectile,
+                                projectile->impact_position(), units);
+                projectile = projectiles.erase(projectile);
+            } else {
+                ++projectile;
+            }
+            continue;
+        }
         const auto unit_hit = nearest_projectile_hit(*projectile, units);
         const auto environment_hit = nearest_environment_projectile_hit(
             world_.map(), projectile->previous_position(),
@@ -547,6 +559,38 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
                             : MovementState::idle;
             }
         }
+        if (unit.mobility_mode() == MobilityMode::player_path_only) {
+            support = {};
+            navigation_destination.reset();
+            velocity = {};
+            state = MovementState::idle;
+            combat_state = target_ids[index].has_value()
+                ? CombatMovementState::engaging
+                : CombatMovementState::inactive;
+            if (unit.current_waypoint().has_value()) {
+                const Vec2 toward_waypoint =
+                    *unit.current_waypoint() - unit.position();
+                navigation_destination = unit.current_waypoint();
+                velocity = velocity_from_steering(toward_waypoint + separation,
+                                                  unit.move_speed());
+                if (length_squared(toward_waypoint) > 0.0001F) {
+                    desired_facing = facing_from_direction(toward_waypoint);
+                }
+                state = length_squared(velocity) > 0.0001F
+                    ? MovementState::moving
+                    : MovementState::idle;
+            } else if (target_ids[index].has_value()) {
+                const Unit* target = world_.find_unit(*target_ids[index]);
+                if (target != nullptr &&
+                    length_squared(target->position() - unit.position()) >
+                        0.0001F) {
+                    desired_facing = facing_from_direction(
+                        target->position() - unit.position());
+                }
+            } else {
+                desired_facing = forward_facing;
+            }
+        }
         intents.push_back(MotionIntent{velocity, desired_facing, state,
                                        combat_state, support.screen_id,
                                        support.steering, separation,
@@ -646,18 +690,27 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
         }
 
         const Unit* target = world_.find_unit(*unit.target_id());
-        if (target == nullptr || !can_fire_at(unit, *target)) {
+        if (target == nullptr || !can_fire_at(world_.map(), unit, *target)) {
             continue;
         }
 
-        const Vec2 direction = normalized(target->position() - unit.position());
-        world_.spawn_projectile(unit.weapon().type, unit.team(), unit.id(),
-                                unit.position(),
-                                direction * unit.weapon().projectile_speed,
-                                unit.weapon().projectile_max_distance,
-                                unit.weapon().projectile_damage,
-                                unit.weapon().splash_radius,
-                                unit.weapon().vehicle_damage_multiplier);
+        const Vec2 target_position = target->position();
+        const Vec2 direction = normalized(target_position - unit.position());
+        if (unit.weapon().trajectory == ProjectileTrajectory::indirect_arc) {
+            world_.spawn_indirect_projectile(
+                unit.weapon().type, unit.team(), unit.id(), unit.position(),
+                target_position, unit.weapon().projectile_speed,
+                unit.weapon().projectile_damage, unit.weapon().splash_radius,
+                unit.weapon().vehicle_damage_multiplier);
+        } else {
+            world_.spawn_projectile(unit.weapon().type, unit.team(), unit.id(),
+                                    unit.position(),
+                                    direction * unit.weapon().projectile_speed,
+                                    unit.weapon().projectile_max_distance,
+                                    unit.weapon().projectile_damage,
+                                    unit.weapon().splash_radius,
+                                    unit.weapon().vehicle_damage_multiplier);
+        }
         world_.emit_fire_event(unit);
         unit.reset_weapon_cooldown();
     }

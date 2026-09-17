@@ -1,8 +1,10 @@
 #include "core/targeting.hpp"
 
 #include "core/perception.hpp"
+#include "core/mortar_observation.hpp"
 
 #include <limits>
+#include <cmath>
 
 namespace siege {
 namespace {
@@ -24,6 +26,52 @@ int target_priority(const Unit& observer, const Unit& candidate) noexcept {
         : 1;
 }
 
+std::optional<Unit::Id> select_mortar_target(
+    const MapDefinition& map, const Unit& observer,
+    const std::span<const Unit> units) noexcept {
+    std::optional<Unit::Id> best_id;
+    int best_category = std::numeric_limits<int>::max();
+    int best_cluster = -1;
+    float best_distance_squared = std::numeric_limits<float>::max();
+    const float splash_squared =
+        observer.weapon().splash_radius * observer.weapon().splash_radius;
+
+    for (const auto& candidate : units) {
+        if (!mortar_target_observable(map, observer, candidate)) {
+            continue;
+        }
+        const float distance_squared =
+            length_squared(candidate.position() - observer.position());
+
+        int cluster = 0;
+        for (const auto& nearby : units) {
+            if (nearby.is_alive() && nearby.team() == candidate.team() &&
+                mortar_target_observable(map, observer, nearby) &&
+                length_squared(nearby.position() - candidate.position()) <=
+                    splash_squared) {
+                ++cluster;
+            }
+        }
+        const int category = candidate.target_category() ==
+                                     TargetCategory::infantry
+            ? 0
+            : 1;
+        const bool better = category < best_category ||
+            (category == best_category && cluster > best_cluster) ||
+            (category == best_category && cluster == best_cluster &&
+             (distance_squared < best_distance_squared ||
+              (distance_squared == best_distance_squared &&
+               (!best_id.has_value() || candidate.id() < *best_id))));
+        if (better) {
+            best_id = candidate.id();
+            best_category = category;
+            best_cluster = cluster;
+            best_distance_squared = distance_squared;
+        }
+    }
+    return best_id;
+}
+
 } // namespace
 
 std::optional<Unit::Id> select_target(
@@ -31,6 +79,9 @@ std::optional<Unit::Id> select_target(
     const std::span<const Unit> units) noexcept {
     if (!observer.is_alive()) {
         return std::nullopt;
+    }
+    if (observer.troop_type() == TroopType::mortar) {
+        return select_mortar_target(map, observer, units);
     }
 
     const Unit* current = observer.target_id().has_value()

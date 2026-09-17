@@ -139,6 +139,7 @@ struct TroopVisualDefinition {
     Vec2 firing_body_shadow_anchor;
     std::span<const std::size_t> firing_frames;
     double firing_seconds_per_frame;
+    bool uses_shared_legs;
 };
 
 constexpr std::array<std::size_t, 9> rifle_firing_frames{9, 8, 7, 6, 5,
@@ -151,6 +152,9 @@ constexpr std::array<std::size_t, 13> bazooka_firing_frames{
 constexpr std::array<std::size_t, 3> tank_cannon_firing_frames{2, 3, 4};
 constexpr std::array<std::size_t, 15> anti_tank_firing_frames{
     15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1};
+constexpr std::array<std::size_t, 22> mortar_firing_frames{
+    16, 17, 18, 19, 20, 21, 22, 1, 2, 3, 4,
+    5,  6,  7,  8,  9,  10, 11, 12, 13, 14, 15};
 
 struct TankVisualLayout {
     float canvas_size;
@@ -177,6 +181,7 @@ constexpr TroopVisualDefinition rifle_visual{
     .firing_body_shadow_anchor = {32.0F, 32.0F},
     .firing_frames = rifle_firing_frames,
     .firing_seconds_per_frame = 0.04,
+    .uses_shared_legs = true,
 };
 
 constexpr TroopVisualDefinition machine_gun_visual{
@@ -192,6 +197,7 @@ constexpr TroopVisualDefinition machine_gun_visual{
     .firing_body_shadow_anchor = {64.0F, 64.0F},
     .firing_frames = machine_gun_firing_frames,
     .firing_seconds_per_frame = 0.025,
+    .uses_shared_legs = true,
 };
 
 constexpr TroopVisualDefinition bazooka_visual{
@@ -207,6 +213,7 @@ constexpr TroopVisualDefinition bazooka_visual{
     .firing_body_shadow_anchor = {30.0F, 26.0F},
     .firing_frames = bazooka_firing_frames,
     .firing_seconds_per_frame = 0.06,
+    .uses_shared_legs = true,
 };
 
 constexpr TroopVisualDefinition anti_tank_visual{
@@ -222,6 +229,23 @@ constexpr TroopVisualDefinition anti_tank_visual{
     .firing_body_shadow_anchor = {32.0F, 32.0F},
     .firing_frames = anti_tank_firing_frames,
     .firing_seconds_per_frame = 0.04,
+    .uses_shared_legs = true,
+};
+
+constexpr TroopVisualDefinition mortar_visual{
+    .troop_type = TroopType::mortar,
+    .weapon_type = WeaponType::mortar_shell,
+    .layer = "mortar",
+    .frame_prefix = "mortar",
+    .upper_canvas_size = 128.0F,
+    .non_firing_frame = 15,
+    .body_anchor = {64.0F, 64.0F},
+    .body_shadow_anchor = {64.0F, 64.0F},
+    .firing_body_anchor = {64.0F, 64.0F},
+    .firing_body_shadow_anchor = {64.0F, 64.0F},
+    .firing_frames = mortar_firing_frames,
+    .firing_seconds_per_frame = 4.0 / 22.0,
+    .uses_shared_legs = false,
 };
 
 const TroopVisualDefinition* visual_for(const TroopType troop_type) noexcept {
@@ -236,30 +260,40 @@ const TroopVisualDefinition* visual_for(const TroopType troop_type) noexcept {
         return nullptr;
     case TroopType::anti_tank:
         return &anti_tank_visual;
+    case TroopType::mortar:
+        return &mortar_visual;
     }
     return nullptr;
 }
 
-constexpr std::array<TroopType, 5> purchasable_troops{
+constexpr std::array<TroopType, 6> purchasable_troops{
     TroopType::rifle, TroopType::machine_gun, TroopType::bazooka,
-    TroopType::medium_tank, TroopType::anti_tank};
+    TroopType::medium_tank, TroopType::anti_tank, TroopType::mortar};
 
 SDL_FRect deployment_button_rect(const std::size_t index,
                                  const int output_width,
                                  const int output_height) noexcept {
+    const float available_width = std::max(
+        1.0F, static_cast<float>(output_width) -
+                  ui_layout::deployment_group_margin * 2.0F -
+                  ui_layout::deployment_button_gap *
+                      static_cast<float>(purchasable_troops.size() - 1));
+    const float button_width = std::min(
+        ui_layout::deployment_button_width,
+        available_width / static_cast<float>(purchasable_troops.size()));
     const float total_width =
-        ui_layout::deployment_button_width *
+        button_width *
             static_cast<float>(purchasable_troops.size()) +
         ui_layout::deployment_button_gap *
             static_cast<float>(purchasable_troops.size() - 1);
     return SDL_FRect{
         (static_cast<float>(output_width) - total_width) * 0.5F +
             static_cast<float>(index) *
-                (ui_layout::deployment_button_width +
+                (button_width +
                  ui_layout::deployment_button_gap),
         static_cast<float>(output_height) - ui_layout::deployment_bar_height +
             ui_layout::deployment_button_top_inset,
-        ui_layout::deployment_button_width,
+        button_width,
         ui_layout::deployment_button_height,
     };
 }
@@ -609,7 +643,8 @@ void Renderer::update(const World& world, const double fixed_delta_seconds) {
     }
 
     for (const auto& unit : world.units()) {
-        if (unit.troop_type() == TroopType::medium_tank) {
+        if (unit.troop_type() == TroopType::medium_tank ||
+            unit.troop_type() == TroopType::mortar) {
             continue;
         }
         auto [entry, inserted] = leg_animations_.try_emplace(
@@ -1417,8 +1452,11 @@ bool Renderer::render_projectiles(const World& world,
                                   const double interpolation_alpha) const {
     const float alpha = static_cast<float>(interpolation_alpha);
     for (const auto& projectile : world.projectiles()) {
-        const Vec2 position =
+        Vec2 position =
             lerp(projectile.previous_position(), projectile.position(), alpha);
+        if (projectile.is_indirect()) {
+            position.y -= projectile.render_height();
+        }
         const Vec2 direction = normalized(projectile.velocity());
         const Vec2 trail = position - direction * projectile_tracer_length;
         const auto draw_position =
@@ -1435,7 +1473,8 @@ bool Renderer::render_projectiles(const World& world,
         }
         if (projectile.weapon_type() == WeaponType::bazooka ||
             projectile.weapon_type() == WeaponType::tank_cannon ||
-            projectile.weapon_type() == WeaponType::anti_tank_missile) {
+            projectile.weapon_type() == WeaponType::anti_tank_missile ||
+            projectile.weapon_type() == WeaponType::mortar_shell) {
             set_color(renderer_, rocket_core);
             if (!SDL_RenderPoint(renderer_, draw_position.x, draw_position.y) ||
                 !SDL_RenderPoint(renderer_, draw_position.x - 1.0F, draw_position.y) ||
@@ -1608,21 +1647,27 @@ bool Renderer::render_units(const World& world, const WorldTransform& transform,
         constexpr Color no_modulation{255, 255, 255, 255};
         const Color team_modulation =
             team_visual_variant(unit.team()).modulation;
-        const std::array layers{
-            Layer{shadow_frame_path("legs", "legs", leg_frame),
-                  soldier_layout.legs_canvas_size,
-                  soldier_layout.legs_shadow_anchor, no_modulation},
-            Layer{shadow_frame_path(visual->layer, visual->frame_prefix,
-                                    upper_frame),
-                  visual->upper_canvas_size, body_shadow_anchor,
-                  no_modulation},
-            Layer{body_frame_path(unit.team(), "legs", "legs", leg_frame),
-                  soldier_layout.legs_canvas_size, soldier_layout.legs_anchor,
-                  team_modulation},
-            Layer{body_frame_path(unit.team(), visual->layer,
-                                  visual->frame_prefix, upper_frame),
-                  visual->upper_canvas_size, body_anchor, team_modulation},
-        };
+        std::vector<Layer> layers;
+        layers.reserve(4);
+        if (visual->uses_shared_legs) {
+            layers.push_back(Layer{
+                shadow_frame_path("legs", "legs", leg_frame),
+                soldier_layout.legs_canvas_size,
+                soldier_layout.legs_shadow_anchor, no_modulation});
+        }
+        layers.push_back(Layer{
+            shadow_frame_path(visual->layer, visual->frame_prefix, upper_frame),
+            visual->upper_canvas_size, body_shadow_anchor, no_modulation});
+        if (visual->uses_shared_legs) {
+            layers.push_back(Layer{
+                body_frame_path(unit.team(), "legs", "legs", leg_frame),
+                soldier_layout.legs_canvas_size, soldier_layout.legs_anchor,
+                team_modulation});
+        }
+        layers.push_back(Layer{
+            body_frame_path(unit.team(), visual->layer, visual->frame_prefix,
+                            upper_frame),
+            visual->upper_canvas_size, body_anchor, team_modulation});
 
         for (const auto& [path, canvas_size, anchor, modulation] : layers) {
             if (!render_soldier_layer(renderer_, textures_, transform, path,

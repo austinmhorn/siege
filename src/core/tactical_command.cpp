@@ -36,7 +36,8 @@ std::size_t apply_tactical_order(World& world,
     for (const Unit::Id id : unit_ids) {
         Unit* unit = world.find_unit(id);
         if (unit != nullptr && unit->is_alive() &&
-            unit->team() == commanding_team) {
+            unit->team() == commanding_team &&
+            unit->mobility_mode() != MobilityMode::player_path_only) {
             units.push_back(unit);
         }
     }

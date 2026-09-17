@@ -15,6 +15,7 @@
 #include "core/map_definition.hpp"
 #include "core/match.hpp"
 #include "core/math.hpp"
+#include "core/mortar_observation.hpp"
 #include "core/movement_path.hpp"
 #include "core/perception.hpp"
 #include "core/projectile_collision.hpp"
@@ -90,7 +91,8 @@ siege::Unit unit_from_definition(const siege::Unit::Id id,
                        definition.target_category,
                        definition.prefers_vehicle_targets,
                        definition.independent_turret,
-                       definition.turret_rotation_speed, facing};
+                       definition.turret_rotation_speed, facing,
+                       definition.mobility_mode};
 }
 
 void arrange_combat_scenario(siege::World& world,
@@ -3096,6 +3098,224 @@ int main() {
             near(bazooka_definition.weapon.vehicle_damage_multiplier, 1.0F) &&
             near(medium_tank_definition.weapon.vehicle_damage_multiplier, 1.0F),
         "target categories are generic and existing weapons remain one-times damage");
+    passed &= check(
+        mortar_definition.type == TroopType::mortar &&
+            troop_definition_for(TroopType::mortar) == &mortar_definition &&
+            troop_display_name(TroopType::mortar) == "Mortar" &&
+            to_string(TroopType::mortar) == "mortar" &&
+            mortar_definition.mobility_mode == MobilityMode::player_path_only &&
+            near(mortar_definition.move_speed, 45.0F) &&
+            near(mortar_definition.rotation_speed, 45.0F) &&
+            near(mortar_definition.max_health, 70.0F) &&
+            near(mortar_definition.hit_radius, 22.0F) &&
+            near(mortar_definition.vision_range, 700.0F) &&
+            near(mortar_definition.vision_angle, 90.0F) &&
+            near(mortar_definition.awareness_radius, 110.0F) &&
+            near(mortar_definition.preferred_combat_range, 725.0F) &&
+            near(mortar_definition.range_tolerance, 75.0F) &&
+            mortar_definition.purchase_cost == 7'500 &&
+            near(static_cast<float>(mortar_definition.deployment_seconds), 2.5F) &&
+            mortar_definition.weapon.type == WeaponType::mortar_shell &&
+            mortar_definition.weapon.trajectory ==
+                ProjectileTrajectory::indirect_arc &&
+            near(mortar_definition.weapon.minimum_range, 300.0F) &&
+            mortar_definition.weapon.maximum_range_mode ==
+                WeaponRangeMode::map_diagonal &&
+            near(mortar_definition.weapon.range, 0.0F) &&
+            near(mortar_definition.weapon.projectile_max_distance, 0.0F) &&
+            near(effective_weapon_range(navigation_open_map,
+                                        mortar_definition.weapon),
+                 std::hypot(navigation_open_map.logical_width,
+                            navigation_open_map.logical_height)) &&
+            near(mortar_definition.weapon.fire_interval, 4.0F) &&
+            near(mortar_definition.weapon.projectile_damage, 90.0F) &&
+            near(mortar_definition.weapon.splash_radius, 150.0F) &&
+            near(mortar_definition.weapon.vehicle_damage_multiplier, 0.40F) &&
+            kill_reward_for(TroopType::mortar) == 750,
+        "mortar definition centralizes emplacement, economy, and indirect-fire tuning");
+
+    std::vector<Unit> mortar_priority_units{
+        unit_from_definition(970, Team::team_a, {100.0F, 500.0F}, 270.0F,
+                             mortar_definition),
+        unit_from_definition(971, Team::team_b, {480.0F, 500.0F}, 90.0F,
+                             medium_tank_definition),
+        test_unit(972, Team::team_b, {520.0F, 500.0F}, 90.0F),
+        test_unit(973, Team::team_b, {540.0F, 520.0F}, 90.0F),
+    };
+    passed &= check(
+        select_target(navigation_open_map, mortar_priority_units[0],
+                      mortar_priority_units) == 972,
+        "mortar deterministically prefers a visible clustered infantry target over a vehicle");
+    Unit mortar_range_check = mortar_priority_units[0];
+    Unit mortar_too_close =
+        test_unit(974, Team::team_b, {350.0F, 500.0F}, 90.0F);
+    mortar_range_check.set_target_id(mortar_too_close.id());
+    passed &= check(!can_fire_at(navigation_open_map, mortar_range_check,
+                                 mortar_too_close),
+                    "mortar minimum range prevents close fire");
+
+    std::vector<Unit> blue_map_wide_mortar_units{
+        unit_from_definition(978, Team::team_a, {100.0F, 500.0F}, 270.0F,
+                             mortar_definition),
+        test_unit(979, Team::team_b, {1'800.0F, 500.0F}, 90.0F),
+    };
+    blue_map_wide_mortar_units[0].set_target_id(979);
+    passed &= check(
+        select_target(navigation_open_map, blue_map_wide_mortar_units[0],
+                      blue_map_wide_mortar_units) == 979 &&
+            can_fire_at(navigation_open_map, blue_map_wide_mortar_units[0],
+                        blue_map_wide_mortar_units[1]),
+        "BLUE mortar in its home observes and fires into zone 3 beyond the former 950-unit limit");
+
+    std::vector<Unit> red_map_wide_mortar_units{
+        unit_from_definition(980, Team::team_b, {2'460.0F, 700.0F}, 90.0F,
+                             mortar_definition),
+        test_unit(981, Team::team_a, {700.0F, 700.0F}, 270.0F),
+    };
+    passed &= check(
+        select_target(navigation_open_map, red_map_wide_mortar_units[0],
+                      red_map_wide_mortar_units) == 981,
+        "RED mortar map-wide observation mirrors BLUE and reaches zone 1");
+
+    constexpr std::array mortar_los_blockers{
+        EnvironmentObjectDefinition{
+            "mortar_los_house", EnvironmentObjectType::house,
+            EnvironmentAsset::house_01, {900.0F, 450.0F},
+            {900.0F, 450.0F, 120.0F, 100.0F},
+            EnvironmentOrientation::neutral, {true, true, true}},
+        EnvironmentObjectDefinition{
+            "mortar_los_rock", EnvironmentObjectType::rock,
+            EnvironmentAsset::rock_02, {1'300.0F, 450.0F},
+            {1'300.0F, 450.0F, 100.0F, 100.0F},
+            EnvironmentOrientation::neutral, {true, true, true}},
+    };
+    MapDefinition mortar_los_map = navigation_open_map;
+    mortar_los_map.environment_objects = mortar_los_blockers;
+    passed &= check(
+        select_target(mortar_los_map, blue_map_wide_mortar_units[0],
+                      blue_map_wide_mortar_units) == 979,
+        "house and rock-style LOS blockers do not occlude indirect mortar observation");
+    World map_wide_mortar_fire_world{default_match_rules, mortar_los_map};
+    map_wide_mortar_fire_world.units().clear();
+    map_wide_mortar_fire_world.units() = blue_map_wide_mortar_units;
+    Simulation map_wide_mortar_fire_simulation{map_wide_mortar_fire_world};
+    map_wide_mortar_fire_simulation.update(1.0 / 60.0);
+    passed &= check(
+        map_wide_mortar_fire_world.units()[0].target_id() == 979,
+        "authoritative simulation retains the far map-wide Mortar target");
+    passed &= check(
+        map_wide_mortar_fire_world.projectiles().size() == 1,
+        "authoritative simulation creates a far Mortar shell through LOS blockers");
+    passed &= check(
+        !map_wide_mortar_fire_world.projectiles().empty() &&
+            map_wide_mortar_fire_world.projectiles()[0].is_indirect() &&
+            near(map_wide_mortar_fire_world.projectiles()[0]
+                     .impact_position().x,
+                 map_wide_mortar_fire_world.units()[1].position().x),
+        "far Mortar shell preserves the selected target impact point");
+    std::vector<Unit> normal_los_units{
+        test_unit(982, Team::team_a, {700.0F, 500.0F}, 270.0F),
+        test_unit(983, Team::team_b, {1'100.0F, 500.0F}, 90.0F),
+    };
+    passed &= check(
+        !can_perceive(mortar_los_map, normal_los_units[0],
+                      normal_los_units[1]) &&
+            !select_target(mortar_los_map, normal_los_units[0],
+                           normal_los_units).has_value(),
+        "normal infantry perception still requires clear environment LOS");
+
+    std::vector<Unit> enemy_home_transition_units{
+        unit_from_definition(984, Team::team_a, {100.0F, 800.0F}, 270.0F,
+                             mortar_definition),
+        test_unit(985, Team::team_b, {2'300.0F, 800.0F}, 90.0F),
+    };
+    passed &= check(
+        !mortar_target_observable(navigation_open_map,
+                                  enemy_home_transition_units[0],
+                                  enemy_home_transition_units[1]) &&
+            !select_target(navigation_open_map,
+                           enemy_home_transition_units[0],
+                           enemy_home_transition_units).has_value(),
+        "Mortar never observes an enemy inside the opposing home zone");
+    enemy_home_transition_units[1].set_position({2'000.0F, 800.0F});
+    passed &= check(
+        select_target(navigation_open_map, enemy_home_transition_units[0],
+                      enemy_home_transition_units) == 985,
+        "enemy leaving its home becomes immediately eligible for Mortar targeting");
+    enemy_home_transition_units[0].set_target_id(985);
+    enemy_home_transition_units[1].set_position({2'300.0F, 800.0F});
+    passed &= check(
+        !select_target(navigation_open_map, enemy_home_transition_units[0],
+                       enemy_home_transition_units).has_value() &&
+            !can_fire_at(navigation_open_map,
+                         enemy_home_transition_units[0],
+                         enemy_home_transition_units[1]),
+        "enemy entering its home invalidates a persisted Mortar target immediately");
+
+    const auto first_map_wide_choice =
+        select_target(navigation_open_map, blue_map_wide_mortar_units[0],
+                      blue_map_wide_mortar_units);
+    const auto repeated_map_wide_choice =
+        select_target(navigation_open_map, blue_map_wide_mortar_units[0],
+                      blue_map_wide_mortar_units);
+    passed &= check(first_map_wide_choice == repeated_map_wide_choice,
+                    "Mortar map-wide target selection replays deterministically");
+
+    World mortar_mobility_world{default_match_rules, navigation_open_map};
+    mortar_mobility_world.units().clear();
+    mortar_mobility_world.units().push_back(unit_from_definition(
+        975, Team::team_a, {200.0F, 900.0F}, 270.0F,
+        mortar_definition));
+    Simulation mortar_mobility_simulation{mortar_mobility_world};
+    const Vec2 mortar_emplacement = mortar_mobility_world.units()[0].position();
+    for (int tick = 0; tick < 60; ++tick) {
+        mortar_mobility_simulation.update(1.0 / 60.0);
+    }
+    passed &= check(
+        near(length(mortar_mobility_world.units()[0].position() -
+                    mortar_emplacement), 0.0F),
+        "mortar remains stationary without an authored player path");
+    const std::array<Unit::Id, 1> mortar_command_ids{975};
+    passed &= check(
+        apply_tactical_order(mortar_mobility_world, mortar_command_ids,
+                             TacticalOrder::advance, Team::team_a) == 0,
+        "mortar ignores group tactical movement commands");
+    mortar_mobility_world.units()[0].replace_movement_path(
+        {{260.0F, 900.0F}});
+    mortar_mobility_simulation.update(1.0 / 60.0);
+    passed &= check(mortar_mobility_world.units()[0].is_relocating() &&
+                        mortar_mobility_world.units()[0].position().x >
+                            mortar_emplacement.x,
+                    "mortar relocates only through an authored individual path");
+    Unit relocating_mortar = unit_from_definition(
+        976, Team::team_a, {100.0F, 500.0F}, 270.0F,
+        mortar_definition);
+    Unit relocating_target =
+        test_unit(977, Team::team_b, {500.0F, 500.0F}, 90.0F);
+    relocating_mortar.set_target_id(relocating_target.id());
+    relocating_mortar.replace_movement_path({{200.0F, 500.0F}});
+    passed &= check(!can_fire_at(navigation_open_map, relocating_mortar,
+                                 relocating_target),
+                    "mortar cannot fire while relocating on its player path");
+
+    World mortar_ai_world{default_match_rules, navigation_open_map};
+    mortar_ai_world.units().clear();
+    AiProfile mortar_ai_profile = make_ai_profile();
+    mortar_ai_profile.rules.troop_mix.fill(TroopType::mortar);
+    AiCommander mortar_ai{Team::team_b, mortar_ai_profile};
+    mortar_ai.update(mortar_ai_world, Team::team_a, 1);
+    passed &= check(
+        mortar_ai.last_result() == AiDecisionResult::purchased &&
+            mortar_ai.last_troop_choice() == TroopType::mortar &&
+            mortar_ai_world.pending_deployments().size() == 1 &&
+            mortar_ai_world.pending_deployments()[0].troop_type ==
+                TroopType::mortar &&
+            mortar_ai_world.pending_deployments()[0].team == Team::team_b &&
+            mortar_ai_world.find_player(Team::team_b)->cash() == 17'500 &&
+            is_valid_deployment_location(
+                mortar_ai_world, Team::team_b, TroopType::mortar,
+                mortar_ai_world.pending_deployments()[0].position),
+        "AI purchases and rear-deploys mortar through the normal legal economy path");
 
     Unit turret_tank = unit_from_definition(
         980, Team::team_a, {100.0F, 100.0F}, 0.0F,
@@ -3953,6 +4173,97 @@ int main() {
                     "unit without a target does not fire");
     passed &= check(no_fire_world.fire_events().empty(),
                     "no firing event is emitted without an actual shot");
+
+    World mortar_fire_world{default_match_rules, navigation_open_map};
+    mortar_fire_world.units().clear();
+    mortar_fire_world.units().push_back(unit_from_definition(
+        960, Team::team_a, {100.0F, 500.0F}, 270.0F,
+        mortar_definition));
+    mortar_fire_world.units().push_back(
+        test_unit(961, Team::team_b, {500.0F, 500.0F}, 90.0F));
+    mortar_fire_world.units().push_back(
+        test_unit(962, Team::team_b, {530.0F, 520.0F}, 90.0F));
+    Simulation mortar_fire_simulation{mortar_fire_world};
+    const Vec2 mortar_start = mortar_fire_world.units()[0].position();
+    mortar_fire_simulation.update(1.0 / 60.0);
+    passed &= check(
+        mortar_fire_world.projectiles().size() == 1 &&
+            mortar_fire_world.projectiles()[0].is_indirect() &&
+            mortar_fire_world.projectiles()[0].weapon_type() ==
+                WeaponType::mortar_shell &&
+            near(mortar_fire_world.projectiles()[0].impact_position().x,
+                 500.0F) &&
+            mortar_fire_world.fire_events().size() == 1 &&
+            near(length(mortar_fire_world.units()[0].position() - mortar_start),
+                 0.0F),
+        "stationary mortar fires one authoritative shell at a snapshotted target position");
+    for (int tick = 0; tick < 59; ++tick) {
+        mortar_fire_simulation.update(1.0 / 60.0);
+    }
+    passed &= check(mortar_fire_world.projectiles().size() == 1,
+                    "mortar shell remains in deterministic flight until its distance-based arrival tick");
+    mortar_fire_simulation.update(1.0 / 60.0);
+    mortar_fire_simulation.update(1.0 / 60.0);
+    const Unit* mortar_primary = mortar_fire_world.find_unit(961);
+    const Unit* mortar_clustered = mortar_fire_world.find_unit(962);
+    passed &= check(
+        mortar_fire_world.projectiles().empty() &&
+            mortar_fire_world.explosion_events().size() == 1 &&
+            near(mortar_fire_world.explosion_events()[0].position.x, 500.0F) &&
+            mortar_primary != nullptr && near(mortar_primary->health(), 10.0F) &&
+            mortar_clustered != nullptr && near(mortar_clustered->health(), 10.0F),
+        "mortar shell explodes once at the stored point and damages clustered hostile infantry");
+
+    World mortar_vehicle_world{default_match_rules, navigation_open_map};
+    mortar_vehicle_world.units().clear();
+    mortar_vehicle_world.units().push_back(unit_from_definition(
+        966, Team::team_b, {500.0F, 500.0F}, 90.0F,
+        medium_tank_definition));
+    mortar_vehicle_world.spawn_indirect_projectile(
+        WeaponType::mortar_shell, Team::team_a, 965, {100.0F, 500.0F},
+        {500.0F, 500.0F}, mortar_definition.weapon.projectile_speed,
+        mortar_definition.weapon.projectile_damage,
+        mortar_definition.weapon.splash_radius,
+        mortar_definition.weapon.vehicle_damage_multiplier);
+    Simulation mortar_vehicle_simulation{mortar_vehicle_world};
+    for (int tick = 0; tick < 60; ++tick) {
+        mortar_vehicle_simulation.update(1.0 / 60.0);
+    }
+    const Unit* mortar_vehicle = mortar_vehicle_world.find_unit(966);
+    passed &= check(mortar_vehicle != nullptr &&
+                        near(mortar_vehicle->health(), 564.0F),
+                    "mortar splash applies the configured 0.40 vehicle multiplier");
+
+    constexpr std::array mortar_blocker_environment{
+        EnvironmentObjectDefinition{
+            "mortar_overflight_house", EnvironmentObjectType::house,
+            EnvironmentAsset::house_01, {280.0F, 440.0F},
+            {280.0F, 440.0F, 80.0F, 120.0F},
+            EnvironmentOrientation::neutral, {true, true, true}},
+    };
+    MapDefinition mortar_overflight_map = navigation_open_map;
+    mortar_overflight_map.environment_objects = mortar_blocker_environment;
+    World mortar_overflight_world{default_match_rules, mortar_overflight_map};
+    mortar_overflight_world.units().clear();
+    mortar_overflight_world.spawn_indirect_projectile(
+        WeaponType::mortar_shell, Team::team_a, 968, {100.0F, 500.0F},
+        {500.0F, 500.0F}, 400.0F, 90.0F, 150.0F, 0.40F);
+    Simulation mortar_overflight_simulation{mortar_overflight_world};
+    for (int tick = 0; tick < 45; ++tick) {
+        mortar_overflight_simulation.update(1.0 / 60.0);
+    }
+    passed &= check(mortar_overflight_world.projectiles().size() == 1 &&
+                        mortar_overflight_world.explosion_events().empty(),
+                    "indirect mortar shell flies over projectile-blocking environment footprints");
+    for (int tick = 0; tick < 15; ++tick) {
+        mortar_overflight_simulation.update(1.0 / 60.0);
+    }
+    passed &= check(mortar_overflight_world.projectiles().empty() &&
+                        mortar_overflight_world.explosion_events().size() == 1 &&
+                        near(mortar_overflight_world.explosion_events()[0]
+                                 .position.x,
+                             500.0F),
+                    "indirect shell detonates at its stored impact instead of the crossed blocker");
 
     Unit weapon_observer =
         test_unit(350, Team::team_a, {100.0F, 100.0F}, 0.0F);

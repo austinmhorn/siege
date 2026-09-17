@@ -30,6 +30,7 @@ struct TroopDefinition {
     bool prefers_vehicle_targets;
     bool independent_turret;
     float turret_rotation_speed;
+    MobilityMode mobility_mode{MobilityMode::autonomous};
     float zone_control_weight;
     Money purchase_cost;
     double deployment_seconds;
@@ -222,6 +223,48 @@ inline constexpr TroopDefinition anti_tank_definition{
     },
 };
 
+inline constexpr TroopDefinition mortar_definition{
+    .type = TroopType::mortar,
+    .display_name = "Mortar",
+    .move_speed = 45.0F,
+    .rotation_speed = 45.0F,
+    .vision_range = 700.0F,
+    .vision_angle = 90.0F,
+    .awareness_radius = 110.0F,
+    .preferred_combat_range = 725.0F,
+    .range_tolerance = 75.0F,
+    .aggression = 0.0F,
+    .retreat_bias = 0.0F,
+    .frontline_screen_weight = 0.0F,
+    .support_positioning_bias = 0.0F,
+    .support_rear_distance = 0.0F,
+    .support_search_radius = 0.0F,
+    .max_health = 70.0F,
+    .hit_radius = 22.0F,
+    .target_category = TargetCategory::infantry,
+    .prefers_vehicle_targets = false,
+    .independent_turret = false,
+    .turret_rotation_speed = 0.0F,
+    .mobility_mode = MobilityMode::player_path_only,
+    .zone_control_weight = 1.0F,
+    .purchase_cost = 7'500,
+    .deployment_seconds = 2.5,
+    .weapon = WeaponDefinition{
+        .type = WeaponType::mortar_shell,
+        .projectile_speed = 400.0F,
+        .fire_interval = 4.0F,
+        .minimum_range = 300.0F,
+        .range = 0.0F,
+        .firing_arc = 12.0F,
+        .projectile_max_distance = 0.0F,
+        .projectile_damage = 90.0F,
+        .splash_radius = 150.0F,
+        .vehicle_damage_multiplier = 0.40F,
+        .trajectory = ProjectileTrajectory::indirect_arc,
+        .maximum_range_mode = WeaponRangeMode::map_diagonal,
+    },
+};
+
 [[nodiscard]] constexpr const TroopDefinition* troop_definition_for(
     const TroopType type) noexcept {
     switch (type) {
@@ -235,6 +278,8 @@ inline constexpr TroopDefinition anti_tank_definition{
         return &medium_tank_definition;
     case TroopType::anti_tank:
         return &anti_tank_definition;
+    case TroopType::mortar:
+        return &mortar_definition;
     }
     return nullptr;
 }

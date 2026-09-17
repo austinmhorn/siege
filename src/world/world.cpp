@@ -154,7 +154,7 @@ Unit& World::spawn_unit(const TroopType troop_type, const Team team,
         definition->max_health, definition->hit_radius, definition->weapon,
         definition->target_category, definition->prefers_vehicle_targets,
         definition->independent_turret, definition->turret_rotation_speed,
-        initial_facing);
+        initial_facing, definition->mobility_mode);
 }
 
 const std::vector<Projectile>& World::projectiles() const noexcept {
@@ -239,6 +239,22 @@ Projectile& World::spawn_projectile(const WeaponType weapon_type, const Team tea
                                      vehicle_damage_multiplier);
 }
 
+Projectile& World::spawn_indirect_projectile(
+    const WeaponType weapon_type, const Team team,
+    const Unit::Id source_unit_id, const Vec2 position,
+    const Vec2 impact_position, const float projectile_speed,
+    const float damage, const float splash_radius,
+    const float vehicle_damage_multiplier) {
+    const Vec2 offset = impact_position - position;
+    const float distance = length(offset);
+    const float speed = std::max(projectile_speed, 1.0F);
+    return projectiles_.emplace_back(
+        next_projectile_id_++, weapon_type, team, source_unit_id, position,
+        normalized(offset) * speed, distance, damage, splash_radius,
+        vehicle_damage_multiplier, ProjectileTrajectory::indirect_arc,
+        impact_position, distance / speed);
+}
+
 void World::emit_explosion_event(const Projectile& projectile,
                                  const Vec2 position) {
     explosion_events_.push_back(ExplosionEvent{
@@ -275,7 +291,7 @@ void World::spawn_test_units() {
                             definition.prefers_vehicle_targets,
                             definition.independent_turret,
                             definition.turret_rotation_speed,
-                            initial_facing);
+                            initial_facing, definition.mobility_mode);
     };
 
     const Bounds& blue_home =

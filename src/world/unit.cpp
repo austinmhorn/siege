@@ -18,6 +18,8 @@ std::string_view to_string(const TroopType type) noexcept {
         return "medium_tank";
     case TroopType::anti_tank:
         return "anti_tank";
+    case TroopType::mortar:
+        return "mortar";
     }
     return "unknown";
 }
@@ -98,7 +100,8 @@ Unit::Unit(const Id id, const TroopType troop_type, const Team team,
            const WeaponDefinition weapon, const TargetCategory target_category,
            const bool prefers_vehicle_targets, const bool independent_turret,
            const float turret_rotation_speed,
-           const float initial_facing_angle) noexcept
+           const float initial_facing_angle,
+           const MobilityMode mobility_mode) noexcept
     : id_(id), troop_type_(troop_type), team_(team), position_(spawn_position),
       previous_position_(spawn_position),
       facing_angle_(normalized_angle(initial_facing_angle)),
@@ -122,7 +125,8 @@ Unit::Unit(const Id id, const TroopType troop_type, const Team team,
       max_health_(std::max(max_health, 0.0F)),
       hit_radius_(std::max(hit_radius, 0.0F)),
       target_category_(target_category),
-      prefers_vehicle_targets_(prefers_vehicle_targets) {}
+      prefers_vehicle_targets_(prefers_vehicle_targets),
+      mobility_mode_(mobility_mode) {}
 
 void Unit::begin_simulation_step() noexcept {
     previous_position_ = position_;
@@ -359,6 +363,11 @@ float Unit::hit_radius() const noexcept { return hit_radius_; }
 TargetCategory Unit::target_category() const noexcept { return target_category_; }
 bool Unit::prefers_vehicle_targets() const noexcept {
     return prefers_vehicle_targets_;
+}
+MobilityMode Unit::mobility_mode() const noexcept { return mobility_mode_; }
+bool Unit::is_relocating() const noexcept {
+    return mobility_mode_ == MobilityMode::player_path_only &&
+           has_movement_path();
 }
 bool Unit::is_alive() const noexcept { return health_ > 0.0F; }
 MovementState Unit::movement_state() const noexcept { return movement_state_; }
