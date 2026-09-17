@@ -252,7 +252,8 @@ std::optional<ProjectileHit> nearest_projectile_hit(
 }
 
 void apply_explosion(World& world, const Projectile& projectile,
-                     const Vec2 position, std::vector<Unit>& units) noexcept {
+                     const Vec2 position, std::vector<Unit>& units,
+                     const std::optional<Unit::Id> direct_hit = std::nullopt) noexcept {
     const float radius_squared =
         projectile.splash_radius() * projectile.splash_radius();
     for (auto& candidate : units) {
@@ -261,8 +262,12 @@ void apply_explosion(World& world, const Projectile& projectile,
             continue;
         }
         if (length_squared(candidate.position() - position) <= radius_squared) {
-            candidate.apply_damage(
-                projectile.damage_against(candidate.target_category()));
+            const bool direct = direct_hit.has_value() &&
+                candidate.id() == *direct_hit;
+            candidate.apply_damage(direct
+                ? projectile.damage_against(candidate.target_category())
+                : projectile.splash_damage_against(
+                      candidate.target_category()));
             if (!candidate.is_alive()) {
                 (void)award_projectile_kill(world, projectile, candidate);
             }
@@ -331,7 +336,8 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
                     (projectile->position() - projectile->previous_position()) *
                         unit_hit->segment_fraction;
                 world_.emit_explosion_event(*projectile, impact_position);
-                apply_explosion(world_, *projectile, impact_position, units);
+                apply_explosion(world_, *projectile, impact_position, units,
+                                unit_hit->unit->id());
             } else {
                 unit_hit->unit->apply_damage(projectile->damage_against(
                     unit_hit->unit->target_category()));
@@ -701,7 +707,8 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
                 unit.weapon().type, unit.team(), unit.id(), unit.position(),
                 target_position, unit.weapon().projectile_speed,
                 unit.weapon().projectile_damage, unit.weapon().splash_radius,
-                unit.weapon().vehicle_damage_multiplier);
+                unit.weapon().vehicle_damage_multiplier,
+                unit.weapon().splash_damage);
         } else {
             world_.spawn_projectile(unit.weapon().type, unit.team(), unit.id(),
                                     unit.position(),
@@ -709,7 +716,8 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
                                     unit.weapon().projectile_max_distance,
                                     unit.weapon().projectile_damage,
                                     unit.weapon().splash_radius,
-                                    unit.weapon().vehicle_damage_multiplier);
+                                    unit.weapon().vehicle_damage_multiplier,
+                                    unit.weapon().splash_damage);
         }
         world_.emit_fire_event(unit);
         unit.reset_weapon_cooldown();

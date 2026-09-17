@@ -18,7 +18,8 @@ public:
                float vehicle_damage_multiplier,
                ProjectileTrajectory trajectory = ProjectileTrajectory::direct,
                Vec2 impact_position = {},
-               float flight_duration = 0.0F) noexcept;
+               float flight_duration = 0.0F,
+               float splash_damage = -1.0F) noexcept;
 
     void begin_simulation_step() noexcept;
     void advance(double delta_seconds) noexcept;
@@ -33,6 +34,9 @@ public:
     [[nodiscard]] float remaining_distance() const noexcept;
     [[nodiscard]] float damage() const noexcept;
     [[nodiscard]] float damage_against(TargetCategory category) const noexcept;
+    [[nodiscard]] float splash_damage() const noexcept;
+    [[nodiscard]] float splash_damage_against(
+        TargetCategory category) const noexcept;
     [[nodiscard]] float splash_radius() const noexcept;
     [[nodiscard]] ProjectileTrajectory trajectory() const noexcept;
     [[nodiscard]] bool is_indirect() const noexcept;
@@ -51,6 +55,7 @@ private:
     Vec2 velocity_{};
     float remaining_distance_{};
     float damage_{};
+    float splash_damage_{};
     float splash_radius_{};
     float vehicle_damage_multiplier_{1.0F};
     ProjectileTrajectory trajectory_{ProjectileTrajectory::direct};

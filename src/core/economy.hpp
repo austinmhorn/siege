@@ -25,7 +25,9 @@ struct EconomyRules {
     Money rifle_kill_reward;
     Money machine_gun_kill_reward;
     Money bazooka_kill_reward;
+    Money light_tank_kill_reward;
     Money medium_tank_kill_reward;
+    Money heavy_tank_kill_reward;
     Money anti_tank_kill_reward;
     Money mortar_kill_reward;
     Money objective_capture_reward;
@@ -48,7 +50,9 @@ inline constexpr EconomyRules default_economy_rules{
     .rifle_kill_reward = 250,
     .machine_gun_kill_reward = 400,
     .bazooka_kill_reward = 600,
+    .light_tank_kill_reward = 700,
     .medium_tank_kill_reward = 1'200,
+    .heavy_tank_kill_reward = 2'000,
     .anti_tank_kill_reward = 700,
     .mortar_kill_reward = 750,
     .objective_capture_reward = 1'000,

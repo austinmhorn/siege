@@ -14,8 +14,12 @@ std::string_view to_string(const TroopType type) noexcept {
         return "machine_gun";
     case TroopType::bazooka:
         return "bazooka";
+    case TroopType::light_tank:
+        return "light_tank";
     case TroopType::medium_tank:
         return "medium_tank";
+    case TroopType::heavy_tank:
+        return "heavy_tank";
     case TroopType::anti_tank:
         return "anti_tank";
     case TroopType::mortar:

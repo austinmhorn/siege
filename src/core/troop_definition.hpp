@@ -147,6 +147,45 @@ inline constexpr TroopDefinition bazooka_definition{
         .projectile_max_distance = 760.0F,
         .projectile_damage = 70.0F,
         .splash_radius = 115.0F,
+        .splash_damage = 70.0F,
+    },
+};
+
+inline constexpr TroopDefinition light_tank_definition{
+    .type = TroopType::light_tank,
+    .display_name = "Light Tank",
+    .move_speed = 52.0F,
+    .rotation_speed = 55.0F,
+    .vision_range = 600.0F,
+    .vision_angle = 90.0F,
+    .awareness_radius = 120.0F,
+    .preferred_combat_range = 460.0F,
+    .range_tolerance = 45.0F,
+    .aggression = 0.72F,
+    .retreat_bias = 0.75F,
+    .frontline_screen_weight = 0.0F,
+    .support_positioning_bias = 0.45F,
+    .support_rear_distance = 55.0F,
+    .support_search_radius = 440.0F,
+    .max_health = 240.0F,
+    .hit_radius = 28.0F,
+    .target_category = TargetCategory::vehicle,
+    .prefers_vehicle_targets = false,
+    .independent_turret = true,
+    .turret_rotation_speed = 75.0F,
+    .zone_control_weight = 1.0F,
+    .purchase_cost = 7'000,
+    .deployment_seconds = 2.0,
+    .weapon = WeaponDefinition{
+        .type = WeaponType::tank_cannon,
+        .projectile_speed = 700.0F,
+        .fire_interval = 1.6F,
+        .range = 575.0F,
+        .firing_arc = 7.0F,
+        .projectile_max_distance = 675.0F,
+        .projectile_damage = 80.0F,
+        .splash_radius = 75.0F,
+        .splash_damage = 55.0F,
     },
 };
 
@@ -184,6 +223,45 @@ inline constexpr TroopDefinition medium_tank_definition{
         .projectile_max_distance = 760.0F,
         .projectile_damage = 120.0F,
         .splash_radius = 90.0F,
+        .splash_damage = 120.0F,
+    },
+};
+
+inline constexpr TroopDefinition heavy_tank_definition{
+    .type = TroopType::heavy_tank,
+    .display_name = "Heavy Tank",
+    .move_speed = 24.0F,
+    .rotation_speed = 22.0F,
+    .vision_range = 500.0F,
+    .vision_angle = 90.0F,
+    .awareness_radius = 120.0F,
+    .preferred_combat_range = 575.0F,
+    .range_tolerance = 55.0F,
+    .aggression = 0.45F,
+    .retreat_bias = 0.95F,
+    .frontline_screen_weight = 0.0F,
+    .support_positioning_bias = 0.65F,
+    .support_rear_distance = 70.0F,
+    .support_search_radius = 540.0F,
+    .max_health = 1'080.0F,
+    .hit_radius = 40.0F,
+    .target_category = TargetCategory::vehicle,
+    .prefers_vehicle_targets = false,
+    .independent_turret = true,
+    .turret_rotation_speed = 35.0F,
+    .zone_control_weight = 1.0F,
+    .purchase_cost = 20'000,
+    .deployment_seconds = 4.5,
+    .weapon = WeaponDefinition{
+        .type = WeaponType::tank_cannon,
+        .projectile_speed = 560.0F,
+        .fire_interval = 5.0F,
+        .range = 700.0F,
+        .firing_arc = 5.0F,
+        .projectile_max_distance = 800.0F,
+        .projectile_damage = 540.0F,
+        .splash_radius = 110.0F,
+        .splash_damage = 135.0F,
     },
 };
 
@@ -221,6 +299,7 @@ inline constexpr TroopDefinition anti_tank_definition{
         .projectile_max_distance = 800.0F,
         .projectile_damage = 60.0F,
         .splash_radius = 45.0F,
+        .splash_damage = 60.0F,
         .vehicle_damage_multiplier = 4.0F,
     },
 };
@@ -261,6 +340,7 @@ inline constexpr TroopDefinition mortar_definition{
         .projectile_max_distance = 0.0F,
         .projectile_damage = 90.0F,
         .splash_radius = 150.0F,
+        .splash_damage = 90.0F,
         .vehicle_damage_multiplier = 0.40F,
         .trajectory = ProjectileTrajectory::indirect_arc,
         .maximum_range_mode = WeaponRangeMode::map_diagonal,
@@ -276,8 +356,12 @@ inline constexpr TroopDefinition mortar_definition{
         return &machine_gun_definition;
     case TroopType::bazooka:
         return &bazooka_definition;
+    case TroopType::light_tank:
+        return &light_tank_definition;
     case TroopType::medium_tank:
         return &medium_tank_definition;
+    case TroopType::heavy_tank:
+        return &heavy_tank_definition;
     case TroopType::anti_tank:
         return &anti_tank_definition;
     case TroopType::mortar:

@@ -36,6 +36,7 @@ struct WeaponDefinition {
     float projectile_max_distance;
     float projectile_damage;
     float splash_radius;
+    float splash_damage{0.0F};
     float vehicle_damage_multiplier{1.0F};
     ProjectileTrajectory trajectory{ProjectileTrajectory::direct};
     WeaponRangeMode maximum_range_mode{WeaponRangeMode::fixed};

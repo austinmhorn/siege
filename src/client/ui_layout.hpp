@@ -12,7 +12,7 @@ inline constexpr float reference_height = 1080.0F;
 inline constexpr float minimum_scale = 1.0F;
 inline constexpr float maximum_scale = 4.0F / 3.0F;
 inline constexpr float deployment_hud_magnification = 1.20F;
-inline constexpr std::size_t deployment_card_count = 6;
+inline constexpr std::size_t deployment_card_count = 8;
 inline constexpr float deployment_bar_height = 82.0F;
 inline constexpr float deployment_button_width = 160.0F;
 inline constexpr float deployment_button_height = 58.0F;
@@ -24,6 +24,8 @@ inline constexpr float deployment_cash_gap = 8.0F;
 inline constexpr float deployment_cash_horizontal_padding = 10.0F;
 inline constexpr float deployment_cash_vertical_padding = 5.0F;
 inline constexpr float deployment_selection_border_width = 2.0F;
+inline constexpr float deployment_full_text_width = 140.0F;
+inline constexpr float deployment_minimum_text_scale = 0.85F;
 
 struct DeploymentLayout {
     float responsive_scale;
@@ -85,15 +87,18 @@ struct DeploymentLayout {
         ? 0.0F
         : std::min(desired_button_width,
                    available_width / static_cast<float>(card_count));
+    const float text_scale = std::clamp(
+        scale * button_width / deployment_full_text_width,
+        deployment_minimum_text_scale, scale);
     const float total_width = button_width * static_cast<float>(card_count) +
                               gap_total;
 
     return DeploymentLayout{
         .responsive_scale = responsive_scale,
         .scale = scale,
-        // Width compression never shrinks text: readability has priority over
-        // preserving the desired card aspect ratio on narrow drawables.
-        .text_scale = scale,
+        // Preserve the HUD magnification until narrow cards would clip their
+        // titles, then compress only toward the readable reference scale.
+        .text_scale = text_scale,
         .bar_height = deployment_bar_height * scale,
         .button_width = button_width,
         .button_height = deployment_button_height * scale,

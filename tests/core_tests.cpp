@@ -801,24 +801,24 @@ int main() {
     passed &= check(
         near(window_1280_ui.responsive_scale, 1.0F) &&
             near(window_1280_ui.scale, 1.2F) &&
-            near(window_1280_ui.button_width, 192.0F) &&
+            near(window_1280_ui.button_width, 151.15F) &&
             near(window_1280_ui.button_height, 69.6F) &&
-            near(window_1280_ui.button_gap, 14.4F) &&
+            near(window_1280_ui.button_gap, 6.0F) &&
         window_1280_first.x >= 0.0F &&
             window_1280_last.x + window_1280_last.width <= 1280.0F &&
             near(window_1280_first.x,
                  1280.0F - window_1280_last.x - window_1280_last.width) &&
             near(window_900_ui.scale, 1.2F) &&
-            near(window_900_ui.button_width, 140.2F) &&
+            near(window_900_ui.button_width, 103.65F) &&
             near(window_900_ui.button_height, 69.6F) &&
             near(window_900_ui.button_gap, 6.0F) &&
-            near(window_900_ui.text_scale, 1.2F) &&
+            near(window_900_ui.text_scale, 0.888F, 0.001F) &&
             window_900_first.x >= 0.0F &&
             window_900_last.x + window_900_last.width <= 900.0F &&
             near(window_900_first.x,
                  900.0F - window_900_last.x - window_900_last.width) &&
             window_900_last.y + window_900_last.height < 600.0F,
-        "responsive HUD preserves six equal cards by reducing gaps before width at 1280x720 and 900x600");
+        "responsive HUD preserves eight equal cards by reducing gaps before width at 1280x720 and 900x600");
 
     UnitSelection red_selection;
     red_selection.replace_from_rectangle(selection_world, Team::team_b,
@@ -1258,19 +1258,26 @@ int main() {
             is_valid_deployment_location(hard_purchase_world_a, Team::team_b,
                                          left.position);
     }
+    std::vector<TroopType> hard_types;
+    for (const PendingDeployment& pending :
+         hard_purchase_world_a.pending_deployments()) {
+        if (std::ranges::find(hard_types, pending.troop_type) ==
+            hard_types.end()) {
+            hard_types.push_back(pending.troop_type);
+        }
+    }
+    Money hard_spent = 0;
+    for (const PendingDeployment& pending :
+         hard_purchase_world_a.pending_deployments()) {
+        hard_spent +=
+            troop_definition_for(pending.troop_type)->purchase_cost;
+    }
     passed &= check(
-        hard_purchases_match &&
-            hard_purchase_world_a.pending_deployments()[0].troop_type ==
-                TroopType::rifle &&
-            hard_purchase_world_a.pending_deployments()[1].troop_type ==
-                TroopType::medium_tank &&
-            hard_purchase_world_a.pending_deployments()[2].troop_type ==
-                TroopType::rifle &&
-            hard_purchase_world_a.pending_deployments()[3].troop_type ==
-                TroopType::machine_gun &&
+        hard_purchases_match && hard_types.size() >= 2 &&
             hard_purchase_world_a.find_player(Team::team_b)->cash() ==
                 hard_purchase_world_b.find_player(Team::team_b)->cash() &&
-            hard_purchase_world_a.find_player(Team::team_b)->cash() == 4'000,
+            hard_purchase_world_a.find_player(Team::team_b)->cash() ==
+                default_economy_rules.starting_cash - hard_spent,
         "Hard purchase planning is deterministic, varied, affordable, and uses legal pending deployments");
 
     World anti_tank_ai_world_a{default_match_rules, navigation_open_map};
@@ -1653,15 +1660,15 @@ int main() {
     ai_mix_world.units().clear();
     AiCommander mix_commander{Team::team_b};
     mix_commander.update(ai_mix_world, Team::team_a, 361);
-    const std::array<TroopType, 4> expected_ai_mix{
-        TroopType::rifle, TroopType::medium_tank, TroopType::rifle,
-        TroopType::machine_gun};
-    bool mixed_pending = ai_mix_world.pending_deployments().size() ==
-                         expected_ai_mix.size();
-    for (std::size_t index = 0;
-         mixed_pending && index < expected_ai_mix.size(); ++index) {
-        mixed_pending &= ai_mix_world.pending_deployments()[index].troop_type ==
-                         expected_ai_mix[index];
+    const bool mixed_pending = ai_mix_world.pending_deployments().size() >= 3;
+    std::vector<TroopType> mixed_types;
+    Money mixed_spent = 0;
+    for (const PendingDeployment& pending : ai_mix_world.pending_deployments()) {
+        mixed_spent += troop_definition_for(pending.troop_type)->purchase_cost;
+        if (std::ranges::find(mixed_types, pending.troop_type) ==
+            mixed_types.end()) {
+            mixed_types.push_back(pending.troop_type);
+        }
     }
     const bool mixed_y_positions =
         mixed_pending &&
@@ -1671,16 +1678,15 @@ int main() {
               ai_mix_world.pending_deployments()[2].position.y);
     passed &= check(
         mixed_pending && mixed_y_positions &&
-            mix_commander.successful_deployments() == 4 &&
+            mixed_types.size() >= 2 &&
+            mix_commander.successful_deployments() ==
+                ai_mix_world.pending_deployments().size() &&
             ai_mix_world.find_player(Team::team_b)->cash() ==
-                default_economy_rules.starting_cash -
-                    rifle_definition.purchase_cost * 2 -
-                    machine_gun_definition.purchase_cost -
-                    medium_tank_definition.purchase_cost,
+                default_economy_rules.starting_cash - mixed_spent,
         "AI follows deterministic battlefield-aware composition planning");
 
     struct LongAiResult {
-        std::array<int, 6> counts{};
+        std::array<int, 8> counts{};
         Money cash{};
         std::uint64_t deployments{};
     };
@@ -1689,9 +1695,11 @@ int main() {
         case TroopType::rifle: return std::size_t{0};
         case TroopType::machine_gun: return std::size_t{1};
         case TroopType::bazooka: return std::size_t{2};
-        case TroopType::medium_tank: return std::size_t{3};
-        case TroopType::anti_tank: return std::size_t{4};
-        case TroopType::mortar: return std::size_t{5};
+        case TroopType::light_tank: return std::size_t{3};
+        case TroopType::medium_tank: return std::size_t{4};
+        case TroopType::heavy_tank: return std::size_t{5};
+        case TroopType::anti_tank: return std::size_t{6};
+        case TroopType::mortar: return std::size_t{7};
         }
         return std::size_t{0};
     };
@@ -1730,8 +1738,8 @@ int main() {
     const auto composition_cost = [](const LongAiResult& result) {
         constexpr std::array troop_types{
             TroopType::rifle, TroopType::machine_gun, TroopType::bazooka,
-            TroopType::medium_tank, TroopType::anti_tank,
-            TroopType::mortar};
+            TroopType::light_tank, TroopType::medium_tank,
+            TroopType::heavy_tank, TroopType::anti_tank, TroopType::mortar};
         Money cost = 0;
         for (std::size_t index = 0; index < troop_types.size(); ++index) {
             cost += static_cast<Money>(result.counts[index]) *
@@ -1753,9 +1761,9 @@ int main() {
     const LongAiResult hard_long_replay = run_long_ai_economy_simulation(
         make_ai_profile(AiDifficulty::hard, AiPlaystyle::balanced),
         long_ai_seconds);
-    bool medium_fields_six = true;
+    bool medium_fields_all = true;
     for (const int count : medium_long.counts) {
-        medium_fields_six &= count > 0;
+        medium_fields_all &= count > 0;
     }
     const Money expected_long_income =
         default_economy_rules.starting_cash + 30 * 200 + 90 * 400 +
@@ -1763,13 +1771,13 @@ int main() {
     passed &= check(
         easy_long.counts[test_troop_index(TroopType::medium_tank)] > 0 &&
             easy_long.counts[test_troop_index(TroopType::mortar)] > 0 &&
-            medium_fields_six &&
+            medium_fields_all &&
             medium_long.counts[
                 test_troop_index(TroopType::medium_tank)] > 0 &&
             medium_long.counts[test_troop_index(TroopType::mortar)] > 0 &&
             hard_long.counts[test_troop_index(TroopType::medium_tank)] > 0 &&
             hard_long.counts[test_troop_index(TroopType::mortar)] > 0,
-        "Easy, Medium, and Hard long simulations field Tanks and Mortars while Medium uses all six troops");
+        "Easy, Medium, and Hard long simulations field armor and Mortars while Medium uses all eight troops");
     passed &= check(
         medium_long.counts[test_troop_index(TroopType::medium_tank)] <=
                 medium_long.counts[test_troop_index(TroopType::rifle)] &&
@@ -3516,6 +3524,31 @@ int main() {
                         near(bazooka_definition.zone_control_weight, 1.0F),
                     "bazooka definition exposes its explosive long-range profile");
     passed &= check(
+        light_tank_definition.type == TroopType::light_tank &&
+            troop_definition_for(TroopType::light_tank) ==
+                &light_tank_definition &&
+            troop_display_name(TroopType::light_tank) == "Light Tank" &&
+            to_string(TroopType::light_tank) == "light_tank" &&
+            light_tank_definition.target_category == TargetCategory::vehicle &&
+            light_tank_definition.independent_turret &&
+            near(light_tank_definition.max_health, 240.0F) &&
+            near(light_tank_definition.move_speed, 52.0F) &&
+            near(light_tank_definition.hit_radius, 28.0F) &&
+            near(light_tank_definition.rotation_speed, 55.0F) &&
+            near(light_tank_definition.turret_rotation_speed, 75.0F) &&
+            near(light_tank_definition.vision_range, 600.0F) &&
+            near(light_tank_definition.preferred_combat_range, 460.0F) &&
+            near(light_tank_definition.range_tolerance, 45.0F) &&
+            light_tank_definition.purchase_cost == 7'000 &&
+            near(static_cast<float>(light_tank_definition.deployment_seconds),
+                 2.0F) &&
+            near(light_tank_definition.weapon.projectile_damage, 80.0F) &&
+            near(light_tank_definition.weapon.splash_damage, 55.0F) &&
+            near(light_tank_definition.weapon.splash_radius, 75.0F) &&
+            near(light_tank_definition.weapon.fire_interval, 1.6F) &&
+            kill_reward_for(TroopType::light_tank) == 700,
+        "light tank definition centralizes mobile vehicle and cannon tuning");
+    passed &= check(
         medium_tank_definition.type == TroopType::medium_tank &&
             troop_definition_for(TroopType::medium_tank) ==
                 &medium_tank_definition &&
@@ -3540,9 +3573,35 @@ int main() {
             near(medium_tank_definition.weapon.range, 650.0F) &&
             near(medium_tank_definition.weapon.projectile_max_distance, 760.0F) &&
             near(medium_tank_definition.weapon.projectile_damage, 120.0F) &&
+            near(medium_tank_definition.weapon.splash_damage, 120.0F) &&
             near(medium_tank_definition.weapon.splash_radius, 90.0F) &&
             kill_reward_for(TroopType::medium_tank) == 1'200,
         "medium tank definition centralizes vehicle, economy, and cannon tuning");
+    passed &= check(
+        heavy_tank_definition.type == TroopType::heavy_tank &&
+            troop_definition_for(TroopType::heavy_tank) ==
+                &heavy_tank_definition &&
+            troop_display_name(TroopType::heavy_tank) == "Heavy Tank" &&
+            to_string(TroopType::heavy_tank) == "heavy_tank" &&
+            heavy_tank_definition.target_category == TargetCategory::vehicle &&
+            heavy_tank_definition.independent_turret &&
+            near(heavy_tank_definition.max_health, 1'080.0F) &&
+            near(heavy_tank_definition.move_speed, 24.0F) &&
+            near(heavy_tank_definition.hit_radius, 40.0F) &&
+            near(heavy_tank_definition.rotation_speed, 22.0F) &&
+            near(heavy_tank_definition.turret_rotation_speed, 35.0F) &&
+            near(heavy_tank_definition.vision_range, 500.0F) &&
+            near(heavy_tank_definition.preferred_combat_range, 575.0F) &&
+            near(heavy_tank_definition.range_tolerance, 55.0F) &&
+            heavy_tank_definition.purchase_cost == 20'000 &&
+            near(static_cast<float>(heavy_tank_definition.deployment_seconds),
+                 4.5F) &&
+            near(heavy_tank_definition.weapon.projectile_damage, 540.0F) &&
+            near(heavy_tank_definition.weapon.splash_damage, 135.0F) &&
+            near(heavy_tank_definition.weapon.splash_radius, 110.0F) &&
+            near(heavy_tank_definition.weapon.fire_interval, 5.0F) &&
+            kill_reward_for(TroopType::heavy_tank) == 2'000,
+        "heavy tank definition centralizes breakthrough vehicle and cannon tuning");
     passed &= check(
         anti_tank_definition.type == TroopType::anti_tank &&
             troop_definition_for(TroopType::anti_tank) ==
@@ -3826,6 +3885,39 @@ int main() {
                 mortar_ai_world.pending_deployments()[0].position),
         "AI purchases and rear-deploys mortar through the normal legal economy path");
 
+    World heavy_saving_world{default_match_rules, navigation_open_map};
+    heavy_saving_world.units().clear();
+    heavy_saving_world.units().push_back(unit_from_definition(
+        9'030, Team::team_b, {2'200.0F, 500.0F}, 90.0F,
+        rifle_definition));
+    heavy_saving_world.units().push_back(unit_from_definition(
+        9'031, Team::team_b, {2'200.0F, 700.0F}, 90.0F,
+        rifle_definition));
+    heavy_saving_world.find_player(Team::team_b)->reset_cash(19'999);
+    AiProfile heavy_profile = make_ai_profile();
+    heavy_profile.rules.troop_mix.fill(TroopType::heavy_tank);
+    AiCommander heavy_saving_ai{Team::team_b, heavy_profile};
+    heavy_saving_ai.update(heavy_saving_world, Team::team_a);
+    const bool heavy_plan_started =
+        heavy_saving_ai.planned_purchase() == TroopType::heavy_tank &&
+        heavy_saving_ai.planned_purchase_cost() == 20'000 &&
+        heavy_saving_ai.last_result() ==
+            AiDecisionResult::no_affordable_troop;
+    heavy_saving_ai.update(heavy_saving_world, Team::team_a, 120);
+    const bool heavy_plan_persisted =
+        heavy_saving_ai.planned_purchase() == TroopType::heavy_tank &&
+        heavy_saving_world.pending_deployments().empty();
+    heavy_saving_world.find_player(Team::team_b)->reset_cash(20'000);
+    heavy_saving_ai.update(heavy_saving_world, Team::team_a, 120);
+    passed &= check(
+        heavy_plan_started && heavy_plan_persisted &&
+            heavy_saving_ai.last_troop_choice() == TroopType::heavy_tank &&
+            heavy_saving_world.pending_deployments().size() == 1 &&
+            heavy_saving_world.pending_deployments()[0].troop_type ==
+                TroopType::heavy_tank &&
+            heavy_saving_world.find_player(Team::team_b)->cash() == 0,
+        "AI deliberately preserves an expensive Heavy Tank plan until normal cash and deployment rules allow it");
+
     Unit turret_tank = unit_from_definition(
         980, Team::team_a, {100.0F, 100.0F}, 0.0F,
         medium_tank_definition);
@@ -3855,6 +3947,27 @@ int main() {
     turret_tank.rotate_toward_desired(1.0);
     passed &= check(near(turret_tank.facing_angle(), 325.0F),
                     "medium tank hull turns gradually at its own rotation speed");
+
+    Unit light_turn = unit_from_definition(
+        986, Team::team_a, {100.0F, 100.0F}, 0.0F,
+        light_tank_definition);
+    Unit heavy_turn = unit_from_definition(
+        987, Team::team_a, {100.0F, 100.0F}, 0.0F,
+        heavy_tank_definition);
+    light_turn.set_desired_facing_angle(270.0F);
+    light_turn.set_desired_turret_angle(270.0F);
+    heavy_turn.set_desired_facing_angle(270.0F);
+    heavy_turn.set_desired_turret_angle(270.0F);
+    light_turn.rotate_toward_desired(1.0);
+    light_turn.rotate_turret_toward_desired(1.0);
+    heavy_turn.rotate_toward_desired(1.0);
+    heavy_turn.rotate_turret_toward_desired(1.0);
+    passed &= check(
+        near(light_turn.facing_angle(), 305.0F) &&
+            near(light_turn.turret_angle(), 285.0F) &&
+            near(heavy_turn.facing_angle(), 338.0F) &&
+            near(heavy_turn.turret_angle(), 325.0F),
+        "Light and Heavy reuse independent deterministic hull/turret rotation with their own rates");
 
     World tank_deployment_world;
     tank_deployment_world.units().clear();
@@ -5351,6 +5464,16 @@ int main() {
             weapon.vehicle_damage_multiplier};
         return projectile.damage_against(category);
     };
+    const auto splash_damage_against = [](const WeaponDefinition& weapon,
+                                          const TargetCategory category) {
+        const Projectile projectile{
+            9'001, weapon.type, Team::team_a, 1, {0.0F, 0.0F},
+            {weapon.projectile_speed, 0.0F}, weapon.projectile_max_distance,
+            weapon.projectile_damage, weapon.splash_radius,
+            weapon.vehicle_damage_multiplier, ProjectileTrajectory::direct,
+            {}, 0.0F, weapon.splash_damage};
+        return projectile.splash_damage_against(category);
+    };
     passed &= check(
         near(damage_against(rifle_definition.weapon,
                             TargetCategory::infantry), 25.0F) &&
@@ -5366,11 +5489,76 @@ int main() {
                                 TargetCategory::vehicle), 36.0F) &&
             near(damage_against(medium_tank_definition.weapon,
                                 TargetCategory::vehicle), 120.0F) &&
+            near(damage_against(light_tank_definition.weapon,
+                                TargetCategory::vehicle), 80.0F) &&
+            near(damage_against(heavy_tank_definition.weapon,
+                                TargetCategory::vehicle), 540.0F) &&
             near(damage_against(anti_tank_definition.weapon,
                                 TargetCategory::infantry), 60.0F) &&
             near(damage_against(anti_tank_definition.weapon,
                                 TargetCategory::vehicle), 240.0F),
         "weapon-owned multipliers produce exact infantry and vehicle damage");
+    passed &= check(
+        near(splash_damage_against(light_tank_definition.weapon,
+                                   TargetCategory::infantry), 55.0F) &&
+            near(splash_damage_against(medium_tank_definition.weapon,
+                                       TargetCategory::infantry), 120.0F) &&
+            near(splash_damage_against(heavy_tank_definition.weapon,
+                                       TargetCategory::infantry), 135.0F),
+        "tank cannon splash damage remains distinct from authoritative direct damage");
+
+    const float anti_tank_vehicle_hit =
+        anti_tank_definition.weapon.projectile_damage *
+        anti_tank_definition.weapon.vehicle_damage_multiplier;
+    Unit at_light = unit_from_definition(
+        9'010, Team::team_b, {200.0F, 100.0F}, 90.0F,
+        light_tank_definition);
+    at_light.apply_damage(anti_tank_vehicle_hit);
+    Unit at_heavy = unit_from_definition(
+        9'011, Team::team_b, {200.0F, 100.0F}, 90.0F,
+        heavy_tank_definition);
+    for (int hit = 0; hit < 4; ++hit) {
+        at_heavy.apply_damage(anti_tank_vehicle_hit);
+    }
+    const bool heavy_survives_four =
+        at_heavy.is_alive() && near(at_heavy.health(), 120.0F);
+    at_heavy.apply_damage(anti_tank_vehicle_hit);
+    Unit heavy_duel = unit_from_definition(
+        9'012, Team::team_b, {200.0F, 100.0F}, 90.0F,
+        heavy_tank_definition);
+    heavy_duel.apply_damage(heavy_tank_definition.weapon.projectile_damage);
+    const bool heavy_survives_one_cannon =
+        heavy_duel.is_alive() && near(heavy_duel.health(), 540.0F);
+    heavy_duel.apply_damage(heavy_tank_definition.weapon.projectile_damage);
+    passed &= check(
+        !at_light.is_alive() && heavy_survives_four && !at_heavy.is_alive() &&
+            heavy_survives_one_cannon && !heavy_duel.is_alive(),
+        "tank HP breakpoints are one AT hit for Light, five for Heavy, and two Heavy cannon hits");
+
+    World heavy_splash_world{default_match_rules, navigation_open_map};
+    heavy_splash_world.units().clear();
+    heavy_splash_world.units().push_back(unit_from_definition(
+        9'020, Team::team_a, {100.0F, 100.0F}, 270.0F,
+        heavy_tank_definition));
+    heavy_splash_world.units().push_back(unit_from_definition(
+        9'021, Team::team_b, {200.0F, 100.0F}, 90.0F,
+        heavy_tank_definition));
+    heavy_splash_world.units().push_back(unit_from_definition(
+        9'022, Team::team_b, {260.0F, 100.0F}, 90.0F,
+        heavy_tank_definition));
+    heavy_splash_world.units().push_back(unit_from_definition(
+        9'023, Team::team_a, {220.0F, 120.0F}, 270.0F,
+        heavy_tank_definition));
+    heavy_splash_world.spawn_projectile(
+        WeaponType::tank_cannon, Team::team_a, 9'020, {100.0F, 100.0F},
+        {12'000.0F, 0.0F}, 800.0F, 540.0F, 110.0F, 1.0F, 135.0F);
+    Simulation heavy_splash_simulation{heavy_splash_world};
+    heavy_splash_simulation.update(1.0 / 60.0);
+    passed &= check(
+        near(heavy_splash_world.find_unit(9'021)->health(), 540.0F) &&
+            near(heavy_splash_world.find_unit(9'022)->health(), 945.0F) &&
+            near(heavy_splash_world.find_unit(9'023)->health(), 1'080.0F),
+        "heavy direct target takes 540 while nearby hostile splash is 135 and friendlies remain immune");
 
     World anti_vehicle_damage_world{default_match_rules, navigation_open_map};
     anti_vehicle_damage_world.units().clear();

@@ -232,11 +232,14 @@ Projectile& World::spawn_projectile(const WeaponType weapon_type, const Team tea
                                     const float maximum_distance,
                                     const float damage,
                                     const float splash_radius,
-                                    const float vehicle_damage_multiplier) {
+                                    const float vehicle_damage_multiplier,
+                                    const float splash_damage) {
     return projectiles_.emplace_back(next_projectile_id_++, weapon_type, team,
                                      source_unit_id, position, velocity,
                                      maximum_distance, damage, splash_radius,
-                                     vehicle_damage_multiplier);
+                                     vehicle_damage_multiplier,
+                                     ProjectileTrajectory::direct, Vec2{}, 0.0F,
+                                     splash_damage);
 }
 
 Projectile& World::spawn_indirect_projectile(
@@ -244,7 +247,8 @@ Projectile& World::spawn_indirect_projectile(
     const Unit::Id source_unit_id, const Vec2 position,
     const Vec2 impact_position, const float projectile_speed,
     const float damage, const float splash_radius,
-    const float vehicle_damage_multiplier) {
+    const float vehicle_damage_multiplier,
+    const float splash_damage) {
     const Vec2 offset = impact_position - position;
     const float distance = length(offset);
     const float speed = std::max(projectile_speed, 1.0F);
@@ -252,7 +256,7 @@ Projectile& World::spawn_indirect_projectile(
         next_projectile_id_++, weapon_type, team, source_unit_id, position,
         normalized(offset) * speed, distance, damage, splash_radius,
         vehicle_damage_multiplier, ProjectileTrajectory::indirect_arc,
-        impact_position, distance / speed);
+        impact_position, distance / speed, splash_damage);
 }
 
 void World::emit_explosion_event(const Projectile& projectile,

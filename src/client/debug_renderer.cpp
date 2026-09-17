@@ -806,6 +806,11 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
         }
         cursor.format(FontRole::debug, debug_text, "cooldown: %.2f",
                       unit.weapon_cooldown_remaining());
+        cursor.format(FontRole::debug, debug_text,
+                      "damage: %.0f / splash %.0f @ %.0f",
+                      unit.weapon().projectile_damage,
+                      unit.weapon().splash_damage,
+                      unit.weapon().splash_radius);
         cursor.format(FontRole::debug, debug_text, "vs vehicle: x%.1f",
                       unit.weapon().vehicle_damage_multiplier);
         cursor.format(FontRole::debug, debug_text, "emplacement: %s",

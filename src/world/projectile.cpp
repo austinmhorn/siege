@@ -11,12 +11,15 @@ Projectile::Projectile(const Id id, const WeaponType weapon_type, const Team tea
                        const float vehicle_damage_multiplier,
                        const ProjectileTrajectory trajectory,
                        const Vec2 impact_position,
-                       const float flight_duration) noexcept
+                       const float flight_duration,
+                       const float splash_damage) noexcept
     : id_(id), weapon_type_(weapon_type), team_(team),
       source_unit_id_(source_unit_id), position_(position),
       previous_position_(position), velocity_(velocity),
       remaining_distance_(std::max(maximum_distance, 0.0F)),
       damage_(std::max(damage, 0.0F)),
+      splash_damage_(splash_damage < 0.0F ? std::max(damage, 0.0F)
+                                          : std::max(splash_damage, 0.0F)),
       splash_radius_(std::max(splash_radius, 0.0F)),
       vehicle_damage_multiplier_(std::max(vehicle_damage_multiplier, 0.0F)),
       trajectory_(trajectory), launch_position_(position),
@@ -67,6 +70,13 @@ float Projectile::damage_against(const TargetCategory category) const noexcept {
     return damage_ * (category == TargetCategory::vehicle
                           ? vehicle_damage_multiplier_
                           : 1.0F);
+}
+float Projectile::splash_damage() const noexcept { return splash_damage_; }
+float Projectile::splash_damage_against(
+    const TargetCategory category) const noexcept {
+    return splash_damage_ * (category == TargetCategory::vehicle
+                                 ? vehicle_damage_multiplier_
+                                 : 1.0F);
 }
 float Projectile::splash_radius() const noexcept { return splash_radius_; }
 ProjectileTrajectory Projectile::trajectory() const noexcept {

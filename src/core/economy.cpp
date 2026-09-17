@@ -49,8 +49,12 @@ Money kill_reward_for(const TroopType troop_type,
         return rules.machine_gun_kill_reward;
     case TroopType::bazooka:
         return rules.bazooka_kill_reward;
+    case TroopType::light_tank:
+        return rules.light_tank_kill_reward;
     case TroopType::medium_tank:
         return rules.medium_tank_kill_reward;
+    case TroopType::heavy_tank:
+        return rules.heavy_tank_kill_reward;
     case TroopType::anti_tank:
         return rules.anti_tank_kill_reward;
     case TroopType::mortar:

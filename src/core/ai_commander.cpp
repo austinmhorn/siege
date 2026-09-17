@@ -166,12 +166,16 @@ std::size_t troop_index(const TroopType troop) noexcept {
         return 1;
     case TroopType::bazooka:
         return 2;
-    case TroopType::medium_tank:
+    case TroopType::light_tank:
         return 3;
-    case TroopType::anti_tank:
+    case TroopType::medium_tank:
         return 4;
-    case TroopType::mortar:
+    case TroopType::heavy_tank:
         return 5;
+    case TroopType::anti_tank:
+        return 6;
+    case TroopType::mortar:
+        return 7;
     }
     return 0;
 }
@@ -181,9 +185,9 @@ struct PurchasePlan {
     AiPurchasePlanReason reason{AiPurchasePlanReason::composition};
 };
 
-std::array<int, 6> friendly_composition(const World& world,
+std::array<int, 8> friendly_composition(const World& world,
                                         const Team team) noexcept {
-    std::array<int, 6> current{};
+    std::array<int, 8> current{};
     for (const Unit& unit : world.units()) {
         if (unit.is_alive() && unit.team() == team) {
             ++current[troop_index(unit.troop_type())];
@@ -232,8 +236,8 @@ PurchasePlan composition_purchase(const World& world, const Team team,
                                   const AiStrategy strategy,
                                   const std::optional<TroopType>
                                       last_purchased_troop) noexcept {
-    const std::array<int, 6> current = friendly_composition(world, team);
-    std::array<int, 6> desired{};
+    const std::array<int, 8> current = friendly_composition(world, team);
+    std::array<int, 8> desired{};
     for (const TroopType troop : profile.rules.troop_mix) {
         ++desired[troop_index(troop)];
     }
@@ -258,7 +262,8 @@ PurchasePlan composition_purchase(const World& world, const Team team,
 
     constexpr std::array candidates{
         TroopType::rifle, TroopType::machine_gun, TroopType::bazooka,
-        TroopType::medium_tank, TroopType::anti_tank, TroopType::mortar};
+        TroopType::light_tank, TroopType::medium_tank, TroopType::heavy_tank,
+        TroopType::anti_tank, TroopType::mortar};
     std::array<int, candidates.size()> scores{};
     for (std::size_t index = 0; index < candidates.size(); ++index) {
         const std::size_t type_index = troop_index(candidates[index]);
@@ -271,8 +276,15 @@ PurchasePlan composition_purchase(const World& world, const Team team,
     scores[troop_index(TroopType::machine_gun)] += visible.infantry * 14;
     scores[troop_index(TroopType::bazooka)] +=
         (visible.infantry + visible.vehicles) * 7;
+    scores[troop_index(TroopType::light_tank)] +=
+        strategy == AiStrategy::attack ? 35 : 10;
     scores[troop_index(TroopType::medium_tank)] +=
-        strategy == AiStrategy::attack ? 35 : 5;
+        strategy == AiStrategy::attack ? 55 : 5;
+    scores[troop_index(TroopType::heavy_tank)] +=
+        total_force >= 5 && ordinary_infantry >= 3 &&
+                (sustained_fighting || total_force >= 10)
+            ? 32
+            : -130;
     scores[troop_index(TroopType::anti_tank)] +=
         visible.vehicles * 170 -
         current[troop_index(TroopType::anti_tank)] * 90;
@@ -283,7 +295,9 @@ PurchasePlan composition_purchase(const World& world, const Team team,
     case AiPlaystyle::balanced:
         break;
     case AiPlaystyle::aggressive:
+        scores[troop_index(TroopType::light_tank)] += 75;
         scores[troop_index(TroopType::medium_tank)] += 65;
+        scores[troop_index(TroopType::heavy_tank)] += 20;
         scores[troop_index(TroopType::rifle)] += 20;
         scores[troop_index(TroopType::mortar)] -= 40;
         break;
@@ -291,17 +305,21 @@ PurchasePlan composition_purchase(const World& world, const Team team,
         scores[troop_index(TroopType::machine_gun)] += 35;
         scores[troop_index(TroopType::mortar)] += 70;
         scores[troop_index(TroopType::medium_tank)] -= 10;
+        scores[troop_index(TroopType::heavy_tank)] += 55;
         break;
     }
     switch (profile.difficulty) {
     case AiDifficulty::easy:
+        scores[troop_index(TroopType::heavy_tank)] -= 25;
         scores[troop_index(TroopType::medium_tank)] -= 15;
         scores[troop_index(TroopType::mortar)] -= 10;
         break;
     case AiDifficulty::medium:
         break;
     case AiDifficulty::hard:
+        scores[troop_index(TroopType::light_tank)] += 10;
         scores[troop_index(TroopType::medium_tank)] += 15;
+        scores[troop_index(TroopType::heavy_tank)] += 20;
         scores[troop_index(TroopType::mortar)] += 15;
         scores[troop_index(TroopType::anti_tank)] += visible.vehicles * 30;
         break;
@@ -309,11 +327,21 @@ PurchasePlan composition_purchase(const World& world, const Team team,
     if (last_purchased_troop == TroopType::medium_tank) {
         scores[troop_index(TroopType::medium_tank)] -= 180;
     }
+    if (last_purchased_troop == TroopType::light_tank) {
+        scores[troop_index(TroopType::light_tank)] -= 150;
+    }
+    if (last_purchased_troop == TroopType::heavy_tank) {
+        scores[troop_index(TroopType::heavy_tank)] -= 420;
+    }
     if (last_purchased_troop == TroopType::mortar) {
         scores[troop_index(TroopType::mortar)] -= 220;
     }
+    scores[troop_index(TroopType::light_tank)] -=
+        current[troop_index(TroopType::light_tank)] * 28;
     scores[troop_index(TroopType::medium_tank)] -=
         current[troop_index(TroopType::medium_tank)] * 20;
+    scores[troop_index(TroopType::heavy_tank)] -=
+        current[troop_index(TroopType::heavy_tank)] * 120;
     scores[troop_index(TroopType::mortar)] -=
         current[troop_index(TroopType::mortar)] * 45;
 
@@ -324,7 +352,10 @@ PurchasePlan composition_purchase(const World& world, const Team team,
         }
     }
     const TroopType selected = candidates[best];
-    const AiPurchasePlanReason reason = selected == TroopType::medium_tank
+    const AiPurchasePlanReason reason =
+        (selected == TroopType::light_tank ||
+         selected == TroopType::medium_tank ||
+         selected == TroopType::heavy_tank)
         ? AiPurchasePlanReason::frontline_anchor
         : selected == TroopType::mortar
             ? AiPurchasePlanReason::artillery_support
@@ -397,8 +428,8 @@ AiProfile make_ai_profile(const AiDifficulty difficulty,
     case AiDifficulty::easy:
         rules.decision_interval_seconds = 4.0;
         rules.strategy_interval_seconds = 3.0;
-        rules.deployment_y_fractions = {0.20F, 0.80F, 0.50F,
-                                        0.35F, 0.65F, 0.50F, 0.30F};
+        rules.deployment_y_fractions = {0.20F, 0.80F, 0.50F, 0.35F,
+                                        0.65F, 0.50F, 0.30F, 0.70F};
         rules.force_selection_margin = 170.0F;
         rules.fallback_force_limit = 4;
         rules.maximum_local_force = 4;
@@ -412,8 +443,8 @@ AiProfile make_ai_profile(const AiDifficulty difficulty,
     case AiDifficulty::hard:
         rules.decision_interval_seconds = 1.0;
         rules.strategy_interval_seconds = 0.5;
-        rules.deployment_y_fractions = {0.50F, 0.35F, 0.65F,
-                                        0.25F, 0.75F, 0.50F, 0.20F};
+        rules.deployment_y_fractions = {0.50F, 0.35F, 0.65F, 0.25F,
+                                        0.75F, 0.50F, 0.20F, 0.80F};
         rules.force_selection_margin = 300.0F;
         rules.fallback_force_limit = 8;
         rules.regroup_outnumber_ratio = 1.35F;
@@ -428,9 +459,9 @@ AiProfile make_ai_profile(const AiDifficulty difficulty,
         break;
     case AiPlaystyle::aggressive:
         rules.troop_mix = {TroopType::rifle, TroopType::machine_gun,
-                           TroopType::rifle, TroopType::medium_tank,
-                           TroopType::machine_gun, TroopType::anti_tank,
-                           TroopType::mortar};
+                           TroopType::light_tank, TroopType::rifle,
+                           TroopType::medium_tank, TroopType::heavy_tank,
+                           TroopType::anti_tank, TroopType::mortar};
         rules.forward_position_fraction = 0.90F;
         rules.defense_enemy_threshold = 2;
         rules.regroup_outnumber_ratio += 0.35F;
@@ -442,8 +473,8 @@ AiProfile make_ai_profile(const AiDifficulty difficulty,
     case AiPlaystyle::defensive:
         rules.troop_mix = {TroopType::rifle, TroopType::machine_gun,
                            TroopType::machine_gun, TroopType::bazooka,
-                           TroopType::medium_tank, TroopType::anti_tank,
-                           TroopType::mortar};
+                           TroopType::medium_tank, TroopType::heavy_tank,
+                           TroopType::anti_tank, TroopType::mortar};
         rules.forward_position_fraction = 0.65F;
         rules.force_selection_margin += 80.0F;
         rules.fallback_force_limit += 2;

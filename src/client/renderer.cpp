@@ -168,6 +168,12 @@ constexpr TankVisualLayout medium_tank_layout{
     .turret_anchor = {64.0F, 32.0F},
 };
 
+constexpr bool is_tank(const TroopType type) noexcept {
+    return type == TroopType::light_tank ||
+           type == TroopType::medium_tank ||
+           type == TroopType::heavy_tank;
+}
+
 constexpr TroopVisualDefinition rifle_visual{
     .troop_type = TroopType::rifle,
     .weapon_type = WeaponType::rifle,
@@ -256,7 +262,9 @@ const TroopVisualDefinition* visual_for(const TroopType troop_type) noexcept {
         return &machine_gun_visual;
     case TroopType::bazooka:
         return &bazooka_visual;
+    case TroopType::light_tank:
     case TroopType::medium_tank:
+    case TroopType::heavy_tank:
         return nullptr;
     case TroopType::anti_tank:
         return &anti_tank_visual;
@@ -266,9 +274,10 @@ const TroopVisualDefinition* visual_for(const TroopType troop_type) noexcept {
     return nullptr;
 }
 
-constexpr std::array<TroopType, 6> purchasable_troops{
+constexpr std::array<TroopType, 8> purchasable_troops{
     TroopType::rifle, TroopType::machine_gun, TroopType::bazooka,
-    TroopType::medium_tank, TroopType::anti_tank, TroopType::mortar};
+    TroopType::light_tank, TroopType::medium_tank, TroopType::heavy_tank,
+    TroopType::anti_tank, TroopType::mortar};
 static_assert(purchasable_troops.size() == ui_layout::deployment_card_count);
 
 SDL_FRect deployment_button_rect(const std::size_t index,
@@ -397,8 +406,12 @@ std::filesystem::path shadow_frame_path(const std::string_view layer,
            (std::string{prefix} + std::to_string(frame) + ".png");
 }
 
-std::filesystem::path tank_frame_path(const std::string_view name) {
-    return std::filesystem::path{"tanks/medium_tank"} / name;
+std::filesystem::path tank_frame_path(const TroopType type,
+                                      const std::string_view name) {
+    const std::string_view folder = type == TroopType::light_tank
+        ? "light_tank"
+        : type == TroopType::heavy_tank ? "heavy_tank" : "medium_tank";
+    return std::filesystem::path{"tanks"} / folder / name;
 }
 
 bool render_soldier_layer(SDL_Renderer* renderer, TextureCache& textures,
@@ -630,7 +643,7 @@ void Renderer::update(const World& world, const double fixed_delta_seconds) {
     }
 
     for (const auto& unit : world.units()) {
-        if (unit.troop_type() == TroopType::medium_tank ||
+        if (is_tank(unit.troop_type()) ||
             unit.troop_type() == TroopType::mortar) {
             continue;
         }
@@ -652,7 +665,7 @@ void Renderer::update(const World& world, const double fixed_delta_seconds) {
     });
 
     for (const auto& event : world.fire_events()) {
-        if (event.troop_type == TroopType::medium_tank &&
+        if (is_tank(event.troop_type) &&
             event.weapon_type == WeaponType::tank_cannon) {
             auto [animation, inserted] = firing_animations_.try_emplace(
                 event.unit_id,
@@ -694,7 +707,7 @@ void Renderer::update(const World& world, const double fixed_delta_seconds) {
     }
     if (match_active) {
         for (auto& corpse : corpses_) {
-            if (corpse.death.troop_type == TroopType::medium_tank) {
+            if (is_tank(corpse.death.troop_type)) {
                 corpse.fade_elapsed += fixed_delta_seconds;
             } else {
                 corpse.animation.update(fixed_delta_seconds);
@@ -1515,33 +1528,37 @@ bool Renderer::render_corpses(const WorldTransform& transform) const {
     for (const auto& corpse : corpses_) {
         const float opacity = static_cast<float>(
             1.0 - std::clamp(corpse.fade_elapsed / corpse_fade_seconds, 0.0, 1.0));
-        if (corpse.death.troop_type == TroopType::medium_tank) {
+        if (is_tank(corpse.death.troop_type)) {
             constexpr Color blue_wreck_modulation{115, 165, 255, 255};
             const Color wreck_modulation = corpse.death.team == Team::team_b
                 ? team_visual_variant(corpse.death.team).modulation
                 : blue_wreck_modulation;
             if (!render_soldier_layer(
                     renderer_, textures_, transform,
-                    tank_frame_path("shadows/broken_hull.png"),
+                    tank_frame_path(corpse.death.troop_type,
+                                    "shadows/broken_hull.png"),
                     corpse.death.position, corpse.death.facing_angle,
                     medium_tank_layout.canvas_size,
                     medium_tank_layout.hull_anchor, opacity) ||
                 !render_soldier_layer(
                     renderer_, textures_, transform,
-                    tank_frame_path("shadows/broken_turret.png"),
+                    tank_frame_path(corpse.death.troop_type,
+                                    "shadows/broken_turret.png"),
                     corpse.death.position, corpse.death.turret_angle,
                     medium_tank_layout.canvas_size,
                     medium_tank_layout.turret_anchor, opacity) ||
                 !render_soldier_layer(
                     renderer_, textures_, transform,
-                    tank_frame_path("broken/hull.png"),
+                    tank_frame_path(corpse.death.troop_type,
+                                    "broken/hull.png"),
                     corpse.death.position, corpse.death.facing_angle,
                     medium_tank_layout.canvas_size,
                     medium_tank_layout.hull_anchor, opacity,
                     wreck_modulation) ||
                 !render_soldier_layer(
                     renderer_, textures_, transform,
-                    tank_frame_path("broken/turret.png"),
+                    tank_frame_path(corpse.death.troop_type,
+                                    "broken/turret.png"),
                     corpse.death.position, corpse.death.turret_angle,
                     medium_tank_layout.canvas_size,
                     medium_tank_layout.turret_anchor, opacity,
@@ -1579,7 +1596,7 @@ bool Renderer::render_units(const World& world, const WorldTransform& transform,
             lerp(unit.previous_position(), unit.position(), alpha);
         const float facing =
             lerp_angle(unit.previous_facing_angle(), unit.facing_angle(), alpha);
-        if (unit.troop_type() == TroopType::medium_tank) {
+        if (is_tank(unit.troop_type())) {
             const float turret_facing = lerp_angle(
                 unit.previous_turret_angle(), unit.turret_angle(), alpha);
             std::size_t turret_frame = 1;
@@ -1591,25 +1608,29 @@ bool Renderer::render_units(const World& world, const WorldTransform& transform,
                 team_visual_variant(unit.team()).modulation;
             if (!render_soldier_layer(
                     renderer_, textures_, transform,
-                    tank_frame_path("shadows/hull.png"), position, facing,
+                    tank_frame_path(unit.troop_type(), "shadows/hull.png"),
+                    position, facing,
                     medium_tank_layout.canvas_size,
                     medium_tank_layout.hull_anchor) ||
                 !render_soldier_layer(
                     renderer_, textures_, transform,
-                    tank_frame_path("shadows/turret_" +
-                                    std::to_string(turret_frame) + ".png"),
+                    tank_frame_path(unit.troop_type(),
+                                    "shadows/turret_" +
+                                        std::to_string(turret_frame) + ".png"),
                     position, turret_facing, medium_tank_layout.canvas_size,
                     medium_tank_layout.turret_anchor) ||
                 !render_soldier_layer(
                     renderer_, textures_, transform,
-                    tank_frame_path("hull.png"), position, facing,
+                    tank_frame_path(unit.troop_type(), "hull.png"),
+                    position, facing,
                     medium_tank_layout.canvas_size,
                     medium_tank_layout.hull_anchor, 1.0F,
                     team_modulation) ||
                 !render_soldier_layer(
                     renderer_, textures_, transform,
-                    tank_frame_path("turret_" +
-                                    std::to_string(turret_frame) + ".png"),
+                    tank_frame_path(unit.troop_type(),
+                                    "turret_" +
+                                        std::to_string(turret_frame) + ".png"),
                     position, turret_facing, medium_tank_layout.canvas_size,
                     medium_tank_layout.turret_anchor, 1.0F,
                     team_modulation)) {

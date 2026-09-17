@@ -16,7 +16,9 @@ enum class TroopType {
     rifle,
     machine_gun,
     bazooka,
+    light_tank,
     medium_tank,
+    heavy_tank,
     anti_tank,
     mortar,
 };
