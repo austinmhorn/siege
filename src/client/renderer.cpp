@@ -269,37 +269,22 @@ const TroopVisualDefinition* visual_for(const TroopType troop_type) noexcept {
 constexpr std::array<TroopType, 6> purchasable_troops{
     TroopType::rifle, TroopType::machine_gun, TroopType::bazooka,
     TroopType::medium_tank, TroopType::anti_tank, TroopType::mortar};
+static_assert(purchasable_troops.size() == ui_layout::deployment_card_count);
 
 SDL_FRect deployment_button_rect(const std::size_t index,
                                  const int output_width,
                                  const int output_height) noexcept {
-    const float available_width = std::max(
-        1.0F, static_cast<float>(output_width) -
-                  ui_layout::deployment_group_margin * 2.0F -
-                  ui_layout::deployment_button_gap *
-                      static_cast<float>(purchasable_troops.size() - 1));
-    const float button_width = std::min(
-        ui_layout::deployment_button_width,
-        available_width / static_cast<float>(purchasable_troops.size()));
-    const float total_width =
-        button_width *
-            static_cast<float>(purchasable_troops.size()) +
-        ui_layout::deployment_button_gap *
-            static_cast<float>(purchasable_troops.size() - 1);
-    return SDL_FRect{
-        (static_cast<float>(output_width) - total_width) * 0.5F +
-            static_cast<float>(index) *
-                (button_width +
-                 ui_layout::deployment_button_gap),
-        static_cast<float>(output_height) - ui_layout::deployment_bar_height +
-            ui_layout::deployment_button_top_inset,
-        button_width,
-        ui_layout::deployment_button_height,
-    };
+    const auto layout = ui_layout::deployment_layout(
+        output_width, output_height, purchasable_troops.size());
+    const Bounds bounds =
+        layout.button_bounds(index, static_cast<float>(output_height));
+    return SDL_FRect{bounds.x, bounds.y, bounds.width, bounds.height};
 }
 
 SDL_FRect command_menu_rect(const Point requested, const int output_width,
                             const int output_height) noexcept {
+    const auto deployment = ui_layout::deployment_layout(
+        output_width, output_height, purchasable_troops.size());
     const float height = command_menu_padding * 2.0F +
                          command_menu_item_height * tactical_commands.size();
     const float maximum_x =
@@ -309,7 +294,7 @@ SDL_FRect command_menu_rect(const Point requested, const int output_width,
     const float maximum_y =
         std::max(command_menu_padding,
                  static_cast<float>(output_height) -
-                     ui_layout::deployment_bar_height - height -
+                     deployment.bar_height - height -
                      command_menu_padding);
     return SDL_FRect{
         std::clamp(requested.x, command_menu_padding, maximum_x),
@@ -345,11 +330,13 @@ std::optional<Vec2> selection_world_point(SDL_Renderer* renderer,
 
     const WorldTransform transform{map.logical_width, map.logical_height,
                                    output_width, output_height};
+    const auto deployment = ui_layout::deployment_layout(
+        output_width, output_height, purchasable_troops.size());
     const Bounds& viewport = transform.viewport();
     const float right = viewport.x + viewport.width;
     const float bottom = std::min(
         viewport.y + viewport.height,
-        static_cast<float>(output_height) - ui_layout::deployment_bar_height);
+        static_cast<float>(output_height) - deployment.bar_height);
     if (right < viewport.x || bottom < viewport.y) {
         return std::nullopt;
     }
@@ -799,6 +786,8 @@ void Renderer::handle_primary_pointer_press(World& world,
     }
 
     const Point click{drawable_x, drawable_y};
+    const auto deployment = ui_layout::deployment_layout(
+        output_width, output_height, purchasable_troops.size());
     if (command_menu_position_.has_value()) {
         const SDL_FRect menu = command_menu_rect(
             *command_menu_position_, output_width, output_height);
@@ -826,7 +815,7 @@ void Renderer::handle_primary_pointer_press(World& world,
     }
 
     if (click.y >=
-        static_cast<float>(output_height) - ui_layout::deployment_bar_height) {
+        static_cast<float>(output_height) - deployment.bar_height) {
         return;
     }
 
@@ -1277,11 +1266,14 @@ bool Renderer::render_deployment_ui(const World& world,
         return false;
     }
 
+    const auto layout = ui_layout::deployment_layout(
+        output_width, output_height, purchasable_troops.size());
+
     const SDL_FRect bar{0.0F,
                         static_cast<float>(output_height) -
-                            ui_layout::deployment_bar_height,
+                            layout.bar_height,
                         static_cast<float>(output_width),
-                        ui_layout::deployment_bar_height};
+                        layout.bar_height};
     set_color(renderer_, Color{10, 14, 18, 225});
     if (!SDL_RenderFillRect(renderer_, &bar)) {
         return false;
@@ -1293,7 +1285,7 @@ bool Renderer::render_deployment_ui(const World& world,
         float text_width = 0.0F;
         float text_height = 0.0F;
         if (!fonts_.measure(cash_text, FontRole::heading_bold, text_width,
-                            text_height)) {
+                            text_height, layout.text_scale)) {
             return false;
         }
         const SDL_FRect first_button =
@@ -1303,13 +1295,12 @@ bool Renderer::render_deployment_ui(const World& world,
         const float group_center_x =
             (first_button.x + last_button.x + last_button.w) * 0.5F;
         const float text_x = group_center_x - text_width * 0.5F;
-        const float text_y = first_button.y -
-                             ui_layout::deployment_cash_gap - text_height;
+        const float text_y = first_button.y - layout.cash_gap - text_height;
         const SDL_FRect cash_panel{
-            text_x - ui_layout::deployment_cash_horizontal_padding,
-            text_y - ui_layout::deployment_cash_vertical_padding,
-            text_width + ui_layout::deployment_cash_horizontal_padding * 2.0F,
-            text_height + ui_layout::deployment_cash_vertical_padding * 2.0F,
+            text_x - layout.cash_horizontal_padding,
+            text_y - layout.cash_vertical_padding,
+            text_width + layout.cash_horizontal_padding * 2.0F,
+            text_height + layout.cash_vertical_padding * 2.0F,
         };
         set_color(renderer_, Color{10, 14, 18, 225});
         if (!SDL_RenderFillRect(renderer_, &cash_panel)) {
@@ -1318,7 +1309,8 @@ bool Renderer::render_deployment_ui(const World& world,
         set_color(renderer_, Color{145, 165, 180, 255});
         if (!SDL_RenderRect(renderer_, &cash_panel) ||
             !fonts_.draw(text_x, text_y, cash_text, FontRole::heading_bold,
-                         FontColor{245, 250, 247, 255})) {
+                         FontColor{245, 250, 247, 255},
+                         layout.text_scale)) {
             return false;
         }
     }
@@ -1346,27 +1338,38 @@ bool Renderer::render_deployment_ui(const World& world,
             return false;
         }
         const auto name = troop_display_name(troop);
-        if (!fonts_.draw_format(
-                button.x + 12.0F, button.y + 7.0F, FontRole::body_bold,
-                FontColor{245, 245, 245, 255}, "%.*s",
+        if (!fonts_.draw_format_scaled(
+                button.x + 12.0F * layout.scale,
+                button.y + 7.0F * layout.scale, FontRole::body_bold,
+                FontColor{245, 245, 245, 255}, layout.text_scale, "%.*s",
                 static_cast<int>(name.size()), name.data()) ||
-            !fonts_.draw_format(
-                button.x + 12.0F, button.y + 25.0F, FontRole::debug,
-                FontColor{245, 245, 245, 255}, "$%lld",
+            !fonts_.draw_format_scaled(
+                button.x + 12.0F * layout.scale,
+                button.y + 25.0F * layout.scale, FontRole::debug,
+                FontColor{245, 245, 245, 255}, layout.text_scale, "$%lld",
                 static_cast<long long>(definition->purchase_cost)) ||
-            !fonts_.draw_format(
-                button.x + 12.0F, button.y + 41.0F, FontRole::debug,
+            !fonts_.draw_format_scaled(
+                button.x + 12.0F * layout.scale,
+                button.y + 41.0F * layout.scale, FontRole::debug,
                 FontColor{232, 236, 238, 255},
-                "deploy %.2fs",
+                layout.text_scale, "deploy %.2fs",
                 definition->deployment_seconds)) {
             return false;
         }
         if (selected) {
-            const SDL_FRect inner{button.x + 2.0F, button.y + 2.0F,
-                                  button.w - 4.0F, button.h - 4.0F};
             set_color(renderer_, Color{130, 255, 168, 255});
-            if (!SDL_RenderRect(renderer_, &inner)) {
-                return false;
+            const int border_width = std::max(
+                1, static_cast<int>(std::lround(
+                       layout.selection_border_width)));
+            for (int inset = 1; inset < border_width; ++inset) {
+                const float offset = static_cast<float>(inset);
+                const SDL_FRect inner{
+                    button.x + offset, button.y + offset,
+                    button.w - offset * 2.0F,
+                    button.h - offset * 2.0F};
+                if (!SDL_RenderRect(renderer_, &inner)) {
+                    return false;
+                }
             }
         }
     }
@@ -1378,13 +1381,13 @@ bool Renderer::render_deployment_ui(const World& world,
             insufficient ? FontColor{255, 204, 92, 255}
                          : FontColor{255, 112, 112, 255};
         if (!fonts_.draw(
-                14.0F,
+                14.0F * layout.scale,
                 static_cast<float>(output_height) -
-                    ui_layout::deployment_bar_height -
-                    18.0F,
+                    layout.bar_height - 18.0F * layout.scale,
                 insufficient ? "Insufficient cash"
                              : "Invalid deployment location",
-                FontRole::heading_bold, feedback_color)) {
+                FontRole::heading_bold, feedback_color,
+                layout.text_scale)) {
             return false;
         }
     }

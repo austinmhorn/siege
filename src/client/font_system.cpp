@@ -88,7 +88,8 @@ TTF_Font* FontSystem::font_for(const FontRole role) const noexcept {
 }
 
 bool FontSystem::draw(const float x, const float y, const std::string_view text,
-                      const FontRole role, const FontColor color) const {
+                      const FontRole role, const FontColor color,
+                      const float scale) const {
     TTF_Font* font = font_for(role);
     if (font == nullptr) {
         SDL_SetRenderDrawColor(renderer_, color.red, color.green, color.blue,
@@ -123,13 +124,17 @@ bool FontSystem::draw(const float x, const float y, const std::string_view text,
         cached = std::prev(cache_.end());
     }
     cached->last_used_frame = frame_index_;
-    const SDL_FRect destination{std::round(x), std::round(y), cached->width,
-                                cached->height};
+    const float safe_scale = std::max(scale, 0.01F);
+    const SDL_FRect destination{
+        std::round(x), std::round(y),
+        std::round(cached->width * safe_scale),
+        std::round(cached->height * safe_scale)};
     return SDL_RenderTexture(renderer_, cached->texture, nullptr, &destination);
 }
 
 bool FontSystem::measure(const std::string_view text, const FontRole role,
-                         float& width, float& height) const noexcept {
+                         float& width, float& height,
+                         const float scale) const noexcept {
     TTF_Font* font = font_for(role);
     if (font == nullptr) {
         width = static_cast<float>(text.size()) * 8.0F;
@@ -142,8 +147,8 @@ bool FontSystem::measure(const std::string_view text, const FontRole role,
                            &measured_height)) {
         return false;
     }
-    width = static_cast<float>(measured_width);
-    height = static_cast<float>(measured_height);
+    width = static_cast<float>(measured_width) * scale;
+    height = static_cast<float>(measured_height) * scale;
     return true;
 }
 

@@ -3,6 +3,7 @@
 #include "client/capture_bar.hpp"
 #include "client/local_control.hpp"
 #include "client/pointer_input.hpp"
+#include "client/ui_layout.hpp"
 #include "client/unit_selection.hpp"
 #include "core/ai_commander.hpp"
 #include "core/deployment.hpp"
@@ -766,6 +767,58 @@ int main() {
             format_cash(*reset_blue_cash) == "$25,000" &&
             format_cash(0) == "$0",
         "cash display selects the controlled player, formats separators, and reflects sudden-death cash reset");
+
+    const auto default_density_ui =
+        ui_layout::deployment_layout(2560, 1440);
+    const Bounds default_first_card =
+        default_density_ui.button_bounds(0, 1440.0F);
+    const Bounds default_last_card = default_density_ui.button_bounds(
+        ui_layout::deployment_card_count - 1, 1440.0F);
+    passed &= check(
+        near(default_density_ui.responsive_scale, 4.0F / 3.0F) &&
+            near(default_density_ui.scale, 1.6F) &&
+            near(default_density_ui.text_scale, 1.6F) &&
+            near(default_density_ui.button_width, 256.0F) &&
+            near(default_density_ui.button_height, 92.8F) &&
+            near(default_density_ui.button_gap, 19.2F) &&
+            near(default_density_ui.bar_height, 131.2F) &&
+            near(default_density_ui.selection_border_width, 3.2F) &&
+            near(default_first_card.x,
+                 2560.0F - default_last_card.x - default_last_card.width) &&
+            default_last_card.x + default_last_card.width < 2560.0F,
+        "deployment HUD applies one 1.20 magnification after the 1920x1080 responsive scale");
+
+    const auto window_1280_ui = ui_layout::deployment_layout(1280, 720);
+    const Bounds window_1280_first =
+        window_1280_ui.button_bounds(0, 720.0F);
+    const Bounds window_1280_last = window_1280_ui.button_bounds(
+        ui_layout::deployment_card_count - 1, 720.0F);
+    const auto window_900_ui = ui_layout::deployment_layout(900, 600);
+    const Bounds window_900_first =
+        window_900_ui.button_bounds(0, 600.0F);
+    const Bounds window_900_last = window_900_ui.button_bounds(
+        ui_layout::deployment_card_count - 1, 600.0F);
+    passed &= check(
+        near(window_1280_ui.responsive_scale, 1.0F) &&
+            near(window_1280_ui.scale, 1.2F) &&
+            near(window_1280_ui.button_width, 192.0F) &&
+            near(window_1280_ui.button_height, 69.6F) &&
+            near(window_1280_ui.button_gap, 14.4F) &&
+        window_1280_first.x >= 0.0F &&
+            window_1280_last.x + window_1280_last.width <= 1280.0F &&
+            near(window_1280_first.x,
+                 1280.0F - window_1280_last.x - window_1280_last.width) &&
+            near(window_900_ui.scale, 1.2F) &&
+            near(window_900_ui.button_width, 140.2F) &&
+            near(window_900_ui.button_height, 69.6F) &&
+            near(window_900_ui.button_gap, 6.0F) &&
+            near(window_900_ui.text_scale, 1.2F) &&
+            window_900_first.x >= 0.0F &&
+            window_900_last.x + window_900_last.width <= 900.0F &&
+            near(window_900_first.x,
+                 900.0F - window_900_last.x - window_900_last.width) &&
+            window_900_last.y + window_900_last.height < 600.0F,
+        "responsive HUD preserves six equal cards by reducing gaps before width at 1280x720 and 900x600");
 
     UnitSelection red_selection;
     red_selection.replace_from_rectangle(selection_world, Team::team_b,

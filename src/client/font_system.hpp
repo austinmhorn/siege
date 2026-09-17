@@ -51,9 +51,11 @@ public:
     void begin_frame();
     [[nodiscard]] bool using_dogica_pixel() const noexcept;
     [[nodiscard]] bool draw(float x, float y, std::string_view text,
-                            FontRole role, FontColor color) const;
+                            FontRole role, FontColor color,
+                            float scale = 1.0F) const;
     [[nodiscard]] bool measure(std::string_view text, FontRole role,
-                               float& width, float& height) const noexcept;
+                               float& width, float& height,
+                               float scale = 1.0F) const noexcept;
 
     template <typename... Args>
     [[nodiscard]] bool draw_format(float x, float y, FontRole role,
@@ -68,6 +70,21 @@ public:
         std::snprintf(text.data(), text.size() + 1, format,
                       std::forward<Args>(args)...);
         return draw(x, y, text, role, color);
+    }
+
+    template <typename... Args>
+    [[nodiscard]] bool draw_format_scaled(
+        float x, float y, FontRole role, FontColor color, float scale,
+        const char* format, Args&&... args) const {
+        const int length = std::snprintf(nullptr, 0, format,
+                                         std::forward<Args>(args)...);
+        if (length < 0) {
+            return false;
+        }
+        std::string text(static_cast<std::size_t>(length), '\0');
+        std::snprintf(text.data(), text.size() + 1, format,
+                      std::forward<Args>(args)...);
+        return draw(x, y, text, role, color, scale);
     }
 
 private:

@@ -392,9 +392,11 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
     if (!SDL_GetRenderOutputSize(renderer_, &output_width, &output_height)) {
         return false;
     }
+    const auto deployment_layout =
+        ui_layout::deployment_layout(output_width, output_height);
     const float panel_top = panel_margin;
     const float panel_bottom =
-        static_cast<float>(output_height) - ui_layout::deployment_bar_height -
+        static_cast<float>(output_height) - deployment_layout.bar_height -
         panel_margin;
     const float panel_height = std::max(1.0F, panel_bottom - panel_top);
 
