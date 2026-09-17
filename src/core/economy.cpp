@@ -2,7 +2,43 @@
 
 #include "world/world.hpp"
 
+#include <algorithm>
+
 namespace siege {
+
+std::size_t income_phase_index(const std::uint64_t elapsed_ticks,
+                               const EconomyRules rules) noexcept {
+    std::size_t selected = 0;
+    for (std::size_t index = 1; index < rules.income_phases.size(); ++index) {
+        const std::uint64_t threshold =
+            static_cast<std::uint64_t>(
+                rules.income_phases[index].begins_at_second) *
+            rules.fixed_ticks_per_second;
+        if (elapsed_ticks < threshold) {
+            break;
+        }
+        selected = index;
+    }
+    return selected;
+}
+
+IncomePhaseRules income_phase_rules(
+    const std::uint64_t elapsed_ticks,
+    const EconomyRules& rules) noexcept {
+    return rules.income_phases[income_phase_index(elapsed_ticks, rules)];
+}
+
+Money base_passive_income(const std::uint64_t elapsed_ticks,
+                          const EconomyRules rules) noexcept {
+    return income_phase_rules(elapsed_ticks, rules).base_income_per_second;
+}
+
+Money comeback_income_per_objective(
+    const std::uint64_t elapsed_ticks,
+    const EconomyRules rules) noexcept {
+    return income_phase_rules(elapsed_ticks, rules)
+        .comeback_income_per_enemy_objective;
+}
 
 Money kill_reward_for(const TroopType troop_type,
                       const EconomyRules rules) noexcept {
@@ -25,6 +61,14 @@ Money kill_reward_for(const TroopType troop_type,
 
 Money comeback_income_bonus(const World& world, const Team team,
                             const EconomyRules rules) noexcept {
+    return comeback_income_bonus(world, team,
+                                 world.match_state().phase_elapsed_ticks(),
+                                 rules);
+}
+
+Money comeback_income_bonus(const World& world, const Team team,
+                            const std::uint64_t elapsed_ticks,
+                            const EconomyRules rules) noexcept {
     if (team != Team::team_a && team != Team::team_b) {
         return 0;
     }
@@ -40,13 +84,20 @@ Money comeback_income_bonus(const World& world, const Team team,
         }
     }
     return enemy_owned_objectives *
-        rules.comeback_income_per_enemy_objective;
+        comeback_income_per_objective(elapsed_ticks, rules);
 }
 
 Money effective_passive_income_rate(const World& world, const Team team,
                                     const EconomyRules rules) noexcept {
-    return rules.passive_income_per_second +
-        comeback_income_bonus(world, team, rules);
+    return effective_passive_income_rate(
+        world, team, world.match_state().phase_elapsed_ticks(), rules);
+}
+
+Money effective_passive_income_rate(const World& world, const Team team,
+                                    const std::uint64_t elapsed_ticks,
+                                    const EconomyRules rules) noexcept {
+    return base_passive_income(elapsed_ticks, rules) +
+        comeback_income_bonus(world, team, elapsed_ticks, rules);
 }
 
 bool award_projectile_kill(World& world, const Projectile& projectile,
@@ -94,13 +145,36 @@ void award_zone_capture_rewards(World& world,
 
 void update_passive_income(World& world, const std::uint64_t fixed_tick_count,
                            const EconomyRules rules) noexcept {
-    if (!world.match_state().active()) {
+    if (!world.match_state().active() || fixed_tick_count == 0) {
         return;
     }
-    for (auto& player : world.players()) {
-        player.accrue_passive_income(
-            effective_passive_income_rate(world, player.team(), rules),
-            rules.fixed_ticks_per_second, fixed_tick_count);
+
+    std::uint64_t elapsed_ticks =
+        world.match_state().phase_elapsed_ticks();
+    std::uint64_t remaining_ticks = fixed_tick_count;
+    while (remaining_ticks > 0) {
+        const std::size_t phase_index =
+            income_phase_index(elapsed_ticks, rules);
+        std::uint64_t phase_ticks = remaining_ticks;
+        if (phase_index + 1 < rules.income_phases.size()) {
+            const std::uint64_t next_phase_tick =
+                static_cast<std::uint64_t>(
+                    rules.income_phases[phase_index + 1].begins_at_second) *
+                rules.fixed_ticks_per_second;
+            if (elapsed_ticks < next_phase_tick) {
+                phase_ticks = std::min(
+                    remaining_ticks, next_phase_tick - elapsed_ticks);
+            }
+        }
+
+        for (auto& player : world.players()) {
+            player.accrue_passive_income(
+                effective_passive_income_rate(
+                    world, player.team(), elapsed_ticks, rules),
+                rules.fixed_ticks_per_second, phase_ticks);
+        }
+        elapsed_ticks += phase_ticks;
+        remaining_ticks -= phase_ticks;
     }
 }
 

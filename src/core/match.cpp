@@ -25,6 +25,10 @@ std::uint64_t MatchState::remaining_ticks() const noexcept {
     return remaining_ticks_;
 }
 
+std::uint64_t MatchState::phase_elapsed_ticks() const noexcept {
+    return phase_elapsed_ticks_;
+}
+
 std::uint32_t MatchState::remaining_display_seconds() const noexcept {
     if (remaining_ticks_ == 0) {
         return 0;
@@ -39,17 +43,24 @@ const MatchRules& MatchState::rules() const noexcept { return rules_; }
 MatchTransition MatchState::advance(const std::uint64_t fixed_tick_count,
                                     const Score team_a_score,
                                     const Score team_b_score) noexcept {
-    if (phase_ != MatchPhase::regulation || fixed_tick_count == 0) {
+    if (phase_ == MatchPhase::finished || fixed_tick_count == 0) {
+        return MatchTransition::none;
+    }
+    if (phase_ == MatchPhase::sudden_death) {
+        phase_elapsed_ticks_ += fixed_tick_count;
         return MatchTransition::none;
     }
     if (fixed_tick_count < remaining_ticks_) {
         remaining_ticks_ -= fixed_tick_count;
+        phase_elapsed_ticks_ += fixed_tick_count;
         return MatchTransition::none;
     }
 
+    phase_elapsed_ticks_ += remaining_ticks_;
     remaining_ticks_ = 0;
     if (team_a_score == team_b_score) {
         phase_ = MatchPhase::sudden_death;
+        phase_elapsed_ticks_ = 0;
         return MatchTransition::sudden_death;
     }
     phase_ = MatchPhase::finished;

@@ -50,6 +50,7 @@ public:
     [[nodiscard]] MatchResult result() const noexcept;
     [[nodiscard]] bool active() const noexcept;
     [[nodiscard]] std::uint64_t remaining_ticks() const noexcept;
+    [[nodiscard]] std::uint64_t phase_elapsed_ticks() const noexcept;
     [[nodiscard]] std::uint32_t remaining_display_seconds() const noexcept;
     [[nodiscard]] const MatchRules& rules() const noexcept;
 
@@ -61,6 +62,7 @@ public:
 private:
     MatchRules rules_;
     std::uint64_t remaining_ticks_{};
+    std::uint64_t phase_elapsed_ticks_{};
     MatchPhase phase_{MatchPhase::regulation};
     MatchResult result_{MatchResult::none};
 };

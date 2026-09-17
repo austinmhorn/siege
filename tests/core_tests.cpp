@@ -1045,7 +1045,7 @@ int main() {
         "aggressive and defensive playstyles bias existing strategy thresholds in opposite directions");
     passed &= check(
         default_economy_rules.starting_cash == 25'000 &&
-            default_economy_rules.passive_income_per_second == 200 &&
+            base_passive_income(0) == 200 &&
             rifle_definition.purchase_cost == 2'500 &&
             machine_gun_definition.purchase_cost == 4'000 &&
             bazooka_definition.purchase_cost == 6'000 &&
@@ -1657,6 +1657,7 @@ int main() {
                     static_cast<double>(
                         default_economy_rules.fixed_ticks_per_second));
             commander.update(world, Team::team_a);
+            (void)world.match_state().advance(1, 0, 0);
         }
         LongAiResult result;
         for (const Unit& unit : world.units()) {
@@ -1704,9 +1705,8 @@ int main() {
         medium_fields_six &= count > 0;
     }
     const Money expected_long_income =
-        default_economy_rules.starting_cash +
-        static_cast<Money>(long_ai_seconds) *
-            default_economy_rules.passive_income_per_second;
+        default_economy_rules.starting_cash + 30 * 200 + 90 * 400 +
+        120 * 600;
     passed &= check(
         easy_long.counts[test_troop_index(TroopType::medium_tank)] > 0 &&
             easy_long.counts[test_troop_index(TroopType::mortar)] > 0 &&
@@ -2095,13 +2095,70 @@ int main() {
                         initial_team_b->cash() == 25'000,
                     "both players start with 25000 cash");
     passed &= check(
-        default_economy_rules.passive_income_per_second == 200 &&
-            default_economy_rules.comeback_income_per_enemy_objective == 25 &&
+        default_economy_rules.income_phases.size() == 3 &&
+            base_passive_income(0) == 200 &&
+            comeback_income_per_objective(0) == 25 &&
             kill_reward_for(TroopType::rifle) == 250 &&
             kill_reward_for(TroopType::machine_gun) == 400 &&
             kill_reward_for(TroopType::bazooka) == 600 &&
             default_economy_rules.objective_capture_reward == 1'000,
         "passive income and all troop/capture rewards are centralized");
+
+    constexpr std::uint64_t phase_two_tick = 30 * 60;
+    constexpr std::uint64_t phase_three_tick = 120 * 60;
+    passed &= check(
+        income_phase_index(0) == 0 && base_passive_income(0) == 200 &&
+            comeback_income_per_objective(0) == 25 &&
+            income_phase_index(phase_two_tick - 1) == 0 &&
+            base_passive_income(phase_two_tick - 1) == 200 &&
+            comeback_income_per_objective(phase_two_tick - 1) == 25 &&
+            income_phase_index(phase_two_tick) == 1 &&
+            base_passive_income(phase_two_tick) == 400 &&
+            comeback_income_per_objective(phase_two_tick) == 50 &&
+            income_phase_index(phase_three_tick - 1) == 1 &&
+            base_passive_income(phase_three_tick - 1) == 400 &&
+            comeback_income_per_objective(phase_three_tick - 1) == 50 &&
+            income_phase_index(phase_three_tick) == 2 &&
+            base_passive_income(phase_three_tick) == 600 &&
+            comeback_income_per_objective(phase_three_tick) == 75,
+        "income phases transition exactly at 30 and 120 fixed-simulation seconds");
+
+    constexpr std::array phase_start_ticks{
+        std::uint64_t{0}, phase_two_tick, phase_three_tick};
+    constexpr std::array phase_base_rates{Money{200}, Money{400}, Money{600}};
+    constexpr std::array phase_comeback_rates{Money{25}, Money{50}, Money{75}};
+    bool every_phase_comeback_total_is_correct = true;
+    for (std::size_t phase = 0; phase < phase_start_ticks.size(); ++phase) {
+        for (int enemy_objectives = 0; enemy_objectives <= 3;
+             ++enemy_objectives) {
+            World phase_world;
+            phase_world.units().clear();
+            for (int objective = 0; objective < enemy_objectives; ++objective) {
+                const std::size_t zone_index =
+                    phase_world.map().objective_zone_indices[
+                        static_cast<std::size_t>(objective)];
+                phase_world.zones()[zone_index].advance_capture(-100.0F);
+            }
+            update_zone_capture(phase_world, 0.0);
+            const Money expected_bonus =
+                static_cast<Money>(enemy_objectives) *
+                phase_comeback_rates[phase];
+            every_phase_comeback_total_is_correct &=
+                comeback_income_bonus(
+                    phase_world, Team::team_a,
+                    phase_start_ticks[phase]) == expected_bonus &&
+                effective_passive_income_rate(
+                    phase_world, Team::team_a,
+                    phase_start_ticks[phase]) ==
+                    phase_base_rates[phase] + expected_bonus &&
+                effective_passive_income_rate(
+                    phase_world, Team::team_b,
+                    phase_start_ticks[phase]) == phase_base_rates[phase];
+        }
+    }
+    passed &= check(
+        every_phase_comeback_total_is_correct,
+        "all three phases scale 0/1/2/3 enemy-objective comeback totals symmetrically without counting homes");
 
     World comeback_income_world;
     comeback_income_world.units().clear();
@@ -2149,6 +2206,11 @@ int main() {
         comeback_income_bonus(mirrored_comeback_world, Team::team_b) == 25 &&
             effective_passive_income_rate(mirrored_comeback_world,
                                           Team::team_b) == 225 &&
+            comeback_income_bonus(mirrored_comeback_world, Team::team_b,
+                                  phase_three_tick) == 75 &&
+            effective_passive_income_rate(mirrored_comeback_world,
+                                          Team::team_b,
+                                          phase_three_tick) == 675 &&
             mirrored_comeback_world.find_player(Team::team_a)->cash() ==
                 25'200 &&
             mirrored_comeback_world.find_player(Team::team_b)->cash() ==
@@ -2159,9 +2221,11 @@ int main() {
     update_zone_capture(comeback_income_world, 0.0);
     passed &= check(
         comeback_income_world.zones()[1].owner() == Team::none &&
-            comeback_income_bonus(comeback_income_world, Team::team_a) == 50 &&
+            comeback_income_bonus(comeback_income_world, Team::team_a,
+                                  phase_two_tick) == 100 &&
             effective_passive_income_rate(comeback_income_world,
-                                          Team::team_a) == 250,
+                                          Team::team_a,
+                                          phase_two_tick) == 500,
         "neutralizing an enemy objective immediately removes its comeback bonus");
 
     World ticked_comeback_world;
@@ -2184,6 +2248,31 @@ int main() {
             ticked_comeback_world.find_player(Team::team_b)->cash() ==
                 batched_comeback_world.find_player(Team::team_b)->cash(),
         "comeback income is deterministic across individual and batched fixed ticks");
+
+    World phased_ticked_income_world;
+    World phased_batched_income_world;
+    phased_ticked_income_world.units().clear();
+    phased_batched_income_world.units().clear();
+    phased_ticked_income_world.zones()[1].advance_capture(-100.0F);
+    phased_batched_income_world.zones()[1].advance_capture(-100.0F);
+    update_zone_capture(phased_ticked_income_world, 0.0);
+    update_zone_capture(phased_batched_income_world, 0.0);
+    constexpr std::uint64_t cross_phase_ticks = phase_three_tick + 1;
+    for (std::uint64_t tick = 0; tick < cross_phase_ticks; ++tick) {
+        update_passive_income(phased_ticked_income_world);
+        (void)phased_ticked_income_world.match_state().advance(1, 0, 0);
+    }
+    update_passive_income(phased_batched_income_world, cross_phase_ticks);
+    passed &= check(
+        phased_ticked_income_world.find_player(Team::team_a)->cash() ==
+                phased_batched_income_world.find_player(Team::team_a)->cash() &&
+            phased_ticked_income_world.find_player(Team::team_b)->cash() ==
+                phased_batched_income_world.find_player(Team::team_b)->cash() &&
+            phased_ticked_income_world.find_player(Team::team_a)->cash() ==
+                72'261 &&
+            phased_ticked_income_world.find_player(Team::team_b)->cash() ==
+                67'010,
+        "individual and batched fixed ticks reconcile deterministically across both income transitions");
 
     Simulation economy_simulation{economy_world};
     for (int tick = 0; tick < 60; ++tick) {
@@ -2347,8 +2436,11 @@ int main() {
                                  0.0F);
     }
     passed &= check(
-        sudden_reset_world.match_state().phase() ==
+            sudden_reset_world.match_state().phase() ==
                 MatchPhase::sudden_death &&
+            sudden_reset_world.match_state().phase_elapsed_ticks() == 0 &&
+            income_phase_index(
+                sudden_reset_world.match_state().phase_elapsed_ticks()) == 0 &&
             sudden_reset_world.match_state().result() == MatchResult::none &&
             sudden_reset_world.units().empty() &&
             sudden_reset_world.projectiles().empty() &&
@@ -2364,8 +2456,13 @@ int main() {
         sudden_reset_simulation.update(1.0 / 60.0);
     }
     passed &= check(
-        sudden_reset_world.match_state().phase() ==
+            sudden_reset_world.match_state().phase() ==
                 MatchPhase::sudden_death &&
+            sudden_reset_world.match_state().phase_elapsed_ticks() == 60 &&
+            base_passive_income(
+                sudden_reset_world.match_state().phase_elapsed_ticks()) == 200 &&
+            comeback_income_per_objective(
+                sudden_reset_world.match_state().phase_elapsed_ticks()) == 25 &&
             sudden_reset_world.find_player(Team::team_a)->cash() == 25'200 &&
             sudden_reset_world.find_player(Team::team_b)->cash() == 25'200 &&
             comeback_income_bonus(sudden_reset_world, Team::team_a) == 0 &&
