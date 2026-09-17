@@ -11,6 +11,7 @@
 #include "core/scoring.hpp"
 #include "core/support_positioning.hpp"
 #include "core/tactical_command.hpp"
+#include "core/tactical_escort.hpp"
 #include "core/targeting.hpp"
 #include "core/weapon.hpp"
 #include "core/zone_capture.hpp"
@@ -506,6 +507,36 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
                             ? MovementState::moving
                             : MovementState::idle;
             }
+        }
+
+        const auto escort = anti_tank_escort_target(unit, units);
+        if (escort.has_value() && anti_tank_escort_movement_allowed(
+                                      unit, target_ids[index].has_value(),
+                                      combat_state)) {
+            support = {};
+            const Vec2 escort_position = constrain_navigation_destination(
+                world_, unit, escort->desired_position);
+            const Vec2 toward_escort = escort_position - unit.position();
+            if (length(toward_escort) >
+                default_tactical_escort_rules.arrival_tolerance) {
+                navigation_destination = escort_position;
+                velocity = velocity_from_steering(toward_escort + separation,
+                                                  unit.move_speed());
+                if (!target_ids[index].has_value() &&
+                    length_squared(toward_escort) > 0.0001F) {
+                    desired_facing = facing_from_direction(toward_escort);
+                }
+            } else {
+                navigation_destination.reset();
+                velocity = soft_separation_velocity(separation,
+                                                    unit.move_speed());
+                if (!target_ids[index].has_value()) {
+                    desired_facing = forward_facing;
+                }
+            }
+            state = length_squared(velocity) > 0.0001F
+                        ? MovementState::moving
+                        : MovementState::idle;
         }
 
         if (unit.tactical_order() == TacticalOrder::hold) {

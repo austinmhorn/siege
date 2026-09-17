@@ -24,6 +24,7 @@
 #include "core/simulation.hpp"
 #include "core/support_positioning.hpp"
 #include "core/tactical_command.hpp"
+#include "core/tactical_escort.hpp"
 #include "core/tactical_group.hpp"
 #include "core/targeting.hpp"
 #include "core/troop_definition.hpp"
@@ -1156,6 +1157,214 @@ int main() {
             tactical_group_members(deterministic_group_world, *reset_group) ==
                 std::vector<Unit::Id>({503, 504}),
         "sudden-death reset clears membership and restarts deterministic group IDs");
+
+    for (const TroopDefinition* tank_definition :
+         {&light_tank_definition, &medium_tank_definition,
+          &heavy_tank_definition}) {
+        std::vector<Unit> escort_pair;
+        escort_pair.push_back(unit_from_definition(
+            700, Team::team_a, {900.0F, 600.0F}, 270.0F,
+            *tank_definition));
+        escort_pair.push_back(unit_from_definition(
+            701, Team::team_a, {600.0F, 600.0F}, 270.0F,
+            anti_tank_definition));
+        escort_pair[0].set_group_id(40);
+        escort_pair[1].set_group_id(40);
+        const auto target = anti_tank_escort_target(escort_pair[1],
+                                                    escort_pair);
+        passed &= check(
+            target.has_value() && target->anchor_id == 700 &&
+                near(target->desired_position.x, 760.0F) &&
+                near(target->desired_position.y, 600.0F),
+            "grouped Anti-Tank follows behind every eligible tank type");
+    }
+
+    std::vector<Unit> escort_units;
+    escort_units.push_back(unit_from_definition(
+        710, Team::team_a, {1'050.0F, 600.0F}, 270.0F,
+        heavy_tank_definition));
+    escort_units.push_back(unit_from_definition(
+        709, Team::team_a, {1'100.0F, 600.0F}, 270.0F,
+        medium_tank_definition));
+    escort_units.push_back(unit_from_definition(
+        720, Team::team_a, {600.0F, 560.0F}, 270.0F,
+        anti_tank_definition));
+    escort_units.push_back(unit_from_definition(
+        721, Team::team_a, {600.0F, 640.0F}, 270.0F,
+        anti_tank_definition));
+    for (Unit& unit : escort_units) {
+        unit.set_group_id(41);
+    }
+    const auto first_escort = anti_tank_escort_target(escort_units[2],
+                                                      escort_units);
+    const auto second_escort = anti_tank_escort_target(escort_units[3],
+                                                       escort_units);
+    passed &= check(
+        first_escort.has_value() && second_escort.has_value() &&
+            first_escort->anchor_id == 709 &&
+            second_escort->anchor_id == 709 &&
+            near(first_escort->desired_position.x, 960.0F) &&
+            near(second_escort->desired_position.x, 960.0F) &&
+            near(first_escort->desired_position.y, 568.0F) &&
+            near(second_escort->desired_position.y, 632.0F) &&
+            first_escort->slot_index == 0 &&
+            second_escort->slot_index == 1,
+        "escort anchor and lateral slots use deterministic Unit-ID ordering");
+
+    std::ranges::reverse(escort_units);
+    const auto shuffled_first = std::ranges::find_if(
+        escort_units, [](const Unit& unit) { return unit.id() == 720; });
+    const auto shuffled_escort = anti_tank_escort_target(
+        *shuffled_first, escort_units);
+    passed &= check(
+        shuffled_escort.has_value() && shuffled_escort->anchor_id == 709 &&
+            near(shuffled_escort->desired_position.x,
+                 first_escort->desired_position.x) &&
+            near(shuffled_escort->desired_position.y,
+                 first_escort->desired_position.y),
+        "escort choice and slots are stable regardless of unit storage order");
+
+    Unit& override_escort = *std::ranges::find_if(
+        escort_units, [](const Unit& unit) { return unit.id() == 720; });
+    override_escort.set_tactical_order(TacticalOrder::hold,
+                                       override_escort.position());
+    const bool hold_overrides = !anti_tank_escort_movement_allowed(
+        override_escort, false, CombatMovementState::advancing);
+    override_escort.set_tactical_order(TacticalOrder::regroup,
+                                       Vec2{700.0F, 700.0F});
+    const bool regroup_overrides = !anti_tank_escort_movement_allowed(
+        override_escort, false, CombatMovementState::advancing);
+    override_escort.set_tactical_order(TacticalOrder::automatic);
+    override_escort.replace_movement_path({{700.0F, 600.0F}});
+    const bool path_overrides = !anti_tank_escort_movement_allowed(
+        override_escort, false, CombatMovementState::advancing);
+    override_escort.clear_movement_path();
+    const bool escort_resumes = anti_tank_escort_movement_allowed(
+        override_escort, false, CombatMovementState::advancing);
+    const bool combat_overrides = !anti_tank_escort_movement_allowed(
+        override_escort, true, CombatMovementState::closing) &&
+        !anti_tank_escort_movement_allowed(
+            override_escort, true, CombatMovementState::retreating);
+    passed &= check(
+        hold_overrides && regroup_overrides && path_overrides &&
+            escort_resumes && combat_overrides,
+        "Hold, Regroup, authored paths, and active combat override escort movement before escort resumes");
+
+    override_escort.clear_group_id();
+    passed &= check(
+        !anti_tank_escort_target(override_escort, escort_units).has_value(),
+        "ungrouping an Anti-Tank disables escort immediately");
+    override_escort.set_group_id(41);
+    Unit& lowest_anchor = *std::ranges::find_if(
+        escort_units, [](const Unit& unit) { return unit.id() == 709; });
+    lowest_anchor.apply_damage(lowest_anchor.max_health());
+    const auto fallback_anchor = anti_tank_escort_target(override_escort,
+                                                         escort_units);
+    passed &= check(
+        fallback_anchor.has_value() && fallback_anchor->anchor_id == 710,
+        "dead grouped tank is invalid and escort deterministically falls back to another eligible anchor");
+    Unit& remaining_anchor = *std::ranges::find_if(
+        escort_units, [](const Unit& unit) { return unit.id() == 710; });
+    remaining_anchor.clear_group_id();
+    passed &= check(
+        !anti_tank_escort_target(override_escort, escort_units).has_value(),
+        "ungrouping the last valid tank disables escort without affecting other troops");
+
+    World escort_motion_world{default_match_rules, navigation_open_map};
+    escort_motion_world.units().clear();
+    escort_motion_world.units().push_back(unit_from_definition(
+        730, Team::team_a, {900.0F, 700.0F}, 270.0F,
+        medium_tank_definition));
+    escort_motion_world.units().push_back(unit_from_definition(
+        731, Team::team_a, {600.0F, 700.0F}, 270.0F,
+        anti_tank_definition));
+    escort_motion_world.units()[0].set_group_id(42);
+    escort_motion_world.units()[1].set_group_id(42);
+    Simulation escort_motion_simulation{escort_motion_world};
+    escort_motion_simulation.update(1.0 / 60.0);
+    const Unit* moving_escort = escort_motion_world.find_unit(731);
+    const auto initial_frontline = frontline_objective(
+        escort_motion_world, Team::team_a);
+    passed &= check(
+        moving_escort != nullptr && moving_escort->position().x > 600.0F &&
+            moving_escort->navigation_destination().has_value() &&
+            near(moving_escort->navigation_destination()->x, 760.0F) &&
+            initial_frontline.has_value() &&
+            constrain_to_frontline(
+                escort_motion_world, Team::team_a, {1'000.0F, 700.0F},
+                {1'300.0F, 700.0F})
+                    .x < initial_frontline->forward_boundary_x,
+        "escort motion uses shared navigation and the authoritative frontline constraint");
+
+    escort_motion_world.units().push_back(unit_from_definition(
+        732, Team::team_b, {800.0F, 700.0F}, 90.0F,
+        medium_tank_definition));
+    passed &= check(
+        select_target(escort_motion_world.map(),
+                      *escort_motion_world.find_unit(731),
+                      escort_motion_world.units()) == 732,
+        "escort grouping preserves Anti-Tank vehicle target preference and firing eligibility");
+
+    World escort_collision_world{default_match_rules, collision_map};
+    escort_collision_world.units().clear();
+    escort_collision_world.units().push_back(unit_from_definition(
+        740, Team::team_a, {600.0F, 240.0F}, 270.0F,
+        medium_tank_definition));
+    escort_collision_world.units().push_back(unit_from_definition(
+        741, Team::team_a, {220.0F, 240.0F}, 270.0F,
+        anti_tank_definition));
+    escort_collision_world.units()[0].set_group_id(43);
+    escort_collision_world.units()[1].set_group_id(43);
+    Simulation escort_collision_simulation{escort_collision_world};
+    bool escort_avoided_blocker = true;
+    for (int tick = 0; tick < 360; ++tick) {
+        escort_collision_simulation.update(1.0 / 60.0);
+        const Unit* escort = escort_collision_world.find_unit(741);
+        escort_avoided_blocker &= escort != nullptr &&
+            !unit_overlaps_blocking_environment(
+                collision_map, escort->position(), escort->hit_radius());
+    }
+    passed &= check(
+        escort_avoided_blocker &&
+            escort_collision_world.find_unit(741)->position().x > 340.0F,
+        "escort destinations route around authored blockers while collision remains authoritative");
+
+    World deterministic_escort_a{default_match_rules, navigation_open_map};
+    deterministic_escort_a.units().clear();
+    deterministic_escort_a.units().push_back(unit_from_definition(
+        750, Team::team_b, {1'660.0F, 760.0F}, 90.0F,
+        light_tank_definition));
+    deterministic_escort_a.units().push_back(unit_from_definition(
+        751, Team::team_b, {1'960.0F, 760.0F}, 90.0F,
+        anti_tank_definition));
+    deterministic_escort_a.units()[0].set_group_id(44);
+    deterministic_escort_a.units()[1].set_group_id(44);
+    World deterministic_escort_b = deterministic_escort_a;
+    Simulation deterministic_escort_simulation_a{deterministic_escort_a};
+    Simulation deterministic_escort_simulation_b{deterministic_escort_b};
+    for (int tick = 0; tick < 240; ++tick) {
+        deterministic_escort_simulation_a.update(1.0 / 60.0);
+        deterministic_escort_simulation_b.update(1.0 / 60.0);
+    }
+    const Unit* replay_escort_a = deterministic_escort_a.find_unit(751);
+    const Unit* replay_escort_b = deterministic_escort_b.find_unit(751);
+    const bool replay_destinations_match =
+        replay_escort_a != nullptr && replay_escort_b != nullptr &&
+        replay_escort_a->navigation_destination().has_value() ==
+            replay_escort_b->navigation_destination().has_value() &&
+        (!replay_escort_a->navigation_destination().has_value() ||
+         (near(replay_escort_a->navigation_destination()->x,
+               replay_escort_b->navigation_destination()->x) &&
+          near(replay_escort_a->navigation_destination()->y,
+               replay_escort_b->navigation_destination()->y)));
+    passed &= check(
+        replay_escort_a != nullptr && replay_escort_b != nullptr &&
+            near(replay_escort_a->position().x,
+                 replay_escort_b->position().x) &&
+            near(replay_escort_a->position().y,
+                 replay_escort_b->position().y) &&
+            replay_destinations_match,
+        "mirrored escort movement replays deterministically through shared simulation routing");
 
     World red_deployment_world;
     red_deployment_world.units().clear();

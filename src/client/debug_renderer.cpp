@@ -11,6 +11,7 @@
 #include "core/mortar_observation.hpp"
 #include "core/scoring.hpp"
 #include "core/tactical_command.hpp"
+#include "core/tactical_escort.hpp"
 #include "core/tactical_group.hpp"
 #include "core/troop_definition.hpp"
 #include "core/zone_capture.hpp"
@@ -42,7 +43,7 @@ constexpr float left_panel_width = 256.0F;
 constexpr float unit_column_preferred_width = 190.0F;
 constexpr float unit_column_minimum_width = 148.0F;
 constexpr float unit_block_gap = 6.0F;
-constexpr std::size_t unit_block_line_count = 27;
+constexpr std::size_t unit_block_line_count = 28;
 
 struct TextCursor {
     FontSystem& fonts;
@@ -355,6 +356,33 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
             if (!draw_world_circle(renderer_, transform, position,
                                    mortar_observation_range(world.map()))) {
                 return false;
+            }
+        }
+
+        if (std::ranges::find(selected_unit_ids, unit.id()) !=
+                selected_unit_ids.end() &&
+            unit.troop_type() == TroopType::anti_tank) {
+            const auto escort = anti_tank_escort_target(unit, world.units());
+            if (escort.has_value() && anti_tank_escort_movement_allowed(
+                                          unit, unit.target_id().has_value(),
+                                          unit.combat_movement_state())) {
+                set_color(renderer_, 255, 172, 72, 220);
+                const Unit* anchor = world.find_unit(escort->anchor_id);
+                if (anchor != nullptr &&
+                    !draw_world_line(renderer_, transform, anchor->position(),
+                                     escort->desired_position)) {
+                    return false;
+                }
+                constexpr float escort_marker_size = 8.0F;
+                const Vec2 point = escort->desired_position;
+                if (!draw_world_line(renderer_, transform,
+                                     {point.x - escort_marker_size, point.y},
+                                     {point.x + escort_marker_size, point.y}) ||
+                    !draw_world_line(renderer_, transform,
+                                     {point.x, point.y - escort_marker_size},
+                                     {point.x, point.y + escort_marker_size})) {
+                    return false;
+                }
             }
         }
 
@@ -708,6 +736,24 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                           tactical_group_members(world, *group_id).size());
         } else {
             cursor.line(FontRole::debug, debug_muted, "group: none");
+        }
+        if (unit.troop_type() == TroopType::anti_tank) {
+            const auto escort = anti_tank_escort_target(unit, world.units());
+            if (escort.has_value() && anti_tank_escort_movement_allowed(
+                                          unit, unit.target_id().has_value(),
+                                          unit.combat_movement_state())) {
+                cursor.format(FontRole::debug, debug_text,
+                              "escort: #%u -> %.0f, %.0f", escort->anchor_id,
+                              escort->desired_position.x,
+                              escort->desired_position.y);
+            } else if (escort.has_value()) {
+                cursor.format(FontRole::debug, debug_muted,
+                              "escort: #%u (overridden)", escort->anchor_id);
+            } else {
+                cursor.line(FontRole::debug, debug_muted, "escort: none");
+            }
+        } else {
+            cursor.line(FontRole::debug, debug_muted, "escort: n/a");
         }
         cursor.format(FontRole::debug, debug_text, "path: %s (%zu)",
                       yes_no(unit.has_movement_path()),
