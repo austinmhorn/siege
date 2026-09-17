@@ -8,9 +8,22 @@
 
 namespace siege {
 
-// Mortars are explicit map-wide indirect-fire observers. This policy is kept
-// separate from ordinary cone/range/LOS perception so no other troop inherits
-// artillery awareness accidentally.
+inline constexpr float mortar_observation_zone_count = 2.0F;
+
+// Mortar observation is intentionally separate from ballistic capability.
+// The weapon can reach across the map, while the emplacement can only acquire
+// targets within a map-derived local area. Keeping this policy outside ordinary
+// cone/range/LOS perception prevents other troops from inheriting indirect
+// awareness accidentally and leaves room for future team spotting.
+[[nodiscard]] inline float mortar_observation_range(
+    const MapDefinition& map) noexcept {
+    if (map.zones.empty()) {
+        return 0.0F;
+    }
+    return std::max(map.zones.front().bounds.width, 0.0F) *
+           mortar_observation_zone_count;
+}
+
 [[nodiscard]] inline bool mortar_target_observable(
     const MapDefinition& map, const Unit& observer,
     const Unit& target) noexcept {
@@ -34,7 +47,7 @@ namespace siege {
         length_squared(target.position() - observer.position());
     const float minimum_range =
         std::max(observer.weapon().minimum_range, 0.0F);
-    const float maximum_range = effective_weapon_range(map, observer.weapon());
+    const float maximum_range = mortar_observation_range(map);
     return distance_squared >= minimum_range * minimum_range &&
            distance_squared <= maximum_range * maximum_range;
 }

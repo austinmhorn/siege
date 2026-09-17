@@ -1010,9 +1010,8 @@ int main() {
             default_profile.rules.troop_mix ==
                 default_ai_commander_rules.troop_mix &&
             near(default_profile.rules.force_selection_margin, 220.0F) &&
-            default_profile.rules.fallback_force_limit == 6 &&
-            !default_profile.composition_aware_purchasing,
-        "default AI profile is medium/balanced and preserves the Phase 2 baseline");
+            default_profile.rules.fallback_force_limit == 6,
+        "default AI profile is medium/balanced and uses the shared six-unit planner");
     passed &= check(
         easy_profile.rules.decision_interval_seconds >
                 default_profile.rules.decision_interval_seconds &&
@@ -1022,9 +1021,8 @@ int main() {
                 default_profile.rules.decision_interval_seconds &&
             hard_profile.rules.strategy_interval_seconds <
                 default_profile.rules.strategy_interval_seconds &&
-            easy_profile.rules.maximum_local_force == 4 &&
-            hard_profile.composition_aware_purchasing,
-        "Easy reacts and purchases slower while Hard reacts faster with improved selection");
+            easy_profile.rules.maximum_local_force == 4,
+        "Easy reacts and purchases slower while Hard evaluates the shared planner faster");
     passed &= check(
         aggressive_profile.rules.defense_enemy_threshold == 2 &&
             aggressive_profile.rules.regroup_outnumber_ratio >
@@ -1212,13 +1210,15 @@ int main() {
             hard_purchase_world_a.pending_deployments()[0].troop_type ==
                 TroopType::rifle &&
             hard_purchase_world_a.pending_deployments()[1].troop_type ==
-                TroopType::machine_gun &&
-            hard_purchase_world_a.pending_deployments()[2].troop_type ==
                 TroopType::medium_tank &&
+            hard_purchase_world_a.pending_deployments()[2].troop_type ==
+                TroopType::rifle &&
+            hard_purchase_world_a.pending_deployments()[3].troop_type ==
+                TroopType::machine_gun &&
             hard_purchase_world_a.find_player(Team::team_b)->cash() ==
                 hard_purchase_world_b.find_player(Team::team_b)->cash() &&
-            hard_purchase_world_a.find_player(Team::team_b)->cash() == 500,
-        "Hard composition-aware purchases are deterministic, affordable, and use legal pending deployments");
+            hard_purchase_world_a.find_player(Team::team_b)->cash() == 4'000,
+        "Hard purchase planning is deterministic, varied, affordable, and uses legal pending deployments");
 
     World anti_tank_ai_world_a{default_match_rules, navigation_open_map};
     anti_tank_ai_world_a.units().clear();
@@ -1247,6 +1247,31 @@ int main() {
             near(anti_tank_ai_world_a.pending_deployments()[0].position.y,
                  anti_tank_ai_world_b.pending_deployments()[0].position.y),
         "AI deterministically counters a perceivable vehicle with one legal anti-tank purchase");
+
+    constexpr std::array hidden_vehicle_blocker{
+        EnvironmentObjectDefinition{
+            "ai_hidden_vehicle_house", EnvironmentObjectType::house,
+            EnvironmentAsset::house_01, {1'360.0F, 500.0F},
+            {1'360.0F, 500.0F, 80.0F, 80.0F},
+            EnvironmentOrientation::neutral, {true, true, true}},
+    };
+    MapDefinition hidden_vehicle_map = navigation_open_map;
+    hidden_vehicle_map.environment_objects = hidden_vehicle_blocker;
+    World hidden_vehicle_world{default_match_rules, hidden_vehicle_map};
+    hidden_vehicle_world.units().clear();
+    hidden_vehicle_world.units().push_back(
+        test_unit(222, Team::team_b, {1'500.0F, 540.0F}, 90.0F));
+    hidden_vehicle_world.units().push_back(unit_from_definition(
+        223, Team::team_a, {1'250.0F, 540.0F}, 270.0F,
+        medium_tank_definition));
+    AiCommander hidden_vehicle_commander{Team::team_b};
+    hidden_vehicle_commander.update(hidden_vehicle_world, Team::team_a);
+    passed &= check(
+        hidden_vehicle_commander.last_troop_choice() !=
+                TroopType::anti_tank &&
+            hidden_vehicle_commander.planned_purchase_reason() !=
+                AiPurchasePlanReason::vehicle_counter,
+        "LOS-hidden enemy vehicle does not influence normal AI counter planning");
 
     const std::array all_difficulties{AiDifficulty::easy,
                                       AiDifficulty::medium,
@@ -1361,6 +1386,21 @@ int main() {
                  static_cast<float>(rifle_definition.deployment_seconds)),
         "RED AI uses normal deployment validation, cost, and pending timer");
 
+    World mirrored_ai_purchase_world;
+    mirrored_ai_purchase_world.units().clear();
+    AiCommander blue_commander{Team::team_a};
+    blue_commander.update(mirrored_ai_purchase_world, Team::team_b);
+    passed &= check(
+        blue_commander.last_troop_choice() == TroopType::rifle &&
+            blue_commander.last_deployment_position().has_value() &&
+            zone_index_for_position(
+                mirrored_ai_purchase_world,
+                *blue_commander.last_deployment_position()) == 0 &&
+            mirrored_ai_purchase_world.pending_deployments().size() == 1 &&
+            mirrored_ai_purchase_world.pending_deployments()[0].team ==
+                Team::team_a,
+        "purchase planning and legal deployment mirror deterministically for BLUE");
+
     update_pending_deployments(ai_purchase_world, 0.74);
     passed &= check(ai_purchase_world.units().empty() &&
                         ai_purchase_world.pending_deployments().size() == 1,
@@ -1387,13 +1427,182 @@ int main() {
                 AiDecisionResult::no_affordable_troop,
         "AI cannot overspend or create a free troop when none is affordable");
 
+    const auto seed_tank_plan_composition = [](World& world) {
+        world.units().clear();
+        Unit::Id id = 600;
+        world.units().push_back(unit_from_definition(
+            id++, Team::team_b, {2'200.0F, 260.0F}, 90.0F,
+            rifle_definition));
+        world.units().push_back(unit_from_definition(
+            id++, Team::team_b, {2'200.0F, 420.0F}, 90.0F,
+            rifle_definition));
+        world.units().push_back(unit_from_definition(
+            id++, Team::team_b, {2'200.0F, 580.0F}, 90.0F,
+            machine_gun_definition));
+        world.units().push_back(unit_from_definition(
+            id++, Team::team_b, {2'200.0F, 740.0F}, 90.0F,
+            bazooka_definition));
+        world.units().push_back(unit_from_definition(
+            id++, Team::team_b, {2'200.0F, 900.0F}, 90.0F,
+            anti_tank_definition));
+        world.units().push_back(unit_from_definition(
+            id, Team::team_b, {2'350.0F, 1'020.0F}, 90.0F,
+            mortar_definition));
+    };
+
+    World tank_saving_world;
+    seed_tank_plan_composition(tank_saving_world);
+    tank_saving_world.find_player(Team::team_b)->reset_cash(11'999);
+    AiCommander tank_saving_commander{Team::team_b};
+    tank_saving_commander.update(tank_saving_world, Team::team_a);
+    const auto persistent_tank_plan =
+        tank_saving_commander.planned_purchase();
+    tank_saving_commander.update(tank_saving_world, Team::team_a, 120);
+    passed &= check(
+        persistent_tank_plan == TroopType::medium_tank &&
+            tank_saving_commander.planned_purchase() ==
+                TroopType::medium_tank &&
+            tank_saving_commander.planned_purchase_cost() == 12'000 &&
+            tank_saving_commander.last_result() ==
+                AiDecisionResult::no_affordable_troop &&
+            tank_saving_world.pending_deployments().empty() &&
+            tank_saving_world.find_player(Team::team_b)->cash() == 11'999,
+        "planned Tank persists across cadence ticks without cheap fallback draining savings");
+    tank_saving_world.find_player(Team::team_b)->reset_cash(12'000);
+    tank_saving_commander.update(tank_saving_world, Team::team_a, 120);
+    passed &= check(
+        tank_saving_commander.last_troop_choice() ==
+                TroopType::medium_tank &&
+            !tank_saving_commander.planned_purchase().has_value() &&
+            tank_saving_world.pending_deployments().size() == 1 &&
+            tank_saving_world.pending_deployments()[0].troop_type ==
+                TroopType::medium_tank &&
+            tank_saving_world.find_player(Team::team_b)->cash() == 0,
+        "planned Tank purchases through normal deployment exactly when $12,000 becomes available");
+
+    World mortar_saving_world;
+    mortar_saving_world.units().clear();
+    Unit::Id mortar_seed_id = 620;
+    for (int index = 0; index < 2; ++index) {
+        mortar_saving_world.units().push_back(unit_from_definition(
+            mortar_seed_id++, Team::team_b,
+            {2'200.0F, 260.0F + static_cast<float>(index) * 120.0F},
+            90.0F, rifle_definition));
+        mortar_saving_world.units().push_back(unit_from_definition(
+            mortar_seed_id++, Team::team_b,
+            {2'350.0F, 260.0F + static_cast<float>(index) * 120.0F},
+            90.0F, machine_gun_definition));
+    }
+    mortar_saving_world.units().push_back(unit_from_definition(
+        mortar_seed_id++, Team::team_b, {2'200.0F, 620.0F}, 90.0F,
+        bazooka_definition));
+    mortar_saving_world.units().push_back(unit_from_definition(
+        mortar_seed_id++, Team::team_b, {2'200.0F, 760.0F}, 90.0F,
+        medium_tank_definition));
+    mortar_saving_world.units().push_back(unit_from_definition(
+        mortar_seed_id, Team::team_b, {2'200.0F, 900.0F}, 90.0F,
+        anti_tank_definition));
+    mortar_saving_world.find_player(Team::team_b)->reset_cash(7'499);
+    AiCommander mortar_saving_commander{
+        Team::team_b,
+        make_ai_profile(AiDifficulty::medium, AiPlaystyle::defensive)};
+    mortar_saving_commander.update(mortar_saving_world, Team::team_a);
+    passed &= check(
+        mortar_saving_commander.planned_purchase() == TroopType::mortar &&
+            mortar_saving_commander.last_result() ==
+                AiDecisionResult::no_affordable_troop &&
+            mortar_saving_world.pending_deployments().empty(),
+        "planned Mortar persists while its $7,500 cost is unavailable");
+    mortar_saving_world.find_player(Team::team_b)->reset_cash(7'500);
+    mortar_saving_commander.update(mortar_saving_world, Team::team_a, 120);
+    passed &= check(
+        mortar_saving_commander.last_troop_choice() == TroopType::mortar &&
+            mortar_saving_world.pending_deployments().size() == 1 &&
+            mortar_saving_world.pending_deployments()[0].troop_type ==
+                TroopType::mortar &&
+            zone_index_for_position(
+                mortar_saving_world,
+                mortar_saving_world.pending_deployments()[0].position) == 4,
+        "planned Mortar purchases when affordable and uses legal rear home emplacement");
+
+    World tank_frontline_deployment_world;
+    seed_tank_plan_composition(tank_frontline_deployment_world);
+    secure_objective(tank_frontline_deployment_world, 3, Team::team_b);
+    tank_frontline_deployment_world.find_player(Team::team_b)->reset_cash(
+        12'000);
+    AiCommander tank_frontline_deployer{Team::team_b};
+    tank_frontline_deployer.update(tank_frontline_deployment_world,
+                                   Team::team_a);
+    const auto tank_frontline_position =
+        tank_frontline_deployer.last_deployment_position();
+
+    World anti_tank_support_deployment_world =
+        tank_frontline_deployment_world;
+    anti_tank_support_deployment_world.pending_deployments().clear();
+    anti_tank_support_deployment_world.find_player(Team::team_b)->reset_cash(
+        7'000);
+    anti_tank_support_deployment_world.units().push_back(
+        unit_from_definition(650, Team::team_a, {1'760.0F, 580.0F}, 270.0F,
+                             medium_tank_definition));
+    anti_tank_support_deployment_world.units().push_back(
+        unit_from_definition(651, Team::team_a, {1'820.0F, 620.0F}, 270.0F,
+                             medium_tank_definition));
+    AiCommander anti_tank_support_deployer{Team::team_b};
+    anti_tank_support_deployer.update(anti_tank_support_deployment_world,
+                                      Team::team_a);
+    const auto anti_tank_support_position =
+        anti_tank_support_deployer.last_deployment_position();
+    passed &= check(
+        tank_frontline_position.has_value() &&
+            anti_tank_support_position.has_value() &&
+        zone_index_for_position(tank_frontline_deployment_world,
+                                *tank_frontline_position) == 3 &&
+            zone_index_for_position(anti_tank_support_deployment_world,
+                                    *anti_tank_support_position) == 3 &&
+            tank_frontline_position->x < anti_tank_support_position->x &&
+            is_valid_deployment_location(
+                tank_frontline_deployment_world, Team::team_b,
+                TroopType::medium_tank, *tank_frontline_position) &&
+            is_valid_deployment_location(
+                anti_tank_support_deployment_world, Team::team_b,
+                TroopType::anti_tank, *anti_tank_support_position),
+        "Tank reinforces the RED frontline while Anti-Tank deploys at supporting depth using shared legality");
+
+    World emergency_saving_world;
+    seed_tank_plan_composition(emergency_saving_world);
+    emergency_saving_world.units().push_back(test_unit(
+        640, Team::team_a, {2'300.0F, 700.0F}, 270.0F));
+    update_zone_capture(emergency_saving_world, 0.0);
+    emergency_saving_world.find_player(Team::team_b)->reset_cash(5'000);
+    AiCommander emergency_saving_commander{Team::team_b};
+    emergency_saving_commander.update(emergency_saving_world, Team::team_a);
+    const bool emergency_bought_rifle =
+        emergency_saving_commander.emergency_override_active() &&
+        emergency_saving_commander.last_troop_choice() == TroopType::rifle &&
+        emergency_saving_commander.planned_purchase() ==
+            TroopType::medium_tank &&
+        emergency_saving_world.find_player(Team::team_b)->cash() == 2'500;
+    emergency_saving_commander.update(emergency_saving_world, Team::team_a,
+                                      120);
+    passed &= check(
+        emergency_bought_rifle,
+        "immediate home defense may interrupt Tank saving with one emergency Rifleman");
+    passed &= check(
+        !emergency_saving_commander.emergency_override_active() &&
+            emergency_saving_commander.planned_purchase() ==
+                TroopType::medium_tank &&
+            emergency_saving_commander.last_result() ==
+                AiDecisionResult::no_affordable_troop &&
+            emergency_saving_world.pending_deployments().size() == 1,
+        "Tank saving resumes after the limited emergency fallback without repeated spending");
+
     World ai_mix_world;
     ai_mix_world.units().clear();
     AiCommander mix_commander{Team::team_b};
     mix_commander.update(ai_mix_world, Team::team_a, 361);
     const std::array<TroopType, 4> expected_ai_mix{
-        TroopType::rifle, TroopType::machine_gun, TroopType::medium_tank,
-        TroopType::rifle};
+        TroopType::rifle, TroopType::medium_tank, TroopType::rifle,
+        TroopType::machine_gun};
     bool mixed_pending = ai_mix_world.pending_deployments().size() ==
                          expected_ai_mix.size();
     for (std::size_t index = 0;
@@ -1415,7 +1624,132 @@ int main() {
                     rifle_definition.purchase_cost * 2 -
                     machine_gun_definition.purchase_cost -
                     medium_tank_definition.purchase_cost,
-        "AI follows the centralized deterministic weighted troop mix");
+        "AI follows deterministic battlefield-aware composition planning");
+
+    struct LongAiResult {
+        std::array<int, 6> counts{};
+        Money cash{};
+        std::uint64_t deployments{};
+    };
+    const auto test_troop_index = [](const TroopType troop) {
+        switch (troop) {
+        case TroopType::rifle: return std::size_t{0};
+        case TroopType::machine_gun: return std::size_t{1};
+        case TroopType::bazooka: return std::size_t{2};
+        case TroopType::medium_tank: return std::size_t{3};
+        case TroopType::anti_tank: return std::size_t{4};
+        case TroopType::mortar: return std::size_t{5};
+        }
+        return std::size_t{0};
+    };
+    const auto run_long_ai_economy_simulation = [&test_troop_index](
+        const AiProfile profile, const int seconds) {
+        World world;
+        world.units().clear();
+        AiCommander commander{Team::team_b, profile};
+        for (int tick = 0;
+             tick < seconds *
+                 static_cast<int>(default_economy_rules.fixed_ticks_per_second);
+             ++tick) {
+            update_passive_income(world);
+            update_pending_deployments(
+                world, 1.0 /
+                    static_cast<double>(
+                        default_economy_rules.fixed_ticks_per_second));
+            commander.update(world, Team::team_a);
+        }
+        LongAiResult result;
+        for (const Unit& unit : world.units()) {
+            if (unit.is_alive() && unit.team() == Team::team_b) {
+                ++result.counts[test_troop_index(unit.troop_type())];
+            }
+        }
+        for (const PendingDeployment& pending : world.pending_deployments()) {
+            if (pending.team == Team::team_b) {
+                ++result.counts[test_troop_index(pending.troop_type)];
+            }
+        }
+        result.cash = world.find_player(Team::team_b)->cash();
+        result.deployments = commander.successful_deployments();
+        return result;
+    };
+    const auto composition_cost = [](const LongAiResult& result) {
+        constexpr std::array troop_types{
+            TroopType::rifle, TroopType::machine_gun, TroopType::bazooka,
+            TroopType::medium_tank, TroopType::anti_tank,
+            TroopType::mortar};
+        Money cost = 0;
+        for (std::size_t index = 0; index < troop_types.size(); ++index) {
+            cost += static_cast<Money>(result.counts[index]) *
+                troop_definition_for(troop_types[index])->purchase_cost;
+        }
+        return cost;
+    };
+
+    constexpr int long_ai_seconds = 240;
+    const LongAiResult easy_long = run_long_ai_economy_simulation(
+        make_ai_profile(AiDifficulty::easy, AiPlaystyle::balanced),
+        long_ai_seconds);
+    const LongAiResult medium_long = run_long_ai_economy_simulation(
+        make_ai_profile(AiDifficulty::medium, AiPlaystyle::balanced),
+        long_ai_seconds);
+    const LongAiResult hard_long = run_long_ai_economy_simulation(
+        make_ai_profile(AiDifficulty::hard, AiPlaystyle::balanced),
+        long_ai_seconds);
+    const LongAiResult hard_long_replay = run_long_ai_economy_simulation(
+        make_ai_profile(AiDifficulty::hard, AiPlaystyle::balanced),
+        long_ai_seconds);
+    bool medium_fields_six = true;
+    for (const int count : medium_long.counts) {
+        medium_fields_six &= count > 0;
+    }
+    const Money expected_long_income =
+        default_economy_rules.starting_cash +
+        static_cast<Money>(long_ai_seconds) *
+            default_economy_rules.passive_income_per_second;
+    passed &= check(
+        easy_long.counts[test_troop_index(TroopType::medium_tank)] > 0 &&
+            easy_long.counts[test_troop_index(TroopType::mortar)] > 0 &&
+            medium_fields_six &&
+            medium_long.counts[
+                test_troop_index(TroopType::medium_tank)] > 0 &&
+            medium_long.counts[test_troop_index(TroopType::mortar)] > 0 &&
+            hard_long.counts[test_troop_index(TroopType::medium_tank)] > 0 &&
+            hard_long.counts[test_troop_index(TroopType::mortar)] > 0,
+        "Easy, Medium, and Hard long simulations field Tanks and Mortars while Medium uses all six troops");
+    passed &= check(
+        medium_long.counts[test_troop_index(TroopType::medium_tank)] <=
+                medium_long.counts[test_troop_index(TroopType::rifle)] &&
+            medium_long.counts[test_troop_index(TroopType::mortar)] <=
+                medium_long.counts[
+                    test_troop_index(TroopType::machine_gun)] + 1,
+        "soft desirability penalties prevent uncontrolled Tank and Mortar stacking");
+    passed &= check(
+        medium_long.cash == expected_long_income -
+                composition_cost(medium_long) &&
+            hard_long.cash == expected_long_income -
+                composition_cost(hard_long),
+        "long-running AI uses the exact authoritative player income and troop prices without cheats");
+    passed &= check(
+        hard_long.counts == hard_long_replay.counts &&
+            hard_long.cash == hard_long_replay.cash &&
+            hard_long.deployments == hard_long_replay.deployments,
+        "long AI purchase planning replays deterministically from identical state");
+
+    const LongAiResult hard_aggressive_long = run_long_ai_economy_simulation(
+        make_ai_profile(AiDifficulty::hard, AiPlaystyle::aggressive), 180);
+    const LongAiResult hard_defensive_long = run_long_ai_economy_simulation(
+        make_ai_profile(AiDifficulty::hard, AiPlaystyle::defensive), 180);
+    passed &= check(
+        hard_aggressive_long.counts[
+            test_troop_index(TroopType::medium_tank)] >=
+                hard_defensive_long.counts[
+                    test_troop_index(TroopType::medium_tank)] &&
+            hard_defensive_long.counts[
+                test_troop_index(TroopType::mortar)] >=
+                hard_aggressive_long.counts[
+                    test_troop_index(TroopType::mortar)],
+        "Hard Aggressive favors Tanks while Hard Defensive favors Mortar support");
 
     World ai_front_world;
     ai_front_world.units().clear();
@@ -3134,6 +3468,20 @@ int main() {
             kill_reward_for(TroopType::mortar) == 750,
         "mortar definition centralizes emplacement, economy, and indirect-fire tuning");
 
+    passed &= check(
+        near(mortar_observation_range(navigation_open_map), 1'024.0F) &&
+            near(mortar_observation_range(navigation_open_map),
+                 navigation_open_map.zones.front().bounds.width * 2.0F),
+        "battlefield_01 Mortar observation derives as two 512-unit map zones");
+    std::array<ZoneDefinition, 5> alternate_width_zones{};
+    std::ranges::copy(navigation_open_map.zones,
+                      alternate_width_zones.begin());
+    alternate_width_zones.front().bounds.width = 400.0F;
+    MapDefinition alternate_width_map = navigation_open_map;
+    alternate_width_map.zones = alternate_width_zones;
+    passed &= check(near(mortar_observation_range(alternate_width_map), 800.0F),
+                    "Mortar observation follows map zone width rather than a fixed world-unit constant");
+
     std::vector<Unit> mortar_priority_units{
         unit_from_definition(970, Team::team_a, {100.0F, 500.0F}, 270.0F,
                              mortar_definition),
@@ -3154,28 +3502,39 @@ int main() {
                                  mortar_too_close),
                     "mortar minimum range prevents close fire");
 
-    std::vector<Unit> blue_map_wide_mortar_units{
+    std::vector<Unit> blue_local_mortar_units{
         unit_from_definition(978, Team::team_a, {100.0F, 500.0F}, 270.0F,
                              mortar_definition),
-        test_unit(979, Team::team_b, {1'800.0F, 500.0F}, 90.0F),
+        test_unit(979, Team::team_b, {1'123.5F, 500.0F}, 90.0F),
     };
-    blue_map_wide_mortar_units[0].set_target_id(979);
+    blue_local_mortar_units[0].set_target_id(979);
     passed &= check(
-        select_target(navigation_open_map, blue_map_wide_mortar_units[0],
-                      blue_map_wide_mortar_units) == 979 &&
-            can_fire_at(navigation_open_map, blue_map_wide_mortar_units[0],
-                        blue_map_wide_mortar_units[1]),
-        "BLUE mortar in its home observes and fires into zone 3 beyond the former 950-unit limit");
+        select_target(navigation_open_map, blue_local_mortar_units[0],
+                      blue_local_mortar_units) == 979 &&
+            can_fire_at(navigation_open_map, blue_local_mortar_units[0],
+                        blue_local_mortar_units[1]),
+        "BLUE Mortar observes a target just inside its two-zone range");
+    blue_local_mortar_units[1].set_position({1'124.5F, 500.0F});
+    passed &= check(
+        !select_target(navigation_open_map, blue_local_mortar_units[0],
+                       blue_local_mortar_units).has_value(),
+        "BLUE Mortar rejects a target just outside its two-zone observation range");
+    blue_local_mortar_units[1].set_position({1'100.0F, 500.0F});
 
-    std::vector<Unit> red_map_wide_mortar_units{
+    std::vector<Unit> red_local_mortar_units{
         unit_from_definition(980, Team::team_b, {2'460.0F, 700.0F}, 90.0F,
                              mortar_definition),
-        test_unit(981, Team::team_a, {700.0F, 700.0F}, 270.0F),
+        test_unit(981, Team::team_a, {1'436.5F, 700.0F}, 270.0F),
     };
     passed &= check(
-        select_target(navigation_open_map, red_map_wide_mortar_units[0],
-                      red_map_wide_mortar_units) == 981,
-        "RED mortar map-wide observation mirrors BLUE and reaches zone 1");
+        select_target(navigation_open_map, red_local_mortar_units[0],
+                      red_local_mortar_units) == 981,
+        "RED Mortar two-zone observation mirrors BLUE");
+    red_local_mortar_units[1].set_position({1'435.5F, 700.0F});
+    passed &= check(
+        !select_target(navigation_open_map, red_local_mortar_units[0],
+                       red_local_mortar_units).has_value(),
+        "RED Mortar rejects targets beyond the mirrored observation boundary");
 
     constexpr std::array mortar_los_blockers{
         EnvironmentObjectDefinition{
@@ -3192,27 +3551,27 @@ int main() {
     MapDefinition mortar_los_map = navigation_open_map;
     mortar_los_map.environment_objects = mortar_los_blockers;
     passed &= check(
-        select_target(mortar_los_map, blue_map_wide_mortar_units[0],
-                      blue_map_wide_mortar_units) == 979,
+        select_target(mortar_los_map, blue_local_mortar_units[0],
+                      blue_local_mortar_units) == 979,
         "house and rock-style LOS blockers do not occlude indirect mortar observation");
-    World map_wide_mortar_fire_world{default_match_rules, mortar_los_map};
-    map_wide_mortar_fire_world.units().clear();
-    map_wide_mortar_fire_world.units() = blue_map_wide_mortar_units;
-    Simulation map_wide_mortar_fire_simulation{map_wide_mortar_fire_world};
-    map_wide_mortar_fire_simulation.update(1.0 / 60.0);
+    World local_mortar_fire_world{default_match_rules, mortar_los_map};
+    local_mortar_fire_world.units().clear();
+    local_mortar_fire_world.units() = blue_local_mortar_units;
+    Simulation local_mortar_fire_simulation{local_mortar_fire_world};
+    local_mortar_fire_simulation.update(1.0 / 60.0);
     passed &= check(
-        map_wide_mortar_fire_world.units()[0].target_id() == 979,
-        "authoritative simulation retains the far map-wide Mortar target");
+        local_mortar_fire_world.units()[0].target_id() == 979,
+        "authoritative simulation retains an observed indirect Mortar target");
     passed &= check(
-        map_wide_mortar_fire_world.projectiles().size() == 1,
-        "authoritative simulation creates a far Mortar shell through LOS blockers");
+        local_mortar_fire_world.projectiles().size() == 1,
+        "authoritative simulation creates a Mortar shell through LOS blockers");
     passed &= check(
-        !map_wide_mortar_fire_world.projectiles().empty() &&
-            map_wide_mortar_fire_world.projectiles()[0].is_indirect() &&
-            near(map_wide_mortar_fire_world.projectiles()[0]
+        !local_mortar_fire_world.projectiles().empty() &&
+            local_mortar_fire_world.projectiles()[0].is_indirect() &&
+            near(local_mortar_fire_world.projectiles()[0]
                      .impact_position().x,
-                 map_wide_mortar_fire_world.units()[1].position().x),
-        "far Mortar shell preserves the selected target impact point");
+                 local_mortar_fire_world.units()[1].position().x),
+        "Mortar shell preserves the selected target impact point");
     std::vector<Unit> normal_los_units{
         test_unit(982, Team::team_a, {700.0F, 500.0F}, 270.0F),
         test_unit(983, Team::team_b, {1'100.0F, 500.0F}, 90.0F),
@@ -3225,7 +3584,7 @@ int main() {
         "normal infantry perception still requires clear environment LOS");
 
     std::vector<Unit> enemy_home_transition_units{
-        unit_from_definition(984, Team::team_a, {100.0F, 800.0F}, 270.0F,
+        unit_from_definition(984, Team::team_a, {1'400.0F, 800.0F}, 270.0F,
                              mortar_definition),
         test_unit(985, Team::team_b, {2'300.0F, 800.0F}, 90.0F),
     };
@@ -3252,14 +3611,14 @@ int main() {
                          enemy_home_transition_units[1]),
         "enemy entering its home invalidates a persisted Mortar target immediately");
 
-    const auto first_map_wide_choice =
-        select_target(navigation_open_map, blue_map_wide_mortar_units[0],
-                      blue_map_wide_mortar_units);
-    const auto repeated_map_wide_choice =
-        select_target(navigation_open_map, blue_map_wide_mortar_units[0],
-                      blue_map_wide_mortar_units);
-    passed &= check(first_map_wide_choice == repeated_map_wide_choice,
-                    "Mortar map-wide target selection replays deterministically");
+    const auto first_local_choice =
+        select_target(navigation_open_map, blue_local_mortar_units[0],
+                      blue_local_mortar_units);
+    const auto repeated_local_choice =
+        select_target(navigation_open_map, blue_local_mortar_units[0],
+                      blue_local_mortar_units);
+    passed &= check(first_local_choice == repeated_local_choice,
+                    "Mortar local target selection replays deterministically");
 
     World mortar_mobility_world{default_match_rules, navigation_open_map};
     mortar_mobility_world.units().clear();

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "world/player_state.hpp"
 #include "world/unit.hpp"
 
 #include <array>
@@ -68,7 +69,6 @@ struct AiProfile {
     AiDifficulty difficulty;
     AiPlaystyle playstyle;
     AiCommanderRules rules;
-    bool composition_aware_purchasing;
 };
 
 [[nodiscard]] AiProfile make_ai_profile(
@@ -95,6 +95,13 @@ enum class AiDecisionResult {
     rejected,
 };
 
+enum class AiPurchasePlanReason {
+    composition,
+    vehicle_counter,
+    frontline_anchor,
+    artillery_support,
+};
+
 class AiCommander {
 public:
     explicit AiCommander(
@@ -110,6 +117,11 @@ public:
     [[nodiscard]] AiCommanderStatus status() const noexcept;
     [[nodiscard]] AiDecisionResult last_result() const noexcept;
     [[nodiscard]] std::optional<TroopType> last_troop_choice() const noexcept;
+    [[nodiscard]] std::optional<TroopType> planned_purchase() const noexcept;
+    [[nodiscard]] Money planned_purchase_cost() const noexcept;
+    [[nodiscard]] std::optional<AiPurchasePlanReason> planned_purchase_reason()
+        const noexcept;
+    [[nodiscard]] bool emergency_override_active() const noexcept;
     [[nodiscard]] std::optional<Vec2> last_deployment_position() const noexcept;
     [[nodiscard]] std::uint64_t ticks_until_next_decision() const noexcept;
     [[nodiscard]] std::uint64_t successful_deployments() const noexcept;
@@ -142,14 +154,19 @@ private:
     AiCommanderStatus status_{AiCommanderStatus::enabled};
     AiDecisionResult last_result_{AiDecisionResult::none};
     std::optional<TroopType> last_troop_choice_{};
+    std::optional<TroopType> planned_purchase_{};
+    std::optional<AiPurchasePlanReason> planned_purchase_reason_{};
+    std::optional<TroopType> last_purchased_troop_{};
     std::optional<Vec2> last_deployment_position_{};
     std::uint64_t ticks_until_next_decision_{};
     std::uint64_t ticks_until_next_strategy_evaluation_{};
     std::uint64_t successful_deployments_{};
     std::uint64_t strategy_evaluation_count_{};
     std::uint64_t tactical_command_issue_count_{};
-    std::size_t troop_mix_cursor_{};
     std::size_t placement_cursor_{};
+    std::uint32_t deployment_failure_evaluations_{};
+    bool emergency_spent_for_plan_{};
+    bool emergency_override_active_{};
     AiStrategy strategy_{AiStrategy::attack};
     std::optional<std::size_t> target_objective_{};
     int relevant_friendly_strength_{};
@@ -166,5 +183,6 @@ private:
 [[nodiscard]] std::string_view to_string(AiStrategy strategy) noexcept;
 [[nodiscard]] std::string_view to_string(AiDifficulty difficulty) noexcept;
 [[nodiscard]] std::string_view to_string(AiPlaystyle playstyle) noexcept;
+[[nodiscard]] std::string_view to_string(AiPurchasePlanReason reason) noexcept;
 
 } // namespace siege

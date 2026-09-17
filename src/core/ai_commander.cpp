@@ -176,16 +176,14 @@ std::size_t troop_index(const TroopType troop) noexcept {
     return 0;
 }
 
-std::optional<TroopType> composition_purchase(const World& world,
-                                              const Team team,
-                                              const AiProfile& profile,
-                                              const AiStrategy strategy) {
-    const PlayerState* player = world.find_player(team);
-    if (player == nullptr) {
-        return std::nullopt;
-    }
+struct PurchasePlan {
+    TroopType troop{TroopType::rifle};
+    AiPurchasePlanReason reason{AiPurchasePlanReason::composition};
+};
+
+std::array<int, 6> friendly_composition(const World& world,
+                                        const Team team) noexcept {
     std::array<int, 6> current{};
-    std::array<int, 6> desired{};
     for (const Unit& unit : world.units()) {
         if (unit.is_alive() && unit.team() == team) {
             ++current[troop_index(unit.troop_type())];
@@ -196,48 +194,20 @@ std::optional<TroopType> composition_purchase(const World& world,
             ++current[troop_index(pending.troop_type)];
         }
     }
-    for (const TroopType troop : profile.rules.troop_mix) {
-        ++desired[troop_index(troop)];
-    }
-    const std::array<TroopType, 6> attack_priority{
-        TroopType::rifle, TroopType::machine_gun, TroopType::medium_tank,
-        TroopType::bazooka, TroopType::anti_tank, TroopType::mortar};
-    const std::array<TroopType, 6> defend_priority{
-        TroopType::machine_gun, TroopType::rifle, TroopType::medium_tank,
-        TroopType::anti_tank, TroopType::mortar, TroopType::bazooka};
-    const auto& priority = strategy == AiStrategy::defend
-        ? defend_priority
-        : attack_priority;
-    std::optional<TroopType> selected;
-    for (const TroopType troop : priority) {
-        const TroopDefinition* definition = troop_definition_for(troop);
-        if (definition == nullptr ||
-            !player->can_afford(definition->purchase_cost)) {
-            continue;
-        }
-        if (!selected.has_value()) {
-            selected = troop;
-            continue;
-        }
-        const std::size_t candidate = troop_index(troop);
-        const std::size_t incumbent = troop_index(*selected);
-        const int candidate_weight = std::max(1, desired[candidate]);
-        const int incumbent_weight = std::max(1, desired[incumbent]);
-        if (current[candidate] * incumbent_weight <
-            current[incumbent] * candidate_weight) {
-            selected = troop;
-        }
-    }
-    return selected;
+    return current;
 }
 
-std::size_t visible_enemy_vehicle_count(const World& world,
-                                        const Team team) noexcept {
-    std::size_t visible = 0;
+struct VisibleEnemyComposition {
+    int infantry{};
+    int vehicles{};
+};
+
+VisibleEnemyComposition visible_enemy_composition(const World& world,
+                                                   const Team team) noexcept {
+    VisibleEnemyComposition result;
     for (const Unit& enemy : world.units()) {
         if (!enemy.is_alive() || enemy.team() == team ||
-            enemy.team() == Team::none ||
-            enemy.target_category() != TargetCategory::vehicle) {
+            enemy.team() == Team::none) {
             continue;
         }
         const bool perceived = std::ranges::any_of(
@@ -245,11 +215,123 @@ std::size_t visible_enemy_vehicle_count(const World& world,
                 return observer.is_alive() && observer.team() == team &&
                     can_perceive(world.map(), observer, enemy);
             });
-        if (perceived) {
-            ++visible;
+        if (!perceived) {
+            continue;
+        }
+        if (enemy.target_category() == TargetCategory::vehicle) {
+            ++result.vehicles;
+        } else {
+            ++result.infantry;
         }
     }
-    return visible;
+    return result;
+}
+
+PurchasePlan composition_purchase(const World& world, const Team team,
+                                  const AiProfile& profile,
+                                  const AiStrategy strategy,
+                                  const std::optional<TroopType>
+                                      last_purchased_troop) noexcept {
+    const std::array<int, 6> current = friendly_composition(world, team);
+    std::array<int, 6> desired{};
+    for (const TroopType troop : profile.rules.troop_mix) {
+        ++desired[troop_index(troop)];
+    }
+    for (int& weight : desired) {
+        weight = std::max(1, weight);
+    }
+
+    const VisibleEnemyComposition visible =
+        visible_enemy_composition(world, team);
+    const bool sustained_fighting = std::ranges::any_of(
+        world.units(), [team](const Unit& unit) {
+            return unit.is_alive() && unit.team() == team &&
+                unit.target_id().has_value();
+        }) || visible.infantry + visible.vehicles >= 2;
+    int total_force = 0;
+    for (const int count : current) {
+        total_force += count;
+    }
+    const int ordinary_infantry = current[troop_index(TroopType::rifle)] +
+        current[troop_index(TroopType::machine_gun)] +
+        current[troop_index(TroopType::bazooka)];
+
+    constexpr std::array candidates{
+        TroopType::rifle, TroopType::machine_gun, TroopType::bazooka,
+        TroopType::medium_tank, TroopType::anti_tank, TroopType::mortar};
+    std::array<int, candidates.size()> scores{};
+    for (std::size_t index = 0; index < candidates.size(); ++index) {
+        const std::size_t type_index = troop_index(candidates[index]);
+        scores[index] = desired[type_index] * 100 /
+            (current[type_index] + 1);
+    }
+
+    scores[troop_index(TroopType::rifle)] +=
+        ordinary_infantry * 2 < std::max(2, total_force) ? 90 : 0;
+    scores[troop_index(TroopType::machine_gun)] += visible.infantry * 14;
+    scores[troop_index(TroopType::bazooka)] +=
+        (visible.infantry + visible.vehicles) * 7;
+    scores[troop_index(TroopType::medium_tank)] +=
+        strategy == AiStrategy::attack ? 35 : 5;
+    scores[troop_index(TroopType::anti_tank)] +=
+        visible.vehicles * 170 -
+        current[troop_index(TroopType::anti_tank)] * 90;
+    scores[troop_index(TroopType::mortar)] +=
+        sustained_fighting ? 55 : -15;
+
+    switch (profile.playstyle) {
+    case AiPlaystyle::balanced:
+        break;
+    case AiPlaystyle::aggressive:
+        scores[troop_index(TroopType::medium_tank)] += 65;
+        scores[troop_index(TroopType::rifle)] += 20;
+        scores[troop_index(TroopType::mortar)] -= 40;
+        break;
+    case AiPlaystyle::defensive:
+        scores[troop_index(TroopType::machine_gun)] += 35;
+        scores[troop_index(TroopType::mortar)] += 70;
+        scores[troop_index(TroopType::medium_tank)] -= 10;
+        break;
+    }
+    switch (profile.difficulty) {
+    case AiDifficulty::easy:
+        scores[troop_index(TroopType::medium_tank)] -= 15;
+        scores[troop_index(TroopType::mortar)] -= 10;
+        break;
+    case AiDifficulty::medium:
+        break;
+    case AiDifficulty::hard:
+        scores[troop_index(TroopType::medium_tank)] += 15;
+        scores[troop_index(TroopType::mortar)] += 15;
+        scores[troop_index(TroopType::anti_tank)] += visible.vehicles * 30;
+        break;
+    }
+    if (last_purchased_troop == TroopType::medium_tank) {
+        scores[troop_index(TroopType::medium_tank)] -= 180;
+    }
+    if (last_purchased_troop == TroopType::mortar) {
+        scores[troop_index(TroopType::mortar)] -= 220;
+    }
+    scores[troop_index(TroopType::medium_tank)] -=
+        current[troop_index(TroopType::medium_tank)] * 20;
+    scores[troop_index(TroopType::mortar)] -=
+        current[troop_index(TroopType::mortar)] * 45;
+
+    std::size_t best = 0;
+    for (std::size_t index = 1; index < candidates.size(); ++index) {
+        if (scores[index] > scores[best]) {
+            best = index;
+        }
+    }
+    const TroopType selected = candidates[best];
+    const AiPurchasePlanReason reason = selected == TroopType::medium_tank
+        ? AiPurchasePlanReason::frontline_anchor
+        : selected == TroopType::mortar
+            ? AiPurchasePlanReason::artillery_support
+            : selected == TroopType::anti_tank && visible.vehicles > 0
+                ? AiPurchasePlanReason::vehicle_counter
+                : AiPurchasePlanReason::composition;
+    return {selected, reason};
 }
 
 std::size_t current_or_pending_count(const World& world, const Team team,
@@ -266,11 +348,50 @@ std::size_t current_or_pending_count(const World& world, const Team team,
             }));
 }
 
+bool immediate_defensive_emergency(const World& world,
+                                   const Team team) noexcept {
+    const TeamForwardDefinition* forward =
+        team_forward_definition(world.map(), team);
+    const bool home_threatened = forward != nullptr &&
+        std::ranges::any_of(world.units(), [&world, team, forward](
+                                                  const Unit& unit) {
+            return unit.is_alive() && unit.team() != Team::none &&
+                unit.team() != team &&
+                map_zone_index_for_position(world.map(), unit.position()) ==
+                    forward->home_zone_index;
+        });
+    std::size_t combat_force = 0;
+    for (const Unit& unit : world.units()) {
+        if (unit.is_alive() && unit.team() == team) {
+            ++combat_force;
+        }
+    }
+    combat_force += static_cast<std::size_t>(std::ranges::count_if(
+        world.pending_deployments(), [team](const PendingDeployment& pending) {
+            return pending.team == team;
+        }));
+    return home_threatened || combat_force <= 1;
+}
+
+std::optional<Bounds> deployment_bounds_for_troop(
+    const World& world, const Team team, const TroopType troop) noexcept {
+    const TeamForwardDefinition* forward =
+        team_forward_definition(world.map(), team);
+    if (forward == nullptr || forward->home_zone_index >= world.zones().size()) {
+        return std::nullopt;
+    }
+    if (troop == TroopType::mortar) {
+        return deployment_bounds(
+            world, world.zones()[forward->home_zone_index], team);
+    }
+    return frontmost_deployment_bounds(world, team);
+}
+
 } // namespace
 
 AiProfile make_ai_profile(const AiDifficulty difficulty,
                           const AiPlaystyle playstyle) noexcept {
-    AiProfile profile{difficulty, playstyle, default_ai_commander_rules, false};
+    AiProfile profile{difficulty, playstyle, default_ai_commander_rules};
     AiCommanderRules& rules = profile.rules;
     switch (difficulty) {
     case AiDifficulty::easy:
@@ -299,7 +420,6 @@ AiProfile make_ai_profile(const AiDifficulty difficulty,
         rules.regroup_minimum_enemy_advantage = 1;
         rules.regroup_scatter_distance = 220.0F;
         rules.regroup_severe_scatter_distance = 360.0F;
-        profile.composition_aware_purchasing = true;
         break;
     }
 
@@ -420,57 +540,91 @@ void AiCommander::update(World& world, const Team locally_controlled_team,
 void AiCommander::make_purchase_decision(World& world) {
     last_troop_choice_.reset();
     last_deployment_position_.reset();
+    emergency_override_active_ = false;
     PlayerState* player = world.find_player(team_);
     if (player == nullptr) {
         last_result_ = AiDecisionResult::rejected;
         return;
     }
 
-    std::optional<TroopType> selected_troop;
-    std::optional<std::size_t> selected_index;
-    const std::size_t visible_vehicles =
-        visible_enemy_vehicle_count(world, team_);
-    const TroopDefinition* anti_tank =
-        troop_definition_for(TroopType::anti_tank);
-    if (visible_vehicles > current_or_pending_count(
-                               world, team_, TroopType::anti_tank) &&
-        anti_tank != nullptr && player->can_afford(anti_tank->purchase_cost)) {
-        selected_troop = TroopType::anti_tank;
-    } else if (profile_.composition_aware_purchasing) {
-        selected_troop = composition_purchase(world, team_, profile_, strategy_);
-    } else {
-        for (std::size_t offset = 0; offset < rules_.troop_mix.size(); ++offset) {
-            const std::size_t index =
-                (troop_mix_cursor_ + offset) % rules_.troop_mix.size();
-            const TroopDefinition* definition =
-                troop_definition_for(rules_.troop_mix[index]);
-            if (definition != nullptr &&
-                player->can_afford(definition->purchase_cost)) {
-                selected_index = index;
-                selected_troop = rules_.troop_mix[index];
-                break;
-            }
-        }
+    const VisibleEnemyComposition visible =
+        visible_enemy_composition(world, team_);
+    const std::size_t anti_tank_count = current_or_pending_count(
+        world, team_, TroopType::anti_tank);
+    const bool needs_vehicle_counter =
+        static_cast<std::size_t>(visible.vehicles) > anti_tank_count;
+    if (planned_purchase_reason_ == AiPurchasePlanReason::vehicle_counter &&
+        !needs_vehicle_counter) {
+        planned_purchase_.reset();
+        planned_purchase_reason_.reset();
+        emergency_spent_for_plan_ = false;
     }
-    if (!selected_troop.has_value()) {
-        last_result_ = AiDecisionResult::no_affordable_troop;
+    if (needs_vehicle_counter &&
+        planned_purchase_ != TroopType::anti_tank) {
+        planned_purchase_ = TroopType::anti_tank;
+        planned_purchase_reason_ = AiPurchasePlanReason::vehicle_counter;
+        deployment_failure_evaluations_ = 0;
+        emergency_spent_for_plan_ = false;
+    } else if (!planned_purchase_.has_value()) {
+        const PurchasePlan plan = composition_purchase(
+            world, team_, profile_, strategy_, last_purchased_troop_);
+        planned_purchase_ = plan.troop;
+        planned_purchase_reason_ = plan.reason;
+        deployment_failure_evaluations_ = 0;
+        emergency_spent_for_plan_ = false;
+    }
+
+    const TroopDefinition* planned_definition =
+        planned_purchase_.has_value()
+        ? troop_definition_for(*planned_purchase_)
+        : nullptr;
+    if (planned_definition == nullptr) {
+        planned_purchase_.reset();
+        planned_purchase_reason_.reset();
+        last_result_ = AiDecisionResult::rejected;
         return;
     }
 
-    const TroopType troop_type = *selected_troop;
+    TroopType troop_type = *planned_purchase_;
+    bool purchasing_plan = true;
+    if (!player->can_afford(planned_definition->purchase_cost)) {
+        const TroopDefinition* fallback =
+            troop_definition_for(TroopType::rifle);
+        if (!emergency_spent_for_plan_ &&
+            immediate_defensive_emergency(world, team_) &&
+            fallback != nullptr &&
+            player->can_afford(fallback->purchase_cost)) {
+            troop_type = TroopType::rifle;
+            purchasing_plan = false;
+            emergency_override_active_ = true;
+        } else {
+            last_result_ = AiDecisionResult::no_affordable_troop;
+            return;
+        }
+    }
+
     last_troop_choice_ = troop_type;
-    const auto bounds = frontmost_deployment_bounds(world, team_);
+    const auto bounds = deployment_bounds_for_troop(world, team_, troop_type);
     const TeamForwardDefinition* forward =
         team_forward_definition(world.map(), team_);
     if (!bounds.has_value() || forward == nullptr) {
         last_result_ = AiDecisionResult::no_valid_deployment;
+        if (++deployment_failure_evaluations_ >= 3) {
+            planned_purchase_.reset();
+            planned_purchase_reason_.reset();
+            emergency_spent_for_plan_ = false;
+            deployment_failure_evaluations_ = 0;
+        }
         return;
     }
 
-    const bool rear_emplacement = troop_type == TroopType::mortar;
-    const float placement_fraction = rear_emplacement
-        ? 0.25F
-        : rules_.forward_position_fraction;
+    const float placement_fraction = troop_type == TroopType::mortar
+        ? 0.35F
+        : troop_type == TroopType::anti_tank
+            ? 0.55F
+            : troop_type == TroopType::medium_tank
+                ? std::max(0.72F, rules_.forward_position_fraction)
+                : rules_.forward_position_fraction;
     const float forward_fraction = forward->x_direction > 0.0F
         ? placement_fraction
         : 1.0F - placement_fraction;
@@ -494,6 +648,12 @@ void AiCommander::make_purchase_decision(World& world) {
     }
     if (!position.has_value()) {
         last_result_ = AiDecisionResult::no_valid_deployment;
+        if (++deployment_failure_evaluations_ >= 3) {
+            planned_purchase_.reset();
+            planned_purchase_reason_.reset();
+            emergency_spent_for_plan_ = false;
+            deployment_failure_evaluations_ = 0;
+        }
         return;
     }
     const DeploymentResult result =
@@ -505,8 +665,14 @@ void AiCommander::make_purchase_decision(World& world) {
 
     last_result_ = AiDecisionResult::purchased;
     last_deployment_position_ = *position;
-    if (selected_index.has_value()) {
-        troop_mix_cursor_ = (*selected_index + 1) % rules_.troop_mix.size();
+    deployment_failure_evaluations_ = 0;
+    if (purchasing_plan) {
+        last_purchased_troop_ = troop_type;
+        planned_purchase_.reset();
+        planned_purchase_reason_.reset();
+        emergency_spent_for_plan_ = false;
+    } else {
+        emergency_spent_for_plan_ = true;
     }
     placement_cursor_ += selected_placement_offset + 1;
     ++successful_deployments_;
@@ -678,6 +844,26 @@ std::optional<TroopType> AiCommander::last_troop_choice() const noexcept {
     return last_troop_choice_;
 }
 
+std::optional<TroopType> AiCommander::planned_purchase() const noexcept {
+    return planned_purchase_;
+}
+
+Money AiCommander::planned_purchase_cost() const noexcept {
+    const TroopDefinition* definition = planned_purchase_.has_value()
+        ? troop_definition_for(*planned_purchase_)
+        : nullptr;
+    return definition == nullptr ? 0 : definition->purchase_cost;
+}
+
+std::optional<AiPurchasePlanReason> AiCommander::planned_purchase_reason()
+    const noexcept {
+    return planned_purchase_reason_;
+}
+
+bool AiCommander::emergency_override_active() const noexcept {
+    return emergency_override_active_;
+}
+
 std::optional<Vec2> AiCommander::last_deployment_position() const noexcept {
     return last_deployment_position_;
 }
@@ -795,6 +981,20 @@ std::string_view to_string(const AiPlaystyle playstyle) noexcept {
         return "aggressive";
     case AiPlaystyle::defensive:
         return "defensive";
+    }
+    return "unknown";
+}
+
+std::string_view to_string(const AiPurchasePlanReason reason) noexcept {
+    switch (reason) {
+    case AiPurchasePlanReason::composition:
+        return "composition";
+    case AiPurchasePlanReason::vehicle_counter:
+        return "vehicle counter";
+    case AiPurchasePlanReason::frontline_anchor:
+        return "frontline anchor";
+    case AiPurchasePlanReason::artillery_support:
+        return "artillery support";
     }
     return "unknown";
 }

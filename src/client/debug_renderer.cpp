@@ -8,6 +8,7 @@
 #include "core/economy.hpp"
 #include "core/environment_line_of_sight.hpp"
 #include "core/math.hpp"
+#include "core/mortar_observation.hpp"
 #include "core/scoring.hpp"
 #include "core/tactical_command.hpp"
 #include "core/troop_definition.hpp"
@@ -349,6 +350,11 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                                    unit.weapon().minimum_range)) {
                 return false;
             }
+            set_color(renderer_, 190, 112, 255, 190);
+            if (!draw_world_circle(renderer_, transform, position,
+                                   mortar_observation_range(world.map()))) {
+                return false;
+            }
         }
 
         if (std::ranges::find(selected_unit_ids, unit.id()) !=
@@ -477,6 +483,32 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                   static_cast<double>(
                       ai_commander.ticks_until_next_decision()) /
                       simulation_hz);
+    const PlayerState* ai_player = world.find_player(ai_commander.team());
+    const Money ai_cash = ai_player == nullptr ? 0 : ai_player->cash();
+    if (const auto plan = ai_commander.planned_purchase()) {
+        const auto name = troop_display_name(*plan);
+        const Money cost = ai_commander.planned_purchase_cost();
+        global.format(FontRole::debug, debug_text, "plan: %.*s $%lld",
+                      static_cast<int>(name.size()), name.data(),
+                      static_cast<long long>(cost));
+        global.format(FontRole::debug, debug_text, "cash: $%lld / %s",
+                      static_cast<long long>(ai_cash),
+                      ai_cash >= cost ? "affordable" : "saving");
+        if (const auto reason = ai_commander.planned_purchase_reason()) {
+            const auto reason_text = to_string(*reason);
+            global.format(FontRole::debug, debug_text,
+                          "reason: %.*s%s",
+                          static_cast<int>(reason_text.size()),
+                          reason_text.data(),
+                          ai_commander.emergency_override_active()
+                              ? " / EMERGENCY"
+                              : "");
+        }
+    } else {
+        global.line(FontRole::debug, debug_muted, "plan: reevaluate");
+        global.format(FontRole::debug, debug_text, "cash: $%lld",
+                      static_cast<long long>(ai_cash));
+    }
     if (const auto troop = ai_commander.last_troop_choice()) {
         const auto name = troop_display_name(*troop);
         global.format(FontRole::debug, debug_text, "last: %.*s / %.*s",
@@ -703,7 +735,10 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
             }
         } else {
             cursor.line(FontRole::debug, debug_muted, "target: none");
-            cursor.line(FontRole::debug, debug_muted, "los: none");
+            cursor.line(FontRole::debug, debug_muted,
+                        unit.troop_type() == TroopType::mortar
+                            ? "los: ignored (indirect)"
+                            : "los: none");
         }
         cursor.format(FontRole::debug, debug_text, "pos: %.0f, %.0f",
                       unit.position().x, unit.position().y);
@@ -721,15 +756,15 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
             cursor.line(FontRole::debug, debug_muted, "turret: n/a");
         }
         if (unit.troop_type() == TroopType::mortar) {
-            cursor.line(FontRole::debug, debug_heading,
-                        "targeting: map-wide");
-            cursor.line(FontRole::debug, debug_text,
-                        "excluded: enemy home");
+            cursor.format(FontRole::debug, debug_heading,
+                          "observation: 2 zones / %.0f",
+                          mortar_observation_range(world.map()));
             cursor.format(FontRole::debug, debug_text, "min range: %.0f",
                           unit.weapon().minimum_range);
-            cursor.format(FontRole::debug, debug_text,
-                          "max range: map (%.0f)",
-                          effective_weapon_range(world.map(), unit.weapon()));
+            cursor.line(FontRole::debug, debug_text,
+                        "weapon capability: map-wide");
+            cursor.line(FontRole::debug, debug_text,
+                        "enemy home: excluded");
         } else {
             cursor.format(FontRole::debug, debug_text,
                           "vision: %.0f / %.0fdeg", unit.vision_range(),
