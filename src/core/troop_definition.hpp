@@ -71,6 +71,7 @@ inline constexpr TroopDefinition rifle_definition{
         .projectile_max_distance = 520.0F,
         .projectile_damage = 25.0F,
         .splash_radius = 0.0F,
+        .vehicle_damage_multiplier = 0.20F,
     },
 };
 
@@ -108,6 +109,7 @@ inline constexpr TroopDefinition machine_gun_definition{
         .projectile_max_distance = 650.0F,
         .projectile_damage = 10.0F,
         .splash_radius = 0.0F,
+        .vehicle_damage_multiplier = 0.20F,
     },
 };
 
@@ -219,7 +221,7 @@ inline constexpr TroopDefinition anti_tank_definition{
         .projectile_max_distance = 800.0F,
         .projectile_damage = 60.0F,
         .splash_radius = 45.0F,
-        .vehicle_damage_multiplier = 3.5F,
+        .vehicle_damage_multiplier = 4.0F,
     },
 };
 

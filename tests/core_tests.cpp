@@ -3571,17 +3571,17 @@ int main() {
             near(anti_tank_definition.weapon.projectile_max_distance, 800.0F) &&
             near(anti_tank_definition.weapon.projectile_damage, 60.0F) &&
             near(anti_tank_definition.weapon.splash_radius, 45.0F) &&
-            near(anti_tank_definition.weapon.vehicle_damage_multiplier, 3.5F) &&
+            near(anti_tank_definition.weapon.vehicle_damage_multiplier, 4.0F) &&
             kill_reward_for(TroopType::anti_tank) == 700,
         "anti-tank definition centralizes infantry, support, economy, and missile tuning");
     passed &= check(
         rifle_definition.target_category == TargetCategory::infantry &&
             medium_tank_definition.target_category == TargetCategory::vehicle &&
-            near(rifle_definition.weapon.vehicle_damage_multiplier, 1.0F) &&
-            near(machine_gun_definition.weapon.vehicle_damage_multiplier, 1.0F) &&
+            near(rifle_definition.weapon.vehicle_damage_multiplier, 0.20F) &&
+            near(machine_gun_definition.weapon.vehicle_damage_multiplier, 0.20F) &&
             near(bazooka_definition.weapon.vehicle_damage_multiplier, 1.0F) &&
             near(medium_tank_definition.weapon.vehicle_damage_multiplier, 1.0F),
-        "target categories are generic and existing weapons remain one-times damage");
+        "target categories remain generic and weapon definitions own vehicle damage tuning");
     passed &= check(
         mortar_definition.type == TroopType::mortar &&
             troop_definition_for(TroopType::mortar) == &mortar_definition &&
@@ -5149,7 +5149,7 @@ int main() {
     anti_tank_cover_world.spawn_projectile(
         WeaponType::anti_tank_missile, Team::team_a, 900,
         {100.0F, 100.0F}, {24'000.0F, 0.0F}, 800.0F, 60.0F, 45.0F,
-        3.5F);
+        anti_tank_definition.weapon.vehicle_damage_multiplier);
     Simulation anti_tank_cover_simulation{anti_tank_cover_world};
     anti_tank_cover_simulation.update(1.0 / 60.0);
     passed &= check(
@@ -5342,6 +5342,36 @@ int main() {
             near(machine_gun_single_target_world.units()[5].health(), 100.0F),
         "machine_gun projectile remains single-target");
 
+    const auto damage_against = [](const WeaponDefinition& weapon,
+                                   const TargetCategory category) {
+        const Projectile projectile{
+            9'000, weapon.type, Team::team_a, 1, {0.0F, 0.0F},
+            {weapon.projectile_speed, 0.0F}, weapon.projectile_max_distance,
+            weapon.projectile_damage, weapon.splash_radius,
+            weapon.vehicle_damage_multiplier};
+        return projectile.damage_against(category);
+    };
+    passed &= check(
+        near(damage_against(rifle_definition.weapon,
+                            TargetCategory::infantry), 25.0F) &&
+            near(damage_against(rifle_definition.weapon,
+                                TargetCategory::vehicle), 5.0F) &&
+            near(damage_against(machine_gun_definition.weapon,
+                                TargetCategory::infantry), 10.0F) &&
+            near(damage_against(machine_gun_definition.weapon,
+                                TargetCategory::vehicle), 2.0F) &&
+            near(damage_against(bazooka_definition.weapon,
+                                TargetCategory::vehicle), 70.0F) &&
+            near(damage_against(mortar_definition.weapon,
+                                TargetCategory::vehicle), 36.0F) &&
+            near(damage_against(medium_tank_definition.weapon,
+                                TargetCategory::vehicle), 120.0F) &&
+            near(damage_against(anti_tank_definition.weapon,
+                                TargetCategory::infantry), 60.0F) &&
+            near(damage_against(anti_tank_definition.weapon,
+                                TargetCategory::vehicle), 240.0F),
+        "weapon-owned multipliers produce exact infantry and vehicle damage");
+
     World anti_vehicle_damage_world{default_match_rules, navigation_open_map};
     anti_vehicle_damage_world.units().clear();
     anti_vehicle_damage_world.units().push_back(unit_from_definition(
@@ -5354,12 +5384,12 @@ int main() {
     anti_vehicle_damage_world.spawn_projectile(
         WeaponType::anti_tank_missile, Team::team_a, 950,
         {100.0F, 100.0F}, {12'000.0F, 0.0F}, 800.0F, 60.0F, 45.0F,
-        3.5F);
+        anti_tank_definition.weapon.vehicle_damage_multiplier);
     Simulation anti_vehicle_damage_simulation{anti_vehicle_damage_world};
     anti_vehicle_damage_simulation.update(1.0 / 60.0);
     passed &= check(
-        near(anti_vehicle_damage_world.find_unit(951)->health(), 390.0F),
-        "anti-tank missile applies its 3.5-times multiplier to a vehicle");
+        near(anti_vehicle_damage_world.find_unit(951)->health(), 360.0F),
+        "anti-tank missile applies its 4-times multiplier exactly once to a vehicle");
     Unit three_hit_tank = unit_from_definition(
         956, Team::team_b, {200.0F, 100.0F}, 90.0F,
         medium_tank_definition);
@@ -5369,7 +5399,7 @@ int main() {
     three_hit_tank.apply_damage(anti_vehicle_hit);
     three_hit_tank.apply_damage(anti_vehicle_hit);
     const bool survived_two_hits =
-        three_hit_tank.is_alive() && near(three_hit_tank.health(), 180.0F);
+        three_hit_tank.is_alive() && near(three_hit_tank.health(), 120.0F);
     three_hit_tank.apply_damage(anti_vehicle_hit);
     passed &= check(survived_two_hits && !three_hit_tank.is_alive(),
                     "a full-health medium tank survives two clean anti-tank hits and dies on the third");
@@ -5385,7 +5415,7 @@ int main() {
     anti_infantry_damage_world.spawn_projectile(
         WeaponType::anti_tank_missile, Team::team_a, 952,
         {100.0F, 100.0F}, {12'000.0F, 0.0F}, 800.0F, 60.0F, 45.0F,
-        3.5F);
+        anti_tank_definition.weapon.vehicle_damage_multiplier);
     Simulation anti_infantry_damage_simulation{anti_infantry_damage_world};
     anti_infantry_damage_simulation.update(1.0 / 60.0);
     passed &= check(
@@ -5402,12 +5432,31 @@ int main() {
     normal_weapon_vehicle_world.units()[0].reset_weapon_cooldown();
     normal_weapon_vehicle_world.spawn_projectile(
         WeaponType::rifle, Team::team_a, 954, {100.0F, 100.0F},
-        {12'000.0F, 0.0F}, 520.0F, 25.0F);
+        {12'000.0F, 0.0F}, 520.0F, 25.0F, 0.0F,
+        rifle_definition.weapon.vehicle_damage_multiplier);
     Simulation normal_weapon_vehicle_simulation{normal_weapon_vehicle_world};
     normal_weapon_vehicle_simulation.update(1.0 / 60.0);
     passed &= check(
-        near(normal_weapon_vehicle_world.find_unit(955)->health(), 575.0F),
-        "existing infantry weapons remain one-times damage against vehicles");
+        near(normal_weapon_vehicle_world.find_unit(955)->health(), 595.0F),
+        "rifle vehicle multiplier applies once through authoritative collision damage");
+
+    World machine_gun_vehicle_world{default_match_rules, navigation_open_map};
+    machine_gun_vehicle_world.units().clear();
+    machine_gun_vehicle_world.units().push_back(unit_from_definition(
+        957, Team::team_a, {100.0F, 100.0F}, 270.0F,
+        machine_gun_definition));
+    machine_gun_vehicle_world.units().push_back(unit_from_definition(
+        958, Team::team_b, {200.0F, 100.0F}, 90.0F,
+        medium_tank_definition));
+    machine_gun_vehicle_world.spawn_projectile(
+        WeaponType::machine_gun, Team::team_a, 957, {100.0F, 100.0F},
+        {12'000.0F, 0.0F}, 650.0F, 10.0F, 0.0F,
+        machine_gun_definition.weapon.vehicle_damage_multiplier);
+    Simulation machine_gun_vehicle_simulation{machine_gun_vehicle_world};
+    machine_gun_vehicle_simulation.update(1.0 / 60.0);
+    passed &= check(
+        near(machine_gun_vehicle_world.find_unit(958)->health(), 598.0F),
+        "machine-gun vehicle multiplier applies once through authoritative collision damage");
 
     World splash_world;
     isolate_collision_units(splash_world);
