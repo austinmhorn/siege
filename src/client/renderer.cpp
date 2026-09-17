@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdio>
 #include <filesystem>
 #include <span>
 #include <string>
@@ -412,6 +413,134 @@ std::filesystem::path tank_frame_path(const TroopType type,
         ? "light_tank"
         : type == TroopType::heavy_tank ? "heavy_tank" : "medium_tank";
     return std::filesystem::path{"tanks"} / folder / name;
+}
+
+struct DeploymentPortraitLayer {
+    std::filesystem::path path;
+    float canvas_size;
+    Vec2 anchor;
+};
+
+struct DeploymentPortraitPresentation {
+    float scale_multiplier{1.0F};
+    Vec2 source_offset{};
+};
+
+constexpr DeploymentPortraitPresentation deployment_portrait_presentation(
+    const TroopType troop_type) noexcept {
+    switch (troop_type) {
+    case TroopType::machine_gun:
+        // The visible 22x31 figure occupies a 128x128 authored canvas, while
+        // Rifleman occupies a comparable 21x31 area in a 64x64 canvas.
+        return {.scale_multiplier = 2.0F, .source_offset = {0.0F, 24.0F}};
+    case TroopType::rifle:
+    case TroopType::bazooka:
+    case TroopType::light_tank:
+    case TroopType::medium_tank:
+    case TroopType::heavy_tank:
+    case TroopType::anti_tank:
+    case TroopType::mortar:
+        return {};
+    }
+    return {};
+}
+
+bool render_deployment_portrait(SDL_Renderer* renderer, TextureCache& textures,
+                                const TroopType troop_type,
+                                const Bounds& portrait_bounds) {
+    std::array<DeploymentPortraitLayer, 2> layers{};
+    std::size_t layer_count = 0;
+    if (is_tank(troop_type)) {
+        layers[layer_count++] = DeploymentPortraitLayer{
+            tank_frame_path(troop_type, "hull.png"),
+            medium_tank_layout.canvas_size,
+            medium_tank_layout.hull_anchor};
+        layers[layer_count++] = DeploymentPortraitLayer{
+            tank_frame_path(troop_type, "turret_1.png"),
+            medium_tank_layout.canvas_size,
+            medium_tank_layout.turret_anchor};
+    } else if (const TroopVisualDefinition* visual = visual_for(troop_type)) {
+        if (visual->uses_shared_legs) {
+            layers[layer_count++] = DeploymentPortraitLayer{
+                body_frame_path(Team::team_a, "legs", "legs", 1),
+                soldier_layout.legs_canvas_size,
+                soldier_layout.legs_anchor};
+        }
+        layers[layer_count++] = DeploymentPortraitLayer{
+            body_frame_path(Team::team_a, visual->layer,
+                            visual->frame_prefix, visual->non_firing_frame),
+            visual->upper_canvas_size,
+            visual->body_anchor};
+    }
+
+    if (layer_count == 0 || portrait_bounds.width <= 0.0F ||
+        portrait_bounds.height <= 0.0F) {
+        return true;
+    }
+
+    float minimum_x = 0.0F;
+    float minimum_y = 0.0F;
+    float maximum_x = 0.0F;
+    float maximum_y = 0.0F;
+    bool first_layer = true;
+    for (std::size_t index = 0; index < layer_count; ++index) {
+        const auto& layer = layers[index];
+        const float left = -layer.anchor.x;
+        const float top = -layer.anchor.y;
+        const float right = layer.canvas_size - layer.anchor.x;
+        const float bottom = layer.canvas_size - layer.anchor.y;
+        if (first_layer) {
+            minimum_x = left;
+            minimum_y = top;
+            maximum_x = right;
+            maximum_y = bottom;
+            first_layer = false;
+        } else {
+            minimum_x = std::min(minimum_x, left);
+            minimum_y = std::min(minimum_y, top);
+            maximum_x = std::max(maximum_x, right);
+            maximum_y = std::max(maximum_y, bottom);
+        }
+    }
+    const float content_width = maximum_x - minimum_x;
+    const float content_height = maximum_y - minimum_y;
+    const DeploymentPortraitPresentation presentation =
+        deployment_portrait_presentation(troop_type);
+    const float portrait_scale =
+        std::min(portrait_bounds.width / content_width,
+                 portrait_bounds.height / content_height) *
+        presentation.scale_multiplier;
+    const Point anchor_position{
+        portrait_bounds.x + portrait_bounds.width * 0.5F -
+            (minimum_x + maximum_x) * 0.5F * portrait_scale +
+            presentation.source_offset.x * portrait_scale,
+        portrait_bounds.y + portrait_bounds.height * 0.5F -
+            (minimum_y + maximum_y) * 0.5F * portrait_scale +
+            presentation.source_offset.y * portrait_scale};
+
+    for (std::size_t index = 0; index < layer_count; ++index) {
+        const auto& layer = layers[index];
+        SDL_Texture* texture = textures.get(layer.path);
+        // Deployment portraits are optional runtime decoration. Missing private
+        // assets leave the card and its text usable in asset-free builds.
+        if (texture == nullptr) {
+            continue;
+        }
+        if (!SDL_SetTextureColorMod(texture, 255, 255, 255) ||
+            !SDL_SetTextureAlphaModFloat(texture, 1.0F)) {
+            return false;
+        }
+        const float size = layer.canvas_size * portrait_scale;
+        const SDL_FRect destination{
+            anchor_position.x - layer.anchor.x * portrait_scale,
+            anchor_position.y - layer.anchor.y * portrait_scale,
+            size,
+            size};
+        if (!SDL_RenderTexture(renderer, texture, nullptr, &destination)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 bool render_soldier_layer(SDL_Renderer* renderer, TextureCache& textures,
@@ -1350,23 +1479,46 @@ bool Renderer::render_deployment_ui(const World& world,
         if (!SDL_RenderRect(renderer_, &button)) {
             return false;
         }
+
+        const Bounds portrait = layout.portrait_bounds(
+            index, static_cast<float>(output_height));
+        if (!render_deployment_portrait(renderer_, textures_, troop,
+                                        portrait)) {
+            return false;
+        }
+
         const auto name = troop_display_name(troop);
-        if (!fonts_.draw_format_scaled(
-                button.x + 12.0F * layout.scale,
-                button.y + 7.0F * layout.scale, FontRole::body_bold,
-                FontColor{245, 245, 245, 255}, layout.text_scale, "%.*s",
-                static_cast<int>(name.size()), name.data()) ||
-            !fonts_.draw_format_scaled(
-                button.x + 12.0F * layout.scale,
-                button.y + 25.0F * layout.scale, FontRole::debug,
-                FontColor{245, 245, 245, 255}, layout.text_scale, "$%lld",
-                static_cast<long long>(definition->purchase_cost)) ||
-            !fonts_.draw_format_scaled(
-                button.x + 12.0F * layout.scale,
-                button.y + 41.0F * layout.scale, FontRole::debug,
-                FontColor{232, 236, 238, 255},
-                layout.text_scale, "deploy %.2fs",
-                definition->deployment_seconds)) {
+        float name_width = 0.0F;
+        float name_height = 0.0F;
+        if (!fonts_.measure(name, FontRole::body_bold, name_width,
+                            name_height, layout.text_scale) ||
+            !fonts_.draw(button.x + (button.w - name_width) * 0.5F,
+                         layout.name_y(index, static_cast<float>(output_height)),
+                         name, FontRole::body_bold,
+                         FontColor{245, 245, 245, 255}, layout.text_scale)) {
+            return false;
+        }
+
+        char detail_buffer[64]{};
+        const int detail_length = std::snprintf(
+            detail_buffer, sizeof(detail_buffer), "$%lld · %.2fs",
+            static_cast<long long>(definition->purchase_cost),
+            definition->deployment_seconds);
+        if (detail_length < 0 ||
+            static_cast<std::size_t>(detail_length) >= sizeof(detail_buffer)) {
+            return false;
+        }
+        const std::string_view detail{detail_buffer,
+                                      static_cast<std::size_t>(detail_length)};
+        float detail_width = 0.0F;
+        float detail_height = 0.0F;
+        if (!fonts_.measure(detail, FontRole::debug, detail_width,
+                            detail_height, layout.detail_text_scale) ||
+            !fonts_.draw(
+                button.x + (button.w - detail_width) * 0.5F,
+                layout.detail_y(index, static_cast<float>(output_height)),
+                detail, FontRole::debug, FontColor{232, 236, 238, 255},
+                layout.detail_text_scale)) {
             return false;
         }
         if (selected) {

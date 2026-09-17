@@ -774,15 +774,21 @@ int main() {
         default_density_ui.button_bounds(0, 1440.0F);
     const Bounds default_last_card = default_density_ui.button_bounds(
         ui_layout::deployment_card_count - 1, 1440.0F);
+    const Bounds default_first_portrait =
+        default_density_ui.portrait_bounds(0, 1440.0F);
     passed &= check(
         near(default_density_ui.responsive_scale, 4.0F / 3.0F) &&
             near(default_density_ui.scale, 1.6F) &&
             near(default_density_ui.text_scale, 1.6F) &&
+            near(default_density_ui.detail_text_scale, 1.6F) &&
             near(default_density_ui.button_width, 256.0F) &&
-            near(default_density_ui.button_height, 92.8F) &&
+            near(default_density_ui.button_height, 166.4F) &&
             near(default_density_ui.button_gap, 19.2F) &&
-            near(default_density_ui.bar_height, 131.2F) &&
+            near(default_density_ui.bar_height, 211.2F) &&
             near(default_density_ui.selection_border_width, 3.2F) &&
+            near(default_first_portrait.height, 94.4F) &&
+            default_density_ui.detail_y(0, 1440.0F) <
+                default_first_card.y + default_first_card.height &&
             near(default_first_card.x,
                  2560.0F - default_last_card.x - default_last_card.width) &&
             default_last_card.x + default_last_card.width < 2560.0F,
@@ -798,11 +804,13 @@ int main() {
         window_900_ui.button_bounds(0, 600.0F);
     const Bounds window_900_last = window_900_ui.button_bounds(
         ui_layout::deployment_card_count - 1, 600.0F);
+    const Bounds window_900_portrait =
+        window_900_ui.portrait_bounds(0, 600.0F);
     passed &= check(
         near(window_1280_ui.responsive_scale, 1.0F) &&
             near(window_1280_ui.scale, 1.2F) &&
             near(window_1280_ui.button_width, 151.15F) &&
-            near(window_1280_ui.button_height, 69.6F) &&
+            near(window_1280_ui.button_height, 124.8F) &&
             near(window_1280_ui.button_gap, 6.0F) &&
         window_1280_first.x >= 0.0F &&
             window_1280_last.x + window_1280_last.width <= 1280.0F &&
@@ -810,9 +818,16 @@ int main() {
                  1280.0F - window_1280_last.x - window_1280_last.width) &&
             near(window_900_ui.scale, 1.2F) &&
             near(window_900_ui.button_width, 103.65F) &&
-            near(window_900_ui.button_height, 69.6F) &&
+            near(window_900_ui.button_height, 124.8F) &&
             near(window_900_ui.button_gap, 6.0F) &&
             near(window_900_ui.text_scale, 0.888F, 0.001F) &&
+            near(window_900_ui.detail_text_scale, 0.888F, 0.001F) &&
+            near(window_900_portrait.height, 70.8F) &&
+            window_900_portrait.x >= window_900_first.x &&
+            window_900_portrait.x + window_900_portrait.width <=
+                window_900_first.x + window_900_first.width &&
+            window_900_ui.detail_y(0, 600.0F) <
+                window_900_first.y + window_900_first.height &&
             window_900_first.x >= 0.0F &&
             window_900_last.x + window_900_last.width <= 900.0F &&
             near(window_900_first.x,
