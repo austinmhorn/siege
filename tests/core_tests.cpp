@@ -2771,17 +2771,53 @@ int main() {
             !coordinated_push_world.find_unit(1'012)->ai_push_id().has_value(),
         "Medium RED AI deterministically stages a role-ordered push behind its current frontline and excludes holders/Mortar/manual intent");
     const auto push_group = coordinated_push_world.find_unit(1'002)->group_id();
+    const auto staged_escort = anti_tank_escort_target(
+        *coordinated_push_world.find_unit(1'003),
+        coordinated_push_world.units());
     passed &= check(
         push_group.has_value() &&
             coordinated_push_world.find_unit(1'003)->group_id() == push_group &&
-            anti_tank_escort_target(
-                *coordinated_push_world.find_unit(1'003),
-                coordinated_push_world.units()).has_value(),
+            staged_escort.has_value() &&
+            near(coordinated_push_world.find_unit(1'003)
+                     ->ai_push_desired_position()->x,
+                 staged_escort->desired_position.x) &&
+            near(coordinated_push_world.find_unit(1'003)
+                     ->ai_push_desired_position()->y,
+                 staged_escort->desired_position.y),
         "a staged Tank and Anti-Tank pair reuses persistent grouping and existing escort behavior");
 
-    for (std::size_t index = 0; index < 5; ++index) {
-        coordinated_push_world.find_unit(expected_push_members[index])
-            ->set_position(*coordinated_commander.push_staging_point());
+    const Unit* push_tank = coordinated_push_world.find_unit(1'002);
+    const Unit* push_at = coordinated_push_world.find_unit(1'003);
+    const Unit* push_rifle_a = coordinated_push_world.find_unit(1'004);
+    const Unit* push_rifle_b = coordinated_push_world.find_unit(1'005);
+    const Unit* push_rifle_c = coordinated_push_world.find_unit(1'006);
+    const Unit* push_machine_gun = coordinated_push_world.find_unit(1'007);
+    passed &= check(
+        push_tank->ai_push_role() == AiPushRole::front_anchor &&
+            push_tank->ai_push_anchor_id() == 1'002 &&
+            push_at->ai_push_role() == AiPushRole::escort &&
+            push_at->ai_push_anchor_id() == 1'002 &&
+            push_rifle_a->ai_push_role() == AiPushRole::frontline &&
+            push_rifle_b->ai_push_role() == AiPushRole::frontline &&
+            push_rifle_c->ai_push_role() == AiPushRole::frontline &&
+            push_machine_gun->ai_push_role() == AiPushRole::support &&
+            near(push_rifle_a->ai_push_desired_position()->x, 1'612.8F,
+                 0.1F) &&
+            near(push_rifle_b->ai_push_desired_position()->x, 1'652.8F,
+                 0.1F) &&
+            near(push_rifle_c->ai_push_desired_position()->x, 1'692.8F,
+                 0.1F) &&
+            near(push_machine_gun->ai_push_desired_position()->x, 1'772.8F,
+                 0.1F) &&
+            near(push_rifle_b->ai_push_desired_position()->y -
+                     push_rifle_a->ai_push_desired_position()->y,
+                 80.0F),
+        "push roles place the Tank at the front, Rifles within 0-80 rear distance, support within 120-200, and deterministic lateral slots");
+
+    for (const Unit::Id id : std::array<Unit::Id, 5>{
+             1'002, 1'004, 1'005, 1'006, 1'007}) {
+        Unit* member = coordinated_push_world.find_unit(id);
+        member->set_position(*member->ai_push_desired_position());
     }
     coordinated_commander.update(coordinated_push_world, Team::team_a);
     passed &= check(
@@ -2796,6 +2832,16 @@ int main() {
                         !unit->ai_push_staging_active();
                 }),
         "70-percent staging readiness releases every living member into Advance together");
+
+    coordinated_push_world.find_unit(1'002)->set_position({1'500.0F, 600.0F});
+    coordinated_commander.update(coordinated_push_world, Team::team_a);
+    passed &= check(
+        near(coordinated_push_world.find_unit(1'007)
+                 ->ai_push_desired_position()->x,
+             1'660.0F, 0.1F) &&
+            coordinated_push_world.find_unit(1'007)->ai_push_role() ==
+                AiPushRole::support,
+        "advancing support slots follow the moving RED anchor at a loose 120-200-unit rear offset");
 
     std::erase_if(coordinated_push_world.units(),
                   [&expected_push_members](const Unit& unit) {
@@ -2860,7 +2906,9 @@ int main() {
             paused_push_commander.push_state() == AiPushState::idle &&
             std::ranges::none_of(paused_push_world.units(),
                                  [](const Unit& unit) {
-                return unit.ai_push_id().has_value();
+                return unit.ai_push_id().has_value() ||
+                    unit.ai_push_role().has_value() ||
+                    unit.ai_push_desired_position().has_value();
             }),
         "F4 RED control cancels AI push intent and leaves units available for manual orders");
 
@@ -2940,10 +2988,75 @@ int main() {
     AiCommander deterministic_push_commander{Team::team_b};
     deterministic_push_commander.update(deterministic_push_world,
                                          Team::team_a, 1'200);
+    World deterministic_push_world_two = make_push_world();
+    AiCommander deterministic_push_commander_two{Team::team_b};
+    deterministic_push_commander_two.update(deterministic_push_world_two,
+                                             Team::team_a, 1'200);
+    const bool deterministic_roles = std::ranges::all_of(
+        expected_push_members, [&deterministic_push_world,
+                                &deterministic_push_world_two](const Unit::Id id) {
+            const Unit* left = deterministic_push_world.find_unit(id);
+            const Unit* right = deterministic_push_world_two.find_unit(id);
+            return left != nullptr && right != nullptr &&
+                left->ai_push_role() == right->ai_push_role() &&
+                left->ai_push_anchor_id() == right->ai_push_anchor_id() &&
+                left->ai_push_desired_position().has_value() &&
+                right->ai_push_desired_position().has_value() &&
+                near(left->ai_push_desired_position()->x,
+                     right->ai_push_desired_position()->x) &&
+                near(left->ai_push_desired_position()->y,
+                     right->ai_push_desired_position()->y);
+        });
     passed &= check(
         std::ranges::equal(deterministic_push_commander.push_members(),
-                           expected_push_members),
-        "coordinated push selection is deterministic across identical worlds");
+                           expected_push_members) && deterministic_roles,
+        "coordinated push selection, roles, anchors, and slots are deterministic across identical worlds");
+
+    World replacement_anchor_world = make_push_world();
+    AiCommander replacement_anchor_commander{Team::team_b};
+    replacement_anchor_commander.update(replacement_anchor_world,
+                                         Team::team_a, 1'200);
+    const Vec2 replacement_rifle_position =
+        replacement_anchor_world.find_unit(1'004)->position();
+    std::erase_if(replacement_anchor_world.units(), [](const Unit& unit) {
+        return unit.id() == 1'002;
+    });
+    replacement_anchor_commander.update(replacement_anchor_world,
+                                         Team::team_a);
+    passed &= check(
+        replacement_anchor_world.find_unit(1'004)->ai_push_role() ==
+                AiPushRole::front_anchor &&
+            replacement_anchor_world.find_unit(1'004)->ai_push_anchor_id() ==
+                1'004 &&
+            replacement_anchor_world.find_unit(1'003)->ai_push_role() ==
+                AiPushRole::support &&
+            replacement_anchor_world.find_unit(1'003)->ai_push_anchor_id() ==
+                1'004 &&
+            near(replacement_anchor_world.find_unit(1'004)->position().x,
+                 replacement_rifle_position.x) &&
+            near(replacement_anchor_world.find_unit(1'004)->position().y,
+                 replacement_rifle_position.y),
+        "Tank death deterministically promotes the lowest-ID Rifle anchor and recomputes AT support without teleporting members");
+
+    World manual_override_push_world = make_push_world();
+    AiCommander manual_override_push_commander{Team::team_b};
+    manual_override_push_commander.update(manual_override_push_world,
+                                           Team::team_a, 1'200);
+    Unit* manually_held_support =
+        manual_override_push_world.find_unit(1'007);
+    manually_held_support->set_tactical_order(
+        TacticalOrder::hold, manually_held_support->position());
+    manual_override_push_commander.update(manual_override_push_world,
+                                           Team::team_a);
+    passed &= check(
+        manual_override_push_commander.push_state() == AiPushState::staging &&
+            manually_held_support->tactical_order() == TacticalOrder::hold &&
+            !manually_held_support->ai_push_id().has_value() &&
+            !manually_held_support->ai_push_role().has_value() &&
+            !manually_held_support->ai_push_desired_position().has_value() &&
+            manual_override_push_world.find_unit(1'004)->ai_push_role() ==
+                AiPushRole::frontline,
+        "manual Hold removes only that member's AI formation metadata while the remaining push continues unchanged");
 
     World staging_combat_world;
     staging_combat_world.units().clear();
@@ -2955,6 +3068,8 @@ int main() {
         medium_tank_definition));
     Unit* staging_fighter = staging_combat_world.find_unit(1'020);
     staging_fighter->set_ai_push_assignment(99, {1'800.0F, 520.0F});
+    staging_fighter->set_ai_push_formation(
+        AiPushRole::support, 1'020, {1'800.0F, 520.0F});
     staging_fighter->set_ai_push_staging_active(true);
     Simulation staging_combat_simulation{staging_combat_world};
     for (int tick = 0; tick < 30; ++tick) {
@@ -2966,14 +3081,16 @@ int main() {
         return unit.team() == Team::team_a;
     });
     staging_combat_world.projectiles().clear();
+    staging_fighter->set_ai_push_staging_active(false);
+    staging_fighter->set_tactical_order(TacticalOrder::advance);
     for (int tick = 0; tick < 180; ++tick) {
         staging_combat_simulation.update(1.0 / 60.0);
     }
     passed &= check(
         staged_combat_displacement > 5.0F &&
             length(staging_combat_world.find_unit(1'020)->position() -
-                   Vec2{1'800.0F, 520.0F}) < 45.0F,
-        "combat temporarily overrides staging and the member resumes staging after pressure clears");
+                   Vec2{1'800.0F, 520.0F}) < 60.0F,
+        "combat temporarily overrides role positioning and an advancing member resumes its support slot after pressure clears");
 
     World ai_frontline_limit_world;
     ai_frontline_limit_world.units().clear();

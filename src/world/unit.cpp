@@ -90,6 +90,20 @@ std::string_view to_string(const TacticalOrder order) noexcept {
     return "unknown";
 }
 
+std::string_view to_string(const AiPushRole role) noexcept {
+    switch (role) {
+    case AiPushRole::front_anchor:
+        return "front anchor";
+    case AiPushRole::frontline:
+        return "frontline";
+    case AiPushRole::support:
+        return "support";
+    case AiPushRole::escort:
+        return "escort";
+    }
+    return "unknown";
+}
+
 Unit::Unit(const Id id, const TroopType troop_type, const Team team,
            const Vec2 spawn_position, const float move_speed,
            const float rotation_speed, const float vision_range,
@@ -303,20 +317,29 @@ void Unit::set_ai_objective_assignment_active(const bool active) noexcept {
 }
 
 void Unit::set_ai_push_assignment(const std::uint32_t push_id,
-                                  const Vec2 staging_position) noexcept {
+                                  const Vec2 desired_position) noexcept {
     ai_push_id_ = push_id;
-    ai_push_staging_position_ = staging_position;
+    ai_push_desired_position_ = desired_position;
+}
+
+void Unit::set_ai_push_formation(const AiPushRole role, const Id anchor_id,
+                                 const Vec2 desired_position) noexcept {
+    ai_push_role_ = role;
+    ai_push_anchor_id_ = anchor_id;
+    ai_push_desired_position_ = desired_position;
 }
 
 void Unit::clear_ai_push_assignment() noexcept {
     ai_push_id_.reset();
-    ai_push_staging_position_.reset();
+    ai_push_desired_position_.reset();
     ai_push_staging_active_ = false;
+    ai_push_role_.reset();
+    ai_push_anchor_id_.reset();
 }
 
 void Unit::set_ai_push_staging_active(const bool active) noexcept {
     ai_push_staging_active_ = active && ai_push_id_.has_value() &&
-        ai_push_staging_position_.has_value();
+        ai_push_desired_position_.has_value();
 }
 
 void Unit::tick_weapon_cooldown(const double delta_seconds) noexcept {
@@ -387,11 +410,17 @@ bool Unit::ai_objective_assignment_active() const noexcept {
 std::optional<std::uint32_t> Unit::ai_push_id() const noexcept {
     return ai_push_id_;
 }
-std::optional<Vec2> Unit::ai_push_staging_position() const noexcept {
-    return ai_push_staging_position_;
+std::optional<Vec2> Unit::ai_push_desired_position() const noexcept {
+    return ai_push_desired_position_;
 }
 bool Unit::ai_push_staging_active() const noexcept {
     return ai_push_staging_active_;
+}
+std::optional<AiPushRole> Unit::ai_push_role() const noexcept {
+    return ai_push_role_;
+}
+std::optional<Unit::Id> Unit::ai_push_anchor_id() const noexcept {
+    return ai_push_anchor_id_;
 }
 float Unit::move_speed() const noexcept { return move_speed_; }
 float Unit::rotation_speed() const noexcept { return rotation_speed_; }

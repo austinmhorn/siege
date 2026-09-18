@@ -44,7 +44,7 @@ constexpr float left_panel_width = 256.0F;
 constexpr float unit_column_preferred_width = 190.0F;
 constexpr float unit_column_minimum_width = 148.0F;
 constexpr float unit_block_gap = 6.0F;
-constexpr std::size_t unit_block_line_count = 30;
+constexpr std::size_t unit_block_line_count = 31;
 
 struct TextCursor {
     FontSystem& fonts;
@@ -436,11 +436,22 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
 
         if (std::ranges::find(selected_unit_ids, unit.id()) !=
                 selected_unit_ids.end() &&
-            unit.ai_push_staging_position().has_value() &&
-            unit.ai_push_staging_active()) {
-            set_color(renderer_, 90, 190, 255, 225);
-            const Vec2 staging = *unit.ai_push_staging_position();
-            if (!draw_world_line(renderer_, transform, position, staging)) {
+            unit.ai_push_desired_position().has_value() &&
+            unit.ai_push_role().has_value()) {
+            set_color(renderer_, 255, 190, 70, 225);
+            const Vec2 desired = *unit.ai_push_desired_position();
+            if (!draw_world_line(renderer_, transform, position, desired)) {
+                return false;
+            }
+            constexpr float role_marker_size = 8.0F;
+            if (!draw_world_line(
+                    renderer_, transform,
+                    {desired.x - role_marker_size, desired.y},
+                    {desired.x + role_marker_size, desired.y}) ||
+                !draw_world_line(
+                    renderer_, transform,
+                    {desired.x, desired.y - role_marker_size},
+                    {desired.x, desired.y + role_marker_size})) {
                 return false;
             }
         }
@@ -830,6 +841,19 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                               ? "staging" : "advancing");
         } else {
             cursor.line(FontRole::debug, debug_muted, "push: none");
+        }
+        if (const auto role = unit.ai_push_role()) {
+            const auto role_name = to_string(*role);
+            const auto anchor_id = unit.ai_push_anchor_id();
+            const auto desired = unit.ai_push_desired_position();
+            cursor.format(FontRole::debug, debug_text,
+                          "role: %.*s / #%u -> %.0f,%.0f",
+                          static_cast<int>(role_name.size()), role_name.data(),
+                          anchor_id.value_or(0),
+                          desired.has_value() ? desired->x : 0.0F,
+                          desired.has_value() ? desired->y : 0.0F);
+        } else {
+            cursor.line(FontRole::debug, debug_muted, "role: none");
         }
         if (unit.troop_type() == TroopType::anti_tank) {
             const auto escort = anti_tank_escort_target(unit, world.units());

@@ -940,6 +940,108 @@ void AiCommander::set_push_staging_active(World& world,
     }
 }
 
+void AiCommander::update_push_role_positions(World& world) {
+    if (!push_id_.has_value() || push_member_ids_.empty()) {
+        return;
+    }
+    const TeamForwardDefinition* forward =
+        team_forward_definition(world.map(), team_);
+    if (forward == nullptr) {
+        return;
+    }
+
+    std::vector<Unit*> members;
+    for (const Unit::Id id : push_member_ids_) {
+        Unit* unit = world.find_unit(id);
+        if (unit != nullptr && unit->is_alive() && unit->team() == team_ &&
+            unit->ai_push_id() == push_id_) {
+            members.push_back(unit);
+        }
+    }
+    std::ranges::sort(members, {}, &Unit::id);
+    if (members.empty()) {
+        return;
+    }
+
+    Unit* anchor = nullptr;
+    for (Unit* unit : members) {
+        if (is_tank_escort_anchor(unit->troop_type())) {
+            anchor = unit;
+            break;
+        }
+    }
+    if (anchor == nullptr) {
+        const auto rifle = std::ranges::find_if(members, [](const Unit* unit) {
+            return unit->troop_type() == TroopType::rifle;
+        });
+        anchor = rifle != members.end() ? *rifle : members.front();
+    }
+
+    struct RoleMember {
+        Unit* unit;
+        AiPushRole role;
+        std::optional<Vec2> escort_position;
+        Unit::Id role_anchor_id;
+    };
+    std::vector<RoleMember> role_members;
+    role_members.reserve(members.size());
+    for (Unit* unit : members) {
+        AiPushRole role = AiPushRole::support;
+        std::optional<Vec2> escort_position;
+        Unit::Id role_anchor_id = anchor->id();
+        if (unit == anchor) {
+            role = AiPushRole::front_anchor;
+        } else if (is_tank_escort_anchor(unit->troop_type()) ||
+                   unit->troop_type() == TroopType::rifle) {
+            role = AiPushRole::frontline;
+        } else if (unit->troop_type() == TroopType::anti_tank) {
+            const auto escort = anti_tank_escort_target(*unit, world.units());
+            if (escort.has_value()) {
+                role = AiPushRole::escort;
+                escort_position = escort->desired_position;
+                role_anchor_id = escort->anchor_id;
+            }
+        }
+        role_members.push_back({unit, role, escort_position, role_anchor_id});
+    }
+
+    const Vec2 anchor_position = push_state_ == AiPushState::staging &&
+            push_staging_point_.has_value()
+        ? *push_staging_point_
+        : anchor->position();
+    const auto role_count = [&role_members](const AiPushRole role) {
+        return static_cast<std::size_t>(std::ranges::count_if(
+            role_members, [role](const RoleMember& member) {
+                return member.role == role;
+            }));
+    };
+    const std::size_t frontline_count = role_count(AiPushRole::frontline);
+    const std::size_t support_count = role_count(AiPushRole::support);
+    std::size_t frontline_index = 0;
+    std::size_t support_index = 0;
+    for (RoleMember& member : role_members) {
+        std::size_t role_index = 0;
+        std::size_t count = 1;
+        if (member.role == AiPushRole::frontline) {
+            role_index = frontline_index++;
+            count = frontline_count;
+        } else if (member.role == AiPushRole::support) {
+            role_index = support_index++;
+            count = support_count;
+        }
+        Vec2 desired = member.escort_position.value_or(ai_push_role_position(
+            anchor_position, forward->x_direction, member.role,
+            role_index, count));
+        const float inset = std::max(32.0F, member.unit->hit_radius());
+        desired.x = std::clamp(desired.x, inset,
+                               world.map().logical_width - inset);
+        desired.y = std::clamp(desired.y, inset,
+                               world.map().logical_height - inset);
+        member.unit->set_ai_push_formation(
+            member.role, member.role_anchor_id, desired);
+    }
+}
+
 bool AiCommander::start_coordinated_push(World& world) {
     const auto frontline = frontline_objective(world, team_);
     if (!frontline.has_value() ||
@@ -1065,16 +1167,9 @@ bool AiCommander::start_coordinated_push(World& world) {
     push_elapsed_ticks_ = 0;
     push_ready_member_count_ = 0;
     push_member_ids_.clear();
-    const float centered_index =
-        (static_cast<float>(selected.size()) - 1.0F) * 0.5F;
     for (std::size_t index = 0; index < selected.size(); ++index) {
         Unit* unit = selected[index];
-        Vec2 slot = *staging;
-        slot.y += (static_cast<float>(index) - centered_index) *
-                  default_ai_coordinated_push_rules.staging_member_spacing;
-        slot.y = std::clamp(slot.y, 32.0F,
-                            world.map().logical_height - 32.0F);
-        unit->set_ai_push_assignment(*push_id_, slot);
+        unit->set_ai_push_assignment(*push_id_, *staging);
         unit->set_ai_push_staging_active(true);
         push_member_ids_.push_back(unit->id());
     }
@@ -1095,6 +1190,7 @@ bool AiCommander::start_coordinated_push(World& world) {
             escort->set_group_id(push_temporary_group_id_);
         }
     }
+    update_push_role_positions(world);
     return true;
 }
 
@@ -1117,6 +1213,7 @@ void AiCommander::release_coordinated_push(World& world) {
                                TacticalOrder::advance, team_);
     push_state_ = AiPushState::advancing;
     push_elapsed_ticks_ = 0;
+    update_push_role_positions(world);
 }
 
 void AiCommander::end_coordinated_push(World& world,
@@ -1202,7 +1299,7 @@ void AiCommander::update_coordinated_push(
             }
         }
 
-        std::erase_if(push_member_ids_, [this, &world](const Unit::Id id) {
+        const auto invalid_push_member = [this, &world](const Unit::Id id) {
             const Unit* unit = world.find_unit(id);
             return unit == nullptr || !unit->is_alive() ||
                 unit->team() != team_ || unit->ai_push_id() != push_id_ ||
@@ -1211,20 +1308,43 @@ void AiCommander::update_coordinated_push(
                 unit->has_movement_path() ||
                 unit->tactical_order() == TacticalOrder::hold ||
                 unit->tactical_order() == TacticalOrder::regroup;
-        });
+        };
+        for (const Unit::Id id : push_member_ids_) {
+            Unit* unit = world.find_unit(id);
+            if (!invalid_push_member(id) || unit == nullptr ||
+                unit->ai_push_id() != push_id_) {
+                continue;
+            }
+            if (unit->group_id() == push_temporary_group_id_) {
+                unit->clear_group_id();
+            }
+            unit->clear_ai_push_assignment();
+        }
+        std::erase_if(push_member_ids_, invalid_push_member);
         if (push_member_ids_.size() <= 1) {
             end_coordinated_push(world, true);
             continue;
         }
+        if (push_temporary_group_id_.has_value() &&
+            tactical_group_members(world, *push_temporary_group_id_).size() < 2) {
+            for (Unit& unit : world.units()) {
+                if (unit.group_id() == push_temporary_group_id_) {
+                    unit.clear_group_id();
+                }
+            }
+            push_temporary_group_id_.reset();
+        }
+        update_push_role_positions(world);
 
         if (push_state_ == AiPushState::staging) {
             push_ready_member_count_ = static_cast<std::size_t>(
                 std::ranges::count_if(
-                    push_member_ids_, [this, &world](const Unit::Id id) {
+                    push_member_ids_, [&world](const Unit::Id id) {
                         const Unit* unit = world.find_unit(id);
                         return unit != nullptr &&
-                            push_staging_point_.has_value() &&
-                            length(unit->position() - *push_staging_point_) <=
+                            unit->ai_push_desired_position().has_value() &&
+                            length(unit->position() -
+                                   *unit->ai_push_desired_position()) <=
                                 default_ai_coordinated_push_rules
                                     .readiness_radius;
                     }));

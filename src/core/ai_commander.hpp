@@ -185,6 +185,7 @@ private:
     void release_coordinated_push(World& world);
     void end_coordinated_push(World& world, bool start_cooldown);
     void set_push_staging_active(World& world, bool active) const noexcept;
+    void update_push_role_positions(World& world);
     void issue_tactical_command(World& world, TacticalOrder order,
                                 std::size_t objective_index,
                                 std::vector<Unit::Id> unit_ids);

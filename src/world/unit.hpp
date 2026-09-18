@@ -48,12 +48,20 @@ enum class TacticalOrder {
     regroup,
 };
 
+enum class AiPushRole {
+    front_anchor,
+    frontline,
+    support,
+    escort,
+};
+
 [[nodiscard]] std::string_view to_string(TroopType type) noexcept;
 [[nodiscard]] std::string_view to_string(TargetCategory category) noexcept;
 [[nodiscard]] std::string_view to_string(Team team) noexcept;
 [[nodiscard]] std::string_view to_string(MovementState state) noexcept;
 [[nodiscard]] std::string_view to_string(CombatMovementState state) noexcept;
 [[nodiscard]] std::string_view to_string(TacticalOrder order) noexcept;
+[[nodiscard]] std::string_view to_string(AiPushRole role) noexcept;
 
 class Unit {
 public:
@@ -103,7 +111,9 @@ public:
     void clear_ai_objective_assignment() noexcept;
     void set_ai_objective_assignment_active(bool active) noexcept;
     void set_ai_push_assignment(std::uint32_t push_id,
-                                Vec2 staging_position) noexcept;
+                                Vec2 desired_position) noexcept;
+    void set_ai_push_formation(AiPushRole role, Id anchor_id,
+                               Vec2 desired_position) noexcept;
     void clear_ai_push_assignment() noexcept;
     void set_ai_push_staging_active(bool active) noexcept;
     void tick_weapon_cooldown(double delta_seconds) noexcept;
@@ -132,8 +142,10 @@ public:
         const noexcept;
     [[nodiscard]] bool ai_objective_assignment_active() const noexcept;
     [[nodiscard]] std::optional<std::uint32_t> ai_push_id() const noexcept;
-    [[nodiscard]] std::optional<Vec2> ai_push_staging_position() const noexcept;
+    [[nodiscard]] std::optional<Vec2> ai_push_desired_position() const noexcept;
     [[nodiscard]] bool ai_push_staging_active() const noexcept;
+    [[nodiscard]] std::optional<AiPushRole> ai_push_role() const noexcept;
+    [[nodiscard]] std::optional<Id> ai_push_anchor_id() const noexcept;
     [[nodiscard]] float move_speed() const noexcept;
     [[nodiscard]] float rotation_speed() const noexcept;
     [[nodiscard]] float vision_range() const noexcept;
@@ -199,8 +211,10 @@ private:
     std::optional<Vec2> ai_objective_hold_position_{};
     bool ai_objective_assignment_active_{};
     std::optional<std::uint32_t> ai_push_id_{};
-    std::optional<Vec2> ai_push_staging_position_{};
+    std::optional<Vec2> ai_push_desired_position_{};
     bool ai_push_staging_active_{};
+    std::optional<AiPushRole> ai_push_role_{};
+    std::optional<Id> ai_push_anchor_id_{};
     float preferred_y_{};
     float move_speed_{};
     float rotation_speed_{};

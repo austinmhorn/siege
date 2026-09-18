@@ -530,28 +530,61 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
 
         if (!target_ids[index].has_value() &&
             ai_push_staging_movement_allowed(unit) &&
-            unit.ai_push_staging_position().has_value()) {
-            support = {};
-            const Vec2 staging_position = constrain_navigation_destination(
-                world_, unit, *unit.ai_push_staging_position());
-            const Vec2 toward_staging = staging_position - unit.position();
-            if (length(toward_staging) >
-                default_ai_coordinated_push_rules.readiness_radius * 0.25F) {
-                navigation_destination = staging_position;
-                velocity = velocity_from_steering(
-                    toward_staging + separation, unit.move_speed());
-                if (length_squared(toward_staging) > 0.0001F) {
-                    desired_facing = facing_from_direction(toward_staging);
-                }
-            } else {
+            unit.ai_push_desired_position().has_value()) {
+            const bool is_anchor = unit.ai_push_role() ==
+                AiPushRole::front_anchor;
+            const bool staging = unit.ai_push_staging_active();
+            const Vec2 role_position = constrain_navigation_destination(
+                world_, unit, *unit.ai_push_desired_position());
+            const Vec2 toward_role = role_position - unit.position();
+            const float dead_zone = staging
+                ? default_ai_coordinated_push_rules.readiness_radius * 0.25F
+                : default_ai_coordinated_push_rules.formation_dead_zone;
+            if (!is_anchor && !staging && length(toward_role) <= dead_zone) {
+                // Inside the dead zone, inherit the anchor's forward pace and
+                // apply only a proportional slot correction. This keeps a
+                // loose formation without faster infantry repeatedly running
+                // through a slower tank anchor.
+                const Unit* role_anchor = unit.ai_push_anchor_id().has_value()
+                    ? world_.find_unit(*unit.ai_push_anchor_id())
+                    : nullptr;
+                const float anchor_speed = role_anchor != nullptr &&
+                        role_anchor->is_alive() &&
+                        role_anchor->movement_state() == MovementState::moving
+                    ? std::min(unit.move_speed(), role_anchor->move_speed())
+                    : 0.0F;
+                Vec2 formation_velocity{
+                    team_advance_direction(world_, unit.team()) * anchor_speed,
+                    0.0F};
+                formation_velocity = formation_velocity +
+                    toward_role * 0.5F + separation * unit.move_speed();
+                const float formation_speed = length(formation_velocity);
+                velocity = formation_speed > unit.move_speed()
+                    ? normalized(formation_velocity) * unit.move_speed()
+                    : formation_velocity;
                 navigation_destination.reset();
-                velocity = soft_separation_velocity(separation,
-                                                    unit.move_speed());
-                desired_facing = forward_facing;
+                state = length_squared(velocity) > 0.0001F
+                            ? MovementState::moving
+                            : MovementState::idle;
+            } else if (!is_anchor || staging) {
+                support = {};
+                if (length(toward_role) > dead_zone) {
+                    navigation_destination = role_position;
+                    velocity = velocity_from_steering(
+                        toward_role + separation, unit.move_speed());
+                    if (length_squared(toward_role) > 0.0001F) {
+                        desired_facing = facing_from_direction(toward_role);
+                    }
+                } else {
+                    navigation_destination.reset();
+                    velocity = soft_separation_velocity(separation,
+                                                        unit.move_speed());
+                    desired_facing = forward_facing;
+                }
+                state = length_squared(velocity) > 0.0001F
+                            ? MovementState::moving
+                            : MovementState::idle;
             }
-            state = length_squared(velocity) > 0.0001F
-                        ? MovementState::moving
-                        : MovementState::idle;
         }
 
         const auto escort = anti_tank_escort_target(unit, units);
