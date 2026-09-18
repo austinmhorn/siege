@@ -110,6 +110,12 @@ enum class AiObjectiveCoverage {
     uncovered,
 };
 
+enum class AiPushState {
+    idle,
+    staging,
+    advancing,
+};
+
 struct AiObjectiveOccupancyStatus {
     std::size_t zone_index{};
     AiObjectiveCoverage coverage{AiObjectiveCoverage::not_owned};
@@ -158,6 +164,13 @@ public:
     [[nodiscard]] std::span<const AiObjectiveOccupancyStatus>
         objective_occupancy() const noexcept;
     [[nodiscard]] bool is_objective_holder(Unit::Id unit_id) const noexcept;
+    [[nodiscard]] AiPushState push_state() const noexcept;
+    [[nodiscard]] std::optional<std::uint32_t> push_id() const noexcept;
+    [[nodiscard]] std::span<const Unit::Id> push_members() const noexcept;
+    [[nodiscard]] std::optional<Vec2> push_staging_point() const noexcept;
+    [[nodiscard]] std::size_t push_ready_member_count() const noexcept;
+    [[nodiscard]] std::uint64_t push_elapsed_ticks() const noexcept;
+    [[nodiscard]] std::uint64_t push_cooldown_ticks() const noexcept;
 
 private:
     void make_purchase_decision(World& world);
@@ -166,6 +179,12 @@ private:
                                     std::uint64_t fixed_tick_count);
     void set_objective_holder_movement_active(World& world,
                                               bool active) const noexcept;
+    void update_coordinated_push(World& world,
+                                 std::uint64_t fixed_tick_count);
+    [[nodiscard]] bool start_coordinated_push(World& world);
+    void release_coordinated_push(World& world);
+    void end_coordinated_push(World& world, bool start_cooldown);
+    void set_push_staging_active(World& world, bool active) const noexcept;
     void issue_tactical_command(World& world, TacticalOrder order,
                                 std::size_t objective_index,
                                 std::vector<Unit::Id> unit_ids);
@@ -200,6 +219,18 @@ private:
     std::vector<Unit::Id> last_commanded_unit_ids_{};
     std::vector<AiObjectiveOccupancyStatus> objective_occupancy_{};
     std::optional<std::size_t> objective_fallback_request_{};
+    AiPushState push_state_{AiPushState::idle};
+    std::uint32_t next_push_id_{1};
+    std::optional<std::uint32_t> push_id_{};
+    std::vector<Unit::Id> push_member_ids_{};
+    std::optional<Vec2> push_staging_point_{};
+    std::optional<std::size_t> push_starting_frontline_zone_{};
+    Team push_starting_frontline_owner_{Team::none};
+    std::optional<Unit::GroupId> push_temporary_group_id_{};
+    std::size_t push_ready_member_count_{};
+    std::uint64_t push_elapsed_ticks_{};
+    std::uint64_t push_cooldown_ticks_{};
+    bool push_cooldown_initialized_{};
 };
 
 [[nodiscard]] std::string_view to_string(AiCommanderStatus status) noexcept;
@@ -209,5 +240,6 @@ private:
 [[nodiscard]] std::string_view to_string(AiPlaystyle playstyle) noexcept;
 [[nodiscard]] std::string_view to_string(AiPurchasePlanReason reason) noexcept;
 [[nodiscard]] std::string_view to_string(AiObjectiveCoverage coverage) noexcept;
+[[nodiscard]] std::string_view to_string(AiPushState state) noexcept;
 
 } // namespace siege

@@ -4,6 +4,7 @@
 #include "client/local_control.hpp"
 #include "client/ui_layout.hpp"
 #include "client/world_transform.hpp"
+#include "core/ai_coordinated_push.hpp"
 #include "core/ai_commander.hpp"
 #include "core/economy.hpp"
 #include "core/environment_line_of_sight.hpp"
@@ -43,7 +44,7 @@ constexpr float left_panel_width = 256.0F;
 constexpr float unit_column_preferred_width = 190.0F;
 constexpr float unit_column_minimum_width = 148.0F;
 constexpr float unit_block_gap = 6.0F;
-constexpr std::size_t unit_block_line_count = 29;
+constexpr std::size_t unit_block_line_count = 30;
 
 struct TextCursor {
     FontSystem& fonts;
@@ -433,6 +434,17 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
             }
         }
 
+        if (std::ranges::find(selected_unit_ids, unit.id()) !=
+                selected_unit_ids.end() &&
+            unit.ai_push_staging_position().has_value() &&
+            unit.ai_push_staging_active()) {
+            set_color(renderer_, 90, 190, 255, 225);
+            const Vec2 staging = *unit.ai_push_staging_position();
+            if (!draw_world_line(renderer_, transform, position, staging)) {
+                return false;
+            }
+        }
+
     }
 
     int output_width = 0;
@@ -627,6 +639,39 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                           static_cast<int>(coverage.size()), coverage.data());
         }
     }
+    const auto push_state = to_string(ai_commander.push_state());
+    if (const auto push_id = ai_commander.push_id()) {
+        global.format(FontRole::debug, debug_text,
+                      "push #%u: %.*s / %zu living", *push_id,
+                      static_cast<int>(push_state.size()), push_state.data(),
+                      ai_commander.push_members().size());
+        if (const auto staging = ai_commander.push_staging_point()) {
+            global.format(FontRole::debug, debug_text,
+                          "stage: %.0f, %.0f / ready %zu/%zu",
+                          staging->x, staging->y,
+                          ai_commander.push_ready_member_count(),
+                          ai_commander.push_members().size());
+        }
+        global.format(FontRole::debug, debug_text, "push elapsed: %.2fs",
+                      static_cast<double>(ai_commander.push_elapsed_ticks()) /
+                          simulation_hz);
+        const double push_limit = ai_commander.push_state() ==
+                AiPushState::staging
+            ? default_ai_coordinated_push_rules.staging_timeout_seconds
+            : default_ai_coordinated_push_rules.advance_timeout_seconds;
+        global.format(
+            FontRole::debug, debug_text, "push timeout: %.2fs",
+            std::max(0.0, push_limit -
+                static_cast<double>(ai_commander.push_elapsed_ticks()) /
+                    simulation_hz));
+    } else {
+        global.format(FontRole::debug, debug_muted,
+                      "push: %.*s / cooldown %.2fs",
+                      static_cast<int>(push_state.size()), push_state.data(),
+                      static_cast<double>(
+                          ai_commander.push_cooldown_ticks()) /
+                          simulation_hz);
+    }
     global.blank();
 
     global.line(FontRole::debug_bold, debug_heading, "REGULATION SCORE");
@@ -777,6 +822,14 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
         } else {
             cursor.line(FontRole::debug, debug_muted,
                         "objective hold: none");
+        }
+        if (const auto push_id = unit.ai_push_id()) {
+            cursor.format(FontRole::debug, debug_text, "push: #%u / %s",
+                          *push_id,
+                          unit.ai_push_staging_active()
+                              ? "staging" : "advancing");
+        } else {
+            cursor.line(FontRole::debug, debug_muted, "push: none");
         }
         if (unit.troop_type() == TroopType::anti_tank) {
             const auto escort = anti_tank_escort_target(unit, world.units());

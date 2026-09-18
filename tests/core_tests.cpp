@@ -6,6 +6,7 @@
 #include "client/ui_layout.hpp"
 #include "client/unit_selection.hpp"
 #include "core/ai_commander.hpp"
+#include "core/ai_coordinated_push.hpp"
 #include "core/ai_objective_occupancy.hpp"
 #include "core/deployment.hpp"
 #include "core/economy.hpp"
@@ -2704,6 +2705,275 @@ int main() {
                 AiCommanderStatus::paused_local_control &&
             !fallback_holder->ai_objective_assignment_active(),
         "F4 RED control pauses holder movement while retaining assignment metadata");
+
+    const auto make_push_world = [] {
+        World push_world;
+        push_world.units().clear();
+        push_world.find_player(Team::team_b)->reset_cash(0);
+        secure_objective(push_world, 3, Team::team_b);
+        push_world.units().push_back(
+            test_unit(1'001, Team::team_b, {1'800.0F, 300.0F}, 90.0F));
+        push_world.find_unit(1'001)->set_ai_objective_assignment(
+            3, {1'920.0F, 300.0F});
+        push_world.find_unit(1'001)->set_ai_objective_assignment_active(true);
+        push_world.units().push_back(unit_from_definition(
+            1'002, Team::team_b, {2'300.0F, 400.0F}, 90.0F,
+            medium_tank_definition));
+        push_world.units().push_back(unit_from_definition(
+            1'003, Team::team_b, {2'320.0F, 500.0F}, 90.0F,
+            anti_tank_definition));
+        push_world.units().push_back(
+            test_unit(1'004, Team::team_b, {2'300.0F, 600.0F}, 90.0F));
+        push_world.units().push_back(
+            test_unit(1'005, Team::team_b, {2'350.0F, 700.0F}, 90.0F));
+        push_world.units().push_back(
+            test_unit(1'006, Team::team_b, {2'400.0F, 800.0F}, 90.0F));
+        push_world.units().push_back(unit_from_definition(
+            1'007, Team::team_b, {2'360.0F, 900.0F}, 90.0F,
+            machine_gun_definition));
+        push_world.units().push_back(unit_from_definition(
+            1'008, Team::team_b, {2'420.0F, 1'000.0F}, 90.0F,
+            bazooka_definition));
+        push_world.units().push_back(unit_from_definition(
+            1'009, Team::team_b, {2'440.0F, 1'100.0F}, 90.0F,
+            mortar_definition));
+        push_world.units().push_back(
+            test_unit(1'010, Team::team_b, {2'460.0F, 320.0F}, 90.0F));
+        push_world.find_unit(1'010)->set_tactical_order(
+            TacticalOrder::hold, Vec2{2'460.0F, 320.0F});
+        push_world.units().push_back(
+            test_unit(1'011, Team::team_b, {2'460.0F, 420.0F}, 90.0F));
+        push_world.find_unit(1'011)->replace_movement_path(
+            {Vec2{2'300.0F, 420.0F}});
+        push_world.units().push_back(
+            test_unit(1'012, Team::team_b, {2'460.0F, 520.0F}, 90.0F));
+        push_world.find_unit(1'012)->set_group_id(77);
+        return push_world;
+    };
+
+    World coordinated_push_world = make_push_world();
+    AiCommander coordinated_commander{Team::team_b};
+    coordinated_commander.update(coordinated_push_world, Team::team_a, 1'200);
+    const std::vector<Unit::Id> expected_push_members{
+        1'002, 1'003, 1'004, 1'005, 1'006, 1'007};
+    passed &= check(
+        coordinated_commander.push_state() == AiPushState::staging &&
+            coordinated_commander.push_id() == 1 &&
+            std::ranges::equal(coordinated_commander.push_members(),
+                               expected_push_members) &&
+            coordinated_commander.push_staging_point().has_value() &&
+            near(coordinated_commander.push_staging_point()->x, 1'612.8F,
+                 0.1F) &&
+            !coordinated_push_world.find_unit(1'001)->ai_push_id().has_value() &&
+            !coordinated_push_world.find_unit(1'009)->ai_push_id().has_value() &&
+            !coordinated_push_world.find_unit(1'010)->ai_push_id().has_value() &&
+            !coordinated_push_world.find_unit(1'011)->ai_push_id().has_value() &&
+            !coordinated_push_world.find_unit(1'012)->ai_push_id().has_value(),
+        "Medium RED AI deterministically stages a role-ordered push behind its current frontline and excludes holders/Mortar/manual intent");
+    const auto push_group = coordinated_push_world.find_unit(1'002)->group_id();
+    passed &= check(
+        push_group.has_value() &&
+            coordinated_push_world.find_unit(1'003)->group_id() == push_group &&
+            anti_tank_escort_target(
+                *coordinated_push_world.find_unit(1'003),
+                coordinated_push_world.units()).has_value(),
+        "a staged Tank and Anti-Tank pair reuses persistent grouping and existing escort behavior");
+
+    for (std::size_t index = 0; index < 5; ++index) {
+        coordinated_push_world.find_unit(expected_push_members[index])
+            ->set_position(*coordinated_commander.push_staging_point());
+    }
+    coordinated_commander.update(coordinated_push_world, Team::team_a);
+    passed &= check(
+        coordinated_commander.push_state() == AiPushState::advancing &&
+            coordinated_commander.push_ready_member_count() == 5 &&
+            std::ranges::all_of(
+                coordinated_commander.push_members(),
+                [&coordinated_push_world](const Unit::Id id) {
+                    const Unit* unit = coordinated_push_world.find_unit(id);
+                    return unit != nullptr &&
+                        unit->tactical_order() == TacticalOrder::advance &&
+                        !unit->ai_push_staging_active();
+                }),
+        "70-percent staging readiness releases every living member into Advance together");
+
+    std::erase_if(coordinated_push_world.units(),
+                  [&expected_push_members](const Unit& unit) {
+        return std::ranges::contains(expected_push_members, unit.id()) &&
+            unit.id() != expected_push_members.front();
+    });
+    coordinated_commander.update(coordinated_push_world, Team::team_a);
+    passed &= check(
+        coordinated_commander.push_state() == AiPushState::idle &&
+            !coordinated_push_world.find_unit(expected_push_members.front())
+                 ->ai_push_id().has_value() &&
+            !coordinated_push_world.find_unit(expected_push_members.front())
+                 ->group_id().has_value(),
+        "a push reduced to one survivor ends and cleans temporary push/group state");
+
+    World timeout_push_world = make_push_world();
+    AiCommander timeout_push_commander{Team::team_b};
+    timeout_push_commander.update(timeout_push_world, Team::team_a, 1'200);
+    timeout_push_commander.update(timeout_push_world, Team::team_a, 480);
+    passed &= check(
+        timeout_push_commander.push_state() == AiPushState::advancing &&
+            std::ranges::all_of(
+                timeout_push_commander.push_members(),
+                [&timeout_push_world](const Unit::Id id) {
+                    return timeout_push_world.find_unit(id)->tactical_order() ==
+                        TacticalOrder::advance;
+                }),
+        "eight-second staging timeout releases an incomplete formation together");
+    timeout_push_commander.update(timeout_push_world, Team::team_a, 1'800);
+    passed &= check(
+        timeout_push_commander.push_state() == AiPushState::idle &&
+            timeout_push_commander.push_members().empty() &&
+            std::ranges::none_of(timeout_push_world.units(),
+                                 [](const Unit& unit) {
+                return unit.ai_push_id().has_value();
+            }),
+        "thirty-second advancing timeout completes and cleans a push");
+    timeout_push_commander.update(timeout_push_world, Team::team_a, 1'200);
+    passed &= check(timeout_push_commander.push_state() ==
+                            AiPushState::staging &&
+                        timeout_push_commander.push_id() == 2,
+                    "the next coordinated push uses a unique deterministic ID after the Medium cooldown");
+
+    World frontline_push_world = make_push_world();
+    AiCommander frontline_push_commander{Team::team_b};
+    frontline_push_commander.update(frontline_push_world, Team::team_a, 1'200);
+    frontline_push_commander.update(frontline_push_world, Team::team_a, 480);
+    secure_objective(frontline_push_world, 2, Team::team_b);
+    frontline_push_commander.update(frontline_push_world, Team::team_a);
+    passed &= check(
+        frontline_push_commander.push_state() == AiPushState::idle &&
+            frontline_push_commander.push_members().empty(),
+        "frontline ownership advancement completes the active push");
+
+    World paused_push_world = make_push_world();
+    AiCommander paused_push_commander{Team::team_b};
+    paused_push_commander.update(paused_push_world, Team::team_a, 1'200);
+    paused_push_commander.update(paused_push_world, Team::team_b);
+    passed &= check(
+        paused_push_commander.status() ==
+                AiCommanderStatus::paused_local_control &&
+            paused_push_commander.push_state() == AiPushState::idle &&
+            std::ranges::none_of(paused_push_world.units(),
+                                 [](const Unit& unit) {
+                return unit.ai_push_id().has_value();
+            }),
+        "F4 RED control cancels AI push intent and leaves units available for manual orders");
+
+    AiProfile easy_push_profile = make_ai_profile(AiDifficulty::easy);
+    World easy_push_world = make_push_world();
+    AiCommander easy_push_commander{Team::team_b, easy_push_profile};
+    easy_push_commander.update(easy_push_world, Team::team_a, 10'000);
+    passed &= check(easy_push_commander.push_state() == AiPushState::idle &&
+                        !easy_push_commander.push_id().has_value(),
+                    "coordinated pushes are disabled on Easy");
+
+    AiProfile hard_push_profile = make_ai_profile(AiDifficulty::hard);
+    World hard_push_world = make_push_world();
+    AiCommander hard_push_commander{Team::team_b, hard_push_profile};
+    hard_push_commander.update(hard_push_world, Team::team_a, 719);
+    const bool hard_waited = hard_push_commander.push_state() ==
+        AiPushState::idle && hard_push_commander.push_cooldown_ticks() == 1;
+    hard_push_commander.update(hard_push_world, Team::team_a);
+    passed &= check(hard_waited &&
+                        hard_push_commander.push_state() ==
+                            AiPushState::staging,
+                    "Hard starts coordinated pushes on an exact deterministic 12-second cadence");
+
+    AiProfile aggressive_push_profile = make_ai_profile(
+        AiDifficulty::medium, AiPlaystyle::aggressive);
+    World aggressive_push_world = make_push_world();
+    aggressive_push_world.units().push_back(unit_from_definition(
+        1'013, Team::team_b, {2'420.0F, 1'020.0F}, 90.0F,
+        light_tank_definition));
+    AiCommander aggressive_push_commander{Team::team_b,
+                                           aggressive_push_profile};
+    aggressive_push_commander.update(aggressive_push_world, Team::team_a,
+                                     900);
+    passed &= check(
+        aggressive_push_commander.push_state() == AiPushState::staging &&
+            aggressive_push_commander.push_members().size() == 4 &&
+            std::ranges::contains(aggressive_push_commander.push_members(),
+                                  Unit::Id{1'013}) &&
+            !std::ranges::contains(aggressive_push_commander.push_members(),
+                                   Unit::Id{1'002}),
+        "Aggressive uses a faster 15-second cadence, smaller force, and favors a Light Tank");
+
+    AiProfile defensive_push_profile = make_ai_profile(
+        AiDifficulty::medium, AiPlaystyle::defensive);
+    World defensive_push_world = make_push_world();
+    defensive_push_world.units().push_back(unit_from_definition(
+        1'013, Team::team_b, {2'420.0F, 1'020.0F}, 90.0F,
+        heavy_tank_definition));
+    for (Unit& unit : defensive_push_world.units()) {
+        if (unit.id() >= 1'002 && unit.id() <= 1'013 &&
+            unit.tactical_order() == TacticalOrder::automatic &&
+            !unit.has_movement_path()) {
+            unit.set_position({unit.position().x,
+                               560.0F + static_cast<float>(unit.id() % 5) *
+                                            24.0F});
+            unit.set_preferred_y(unit.position().y);
+        }
+    }
+    AiCommander defensive_push_commander{Team::team_b,
+                                          defensive_push_profile};
+    defensive_push_commander.update(defensive_push_world, Team::team_a,
+                                    1'799);
+    const bool defensive_waited =
+        defensive_push_commander.push_state() == AiPushState::idle &&
+        defensive_push_commander.push_cooldown_ticks() == 1;
+    defensive_push_commander.update(defensive_push_world, Team::team_a);
+    passed &= check(
+        defensive_waited &&
+            defensive_push_commander.push_state() == AiPushState::staging &&
+            defensive_push_commander.push_members().size() >
+                aggressive_push_commander.push_members().size() &&
+            std::ranges::contains(defensive_push_commander.push_members(),
+                                  Unit::Id{1'013}),
+        "Defensive uses a 30-second cadence, larger force, and permits a favored Heavy Tank");
+
+    World deterministic_push_world = make_push_world();
+    AiCommander deterministic_push_commander{Team::team_b};
+    deterministic_push_commander.update(deterministic_push_world,
+                                         Team::team_a, 1'200);
+    passed &= check(
+        std::ranges::equal(deterministic_push_commander.push_members(),
+                           expected_push_members),
+        "coordinated push selection is deterministic across identical worlds");
+
+    World staging_combat_world;
+    staging_combat_world.units().clear();
+    staging_combat_world.units().push_back(unit_from_definition(
+        1'020, Team::team_b, {1'920.0F, 520.0F}, 90.0F,
+        machine_gun_definition));
+    staging_combat_world.units().push_back(unit_from_definition(
+        1'021, Team::team_a, {1'700.0F, 520.0F}, 90.0F,
+        medium_tank_definition));
+    Unit* staging_fighter = staging_combat_world.find_unit(1'020);
+    staging_fighter->set_ai_push_assignment(99, {1'800.0F, 520.0F});
+    staging_fighter->set_ai_push_staging_active(true);
+    Simulation staging_combat_simulation{staging_combat_world};
+    for (int tick = 0; tick < 30; ++tick) {
+        staging_combat_simulation.update(1.0 / 60.0);
+    }
+    const float staged_combat_displacement =
+        staging_combat_world.find_unit(1'020)->position().x - 1'920.0F;
+    std::erase_if(staging_combat_world.units(), [](const Unit& unit) {
+        return unit.team() == Team::team_a;
+    });
+    staging_combat_world.projectiles().clear();
+    for (int tick = 0; tick < 180; ++tick) {
+        staging_combat_simulation.update(1.0 / 60.0);
+    }
+    passed &= check(
+        staged_combat_displacement > 5.0F &&
+            length(staging_combat_world.find_unit(1'020)->position() -
+                   Vec2{1'800.0F, 520.0F}) < 45.0F,
+        "combat temporarily overrides staging and the member resumes staging after pressure clears");
 
     World ai_frontline_limit_world;
     ai_frontline_limit_world.units().clear();

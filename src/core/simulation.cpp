@@ -1,6 +1,7 @@
 #include "core/simulation.hpp"
 
 #include "core/combat_behavior.hpp"
+#include "core/ai_coordinated_push.hpp"
 #include "core/ai_objective_occupancy.hpp"
 #include "core/deployment.hpp"
 #include "core/economy.hpp"
@@ -525,6 +526,32 @@ void Simulation::update(const double fixed_delta_seconds) noexcept {
                             ? MovementState::moving
                             : MovementState::idle;
             }
+        }
+
+        if (!target_ids[index].has_value() &&
+            ai_push_staging_movement_allowed(unit) &&
+            unit.ai_push_staging_position().has_value()) {
+            support = {};
+            const Vec2 staging_position = constrain_navigation_destination(
+                world_, unit, *unit.ai_push_staging_position());
+            const Vec2 toward_staging = staging_position - unit.position();
+            if (length(toward_staging) >
+                default_ai_coordinated_push_rules.readiness_radius * 0.25F) {
+                navigation_destination = staging_position;
+                velocity = velocity_from_steering(
+                    toward_staging + separation, unit.move_speed());
+                if (length_squared(toward_staging) > 0.0001F) {
+                    desired_facing = facing_from_direction(toward_staging);
+                }
+            } else {
+                navigation_destination.reset();
+                velocity = soft_separation_velocity(separation,
+                                                    unit.move_speed());
+                desired_facing = forward_facing;
+            }
+            state = length_squared(velocity) > 0.0001F
+                        ? MovementState::moving
+                        : MovementState::idle;
         }
 
         const auto escort = anti_tank_escort_target(unit, units);

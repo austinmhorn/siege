@@ -102,6 +102,10 @@ public:
                                      Vec2 hold_position) noexcept;
     void clear_ai_objective_assignment() noexcept;
     void set_ai_objective_assignment_active(bool active) noexcept;
+    void set_ai_push_assignment(std::uint32_t push_id,
+                                Vec2 staging_position) noexcept;
+    void clear_ai_push_assignment() noexcept;
+    void set_ai_push_staging_active(bool active) noexcept;
     void tick_weapon_cooldown(double delta_seconds) noexcept;
     void reset_weapon_cooldown() noexcept;
     void apply_damage(float damage) noexcept;
@@ -127,6 +131,9 @@ public:
     [[nodiscard]] std::optional<Vec2> ai_objective_hold_position()
         const noexcept;
     [[nodiscard]] bool ai_objective_assignment_active() const noexcept;
+    [[nodiscard]] std::optional<std::uint32_t> ai_push_id() const noexcept;
+    [[nodiscard]] std::optional<Vec2> ai_push_staging_position() const noexcept;
+    [[nodiscard]] bool ai_push_staging_active() const noexcept;
     [[nodiscard]] float move_speed() const noexcept;
     [[nodiscard]] float rotation_speed() const noexcept;
     [[nodiscard]] float vision_range() const noexcept;
@@ -191,6 +198,9 @@ private:
     std::optional<std::size_t> ai_objective_zone_{};
     std::optional<Vec2> ai_objective_hold_position_{};
     bool ai_objective_assignment_active_{};
+    std::optional<std::uint32_t> ai_push_id_{};
+    std::optional<Vec2> ai_push_staging_position_{};
+    bool ai_push_staging_active_{};
     float preferred_y_{};
     float move_speed_{};
     float rotation_speed_{};

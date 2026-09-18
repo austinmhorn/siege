@@ -1,11 +1,14 @@
 #include "core/ai_commander.hpp"
 
+#include "core/ai_coordinated_push.hpp"
 #include "core/ai_objective_occupancy.hpp"
 #include "core/deployment.hpp"
 #include "core/frontline.hpp"
 #include "core/map_definition.hpp"
 #include "core/perception.hpp"
 #include "core/tactical_command.hpp"
+#include "core/tactical_escort.hpp"
+#include "core/tactical_group.hpp"
 #include "core/troop_definition.hpp"
 #include "core/zone_capture.hpp"
 #include "world/player_state.hpp"
@@ -88,7 +91,8 @@ ForceAssessment assess_force(const World& world, const Team team,
             squared_distance_to_bounds(unit.position(), bounds);
         if (unit.team() == team &&
             unit.mobility_mode() != MobilityMode::player_path_only &&
-            !unit.ai_objective_zone().has_value()) {
+            !unit.ai_objective_zone().has_value() &&
+            !unit.ai_push_id().has_value()) {
             friendly_candidates.emplace_back(distance_squared, unit.id());
             if (distance_squared <= margin_squared) {
                 assessment.unit_ids.push_back(unit.id());
@@ -529,11 +533,15 @@ void AiCommander::update(World& world, const Team locally_controlled_team,
     if (!world.match_state().active()) {
         status_ = AiCommanderStatus::stopped_match_finished;
         set_objective_holder_movement_active(world, false);
+        end_coordinated_push(world, false);
         return;
     }
     if (locally_controlled_team == team_) {
         status_ = AiCommanderStatus::paused_local_control;
         set_objective_holder_movement_active(world, false);
+        if (push_state_ != AiPushState::idle) {
+            end_coordinated_push(world, true);
+        }
         return;
     }
     status_ = AiCommanderStatus::enabled;
@@ -543,6 +551,7 @@ void AiCommander::update(World& world, const Team locally_controlled_team,
     }
 
     update_objective_occupancy(world, fixed_tick_count);
+    update_coordinated_push(world, fixed_tick_count);
 
     const auto interval_ticks = [&world](const double seconds) {
         return std::max<std::uint64_t>(
@@ -863,6 +872,7 @@ void AiCommander::update_objective_occupancy(
                     unit.tactical_order() == TacticalOrder::hold ||
                     unit.tactical_order() == TacticalOrder::regroup ||
                     unit.ai_objective_zone().has_value() ||
+                    unit.ai_push_id().has_value() ||
                     sole_occupant_of_other_owned_objective(unit, zone_index)) {
                     continue;
                 }
@@ -916,6 +926,353 @@ void AiCommander::update_objective_occupancy(
         next.push_back(status);
     }
     objective_occupancy_ = std::move(next);
+}
+
+void AiCommander::set_push_staging_active(World& world,
+                                          const bool active) const noexcept {
+    for (const Unit::Id id : push_member_ids_) {
+        Unit* unit = world.find_unit(id);
+        if (unit != nullptr && unit->team() == team_ &&
+            unit->ai_push_id() == push_id_) {
+            unit->set_ai_push_staging_active(
+                active && push_state_ == AiPushState::staging);
+        }
+    }
+}
+
+bool AiCommander::start_coordinated_push(World& world) {
+    const auto frontline = frontline_objective(world, team_);
+    if (!frontline.has_value() ||
+        frontline->zone_index >= world.zones().size() ||
+        world.zones()[frontline->zone_index].owner() == team_) {
+        return false;
+    }
+
+    std::vector<Unit*> eligible;
+    for (Unit& unit : world.units()) {
+        if (!unit.is_alive() || unit.team() != team_ ||
+            unit.troop_type() == TroopType::mortar ||
+            unit.mobility_mode() != MobilityMode::autonomous ||
+            unit.has_movement_path() ||
+            unit.tactical_order() == TacticalOrder::hold ||
+            unit.tactical_order() == TacticalOrder::regroup ||
+            unit.ai_objective_zone().has_value() ||
+            unit.ai_push_id().has_value() || unit.group_id().has_value()) {
+            continue;
+        }
+        eligible.push_back(&unit);
+    }
+    std::ranges::sort(eligible, {}, &Unit::id);
+
+    const std::size_t minimum_members =
+        profile_.playstyle == AiPlaystyle::aggressive ? 2U
+        : profile_.playstyle == AiPlaystyle::defensive ? 4U
+                                                       : 3U;
+    const std::size_t maximum_members =
+        profile_.playstyle == AiPlaystyle::aggressive ? 4U
+        : profile_.playstyle == AiPlaystyle::defensive ? 8U
+                                                       : 6U;
+    if (eligible.size() < minimum_members) {
+        return false;
+    }
+
+    const auto tank_rank = [this](const TroopType type) {
+        if (profile_.playstyle == AiPlaystyle::aggressive) {
+            return type == TroopType::light_tank ? 0
+                : type == TroopType::medium_tank ? 1 : 2;
+        }
+        if (profile_.playstyle == AiPlaystyle::defensive) {
+            return type == TroopType::heavy_tank ? 0
+                : type == TroopType::medium_tank ? 1 : 2;
+        }
+        return type == TroopType::medium_tank ? 0
+            : type == TroopType::light_tank ? 1 : 2;
+    };
+    std::vector<Unit*> tanks;
+    for (Unit* unit : eligible) {
+        if (is_tank_escort_anchor(unit->troop_type())) {
+            tanks.push_back(unit);
+        }
+    }
+    std::ranges::sort(tanks, [&tank_rank](const Unit* left,
+                                         const Unit* right) {
+        return std::pair{tank_rank(left->troop_type()), left->id()} <
+               std::pair{tank_rank(right->troop_type()), right->id()};
+    });
+
+    std::vector<Unit*> selected;
+    selected.reserve(maximum_members);
+    const auto add_first = [&selected, maximum_members, &eligible](
+                               const TroopType type,
+                               const std::size_t maximum_count) {
+        std::size_t added = 0;
+        for (Unit* unit : eligible) {
+            if (selected.size() >= maximum_members ||
+                added >= maximum_count) {
+                break;
+            }
+            if (unit->troop_type() == type &&
+                !std::ranges::contains(selected, unit)) {
+                selected.push_back(unit);
+                ++added;
+            }
+        }
+    };
+    if (!tanks.empty()) {
+        selected.push_back(tanks.front());
+        add_first(TroopType::anti_tank, 1);
+    }
+    const std::size_t desired_rifles =
+        profile_.playstyle == AiPlaystyle::aggressive ? 2U
+        : profile_.playstyle == AiPlaystyle::defensive ? 4U
+                                                       : 3U;
+    add_first(TroopType::rifle, desired_rifles);
+    add_first(TroopType::machine_gun, 1);
+    add_first(TroopType::bazooka, 1);
+    if (tanks.empty()) {
+        add_first(TroopType::anti_tank, 1);
+    }
+    for (Unit* unit : eligible) {
+        if (selected.size() >= maximum_members) {
+            break;
+        }
+        if (!is_tank_escort_anchor(unit->troop_type()) &&
+            !std::ranges::contains(selected, unit)) {
+            selected.push_back(unit);
+        }
+    }
+    if (selected.size() < minimum_members) {
+        return false;
+    }
+    std::ranges::sort(selected, {}, &Unit::id);
+
+    double y_sum = 0.0;
+    for (const Unit* unit : selected) {
+        y_sum += unit->preferred_y();
+    }
+    const auto staging = ai_push_staging_point(
+        world, team_, static_cast<float>(y_sum / selected.size()));
+    if (!staging.has_value()) {
+        return false;
+    }
+
+    push_state_ = AiPushState::staging;
+    push_id_ = next_push_id_++;
+    push_staging_point_ = staging;
+    push_starting_frontline_zone_ = frontline->zone_index;
+    push_starting_frontline_owner_ =
+        world.zones()[frontline->zone_index].owner();
+    push_elapsed_ticks_ = 0;
+    push_ready_member_count_ = 0;
+    push_member_ids_.clear();
+    const float centered_index =
+        (static_cast<float>(selected.size()) - 1.0F) * 0.5F;
+    for (std::size_t index = 0; index < selected.size(); ++index) {
+        Unit* unit = selected[index];
+        Vec2 slot = *staging;
+        slot.y += (static_cast<float>(index) - centered_index) *
+                  default_ai_coordinated_push_rules.staging_member_spacing;
+        slot.y = std::clamp(slot.y, 32.0F,
+                            world.map().logical_height - 32.0F);
+        unit->set_ai_push_assignment(*push_id_, slot);
+        unit->set_ai_push_staging_active(true);
+        push_member_ids_.push_back(unit->id());
+    }
+
+    Unit* tank = nullptr;
+    std::vector<Unit*> anti_tank_members;
+    for (Unit* unit : selected) {
+        if (tank == nullptr && is_tank_escort_anchor(unit->troop_type())) {
+            tank = unit;
+        } else if (unit->troop_type() == TroopType::anti_tank) {
+            anti_tank_members.push_back(unit);
+        }
+    }
+    if (tank != nullptr && !anti_tank_members.empty()) {
+        push_temporary_group_id_ = world.allocate_tactical_group_id();
+        tank->set_group_id(push_temporary_group_id_);
+        for (Unit* escort : anti_tank_members) {
+            escort->set_group_id(push_temporary_group_id_);
+        }
+    }
+    return true;
+}
+
+void AiCommander::release_coordinated_push(World& world) {
+    if (push_state_ != AiPushState::staging) {
+        return;
+    }
+    std::vector<Unit::Id> living;
+    for (const Unit::Id id : push_member_ids_) {
+        Unit* unit = world.find_unit(id);
+        if (unit == nullptr || !unit->is_alive() || unit->team() != team_ ||
+            unit->ai_push_id() != push_id_) {
+            continue;
+        }
+        unit->set_ai_push_staging_active(false);
+        living.push_back(id);
+    }
+    push_member_ids_ = living;
+    (void)apply_tactical_order(world, push_member_ids_,
+                               TacticalOrder::advance, team_);
+    push_state_ = AiPushState::advancing;
+    push_elapsed_ticks_ = 0;
+}
+
+void AiCommander::end_coordinated_push(World& world,
+                                       const bool start_cooldown) {
+    for (const Unit::Id id : push_member_ids_) {
+        Unit* unit = world.find_unit(id);
+        if (unit == nullptr || unit->team() != team_ ||
+            unit->ai_push_id() != push_id_) {
+            continue;
+        }
+        if (unit->group_id() == push_temporary_group_id_) {
+            unit->clear_group_id();
+        }
+        unit->clear_ai_push_assignment();
+        if (unit->tactical_order() == TacticalOrder::advance) {
+            unit->set_tactical_order(TacticalOrder::automatic);
+        }
+    }
+    cleanup_tactical_groups(world);
+    push_state_ = AiPushState::idle;
+    push_id_.reset();
+    push_member_ids_.clear();
+    push_staging_point_.reset();
+    push_starting_frontline_zone_.reset();
+    push_starting_frontline_owner_ = Team::none;
+    push_temporary_group_id_.reset();
+    push_ready_member_count_ = 0;
+    push_elapsed_ticks_ = 0;
+    if (start_cooldown && profile_.difficulty != AiDifficulty::easy) {
+        double seconds = profile_.difficulty == AiDifficulty::hard
+            ? default_ai_coordinated_push_rules.hard_cooldown_seconds
+            : default_ai_coordinated_push_rules.medium_cooldown_seconds;
+        if (profile_.playstyle == AiPlaystyle::aggressive) {
+            seconds *= 0.75;
+        } else if (profile_.playstyle == AiPlaystyle::defensive) {
+            seconds *= 1.50;
+        }
+        push_cooldown_ticks_ = static_cast<std::uint64_t>(std::llround(
+            seconds * world.match_state().rules().fixed_ticks_per_second));
+    }
+}
+
+void AiCommander::update_coordinated_push(
+    World& world, const std::uint64_t fixed_tick_count) {
+    if (profile_.difficulty == AiDifficulty::easy) {
+        push_cooldown_initialized_ = true;
+        return;
+    }
+    const auto ticks_for = [&world](const double seconds) {
+        return std::max<std::uint64_t>(
+            1, static_cast<std::uint64_t>(std::llround(
+                   seconds *
+                   world.match_state().rules().fixed_ticks_per_second)));
+    };
+    if (!push_cooldown_initialized_) {
+        double seconds = profile_.difficulty == AiDifficulty::hard
+            ? default_ai_coordinated_push_rules.hard_cooldown_seconds
+            : default_ai_coordinated_push_rules.medium_cooldown_seconds;
+        if (profile_.playstyle == AiPlaystyle::aggressive) {
+            seconds *= 0.75;
+        } else if (profile_.playstyle == AiPlaystyle::defensive) {
+            seconds *= 1.50;
+        }
+        push_cooldown_ticks_ = ticks_for(seconds);
+        push_cooldown_initialized_ = true;
+    }
+
+    std::uint64_t remaining = fixed_tick_count;
+    while (remaining > 0) {
+        if (push_state_ == AiPushState::idle) {
+            if (push_cooldown_ticks_ > remaining) {
+                push_cooldown_ticks_ -= remaining;
+                return;
+            }
+            remaining -= push_cooldown_ticks_;
+            push_cooldown_ticks_ = 0;
+            if (!start_coordinated_push(world)) {
+                push_cooldown_ticks_ = ticks_for(1.0);
+                return;
+            }
+            if (remaining == 0) {
+                return;
+            }
+        }
+
+        std::erase_if(push_member_ids_, [this, &world](const Unit::Id id) {
+            const Unit* unit = world.find_unit(id);
+            return unit == nullptr || !unit->is_alive() ||
+                unit->team() != team_ || unit->ai_push_id() != push_id_ ||
+                unit->troop_type() == TroopType::mortar ||
+                unit->ai_objective_zone().has_value() ||
+                unit->has_movement_path() ||
+                unit->tactical_order() == TacticalOrder::hold ||
+                unit->tactical_order() == TacticalOrder::regroup;
+        });
+        if (push_member_ids_.size() <= 1) {
+            end_coordinated_push(world, true);
+            continue;
+        }
+
+        if (push_state_ == AiPushState::staging) {
+            push_ready_member_count_ = static_cast<std::size_t>(
+                std::ranges::count_if(
+                    push_member_ids_, [this, &world](const Unit::Id id) {
+                        const Unit* unit = world.find_unit(id);
+                        return unit != nullptr &&
+                            push_staging_point_.has_value() &&
+                            length(unit->position() - *push_staging_point_) <=
+                                default_ai_coordinated_push_rules
+                                    .readiness_radius;
+                    }));
+            const std::size_t required = static_cast<std::size_t>(std::ceil(
+                default_ai_coordinated_push_rules.readiness_fraction *
+                static_cast<float>(push_member_ids_.size())));
+            if (push_ready_member_count_ >= required) {
+                release_coordinated_push(world);
+                continue;
+            }
+            const std::uint64_t timeout = ticks_for(
+                default_ai_coordinated_push_rules.staging_timeout_seconds);
+            const std::uint64_t until_timeout = timeout > push_elapsed_ticks_
+                ? timeout - push_elapsed_ticks_ : 0;
+            if (remaining < until_timeout) {
+                push_elapsed_ticks_ += remaining;
+                return;
+            }
+            remaining -= until_timeout;
+            push_elapsed_ticks_ = timeout;
+            release_coordinated_push(world);
+            continue;
+        }
+
+        const auto frontline = frontline_objective(world, team_);
+        const bool frontline_advanced =
+            !frontline.has_value() ||
+            frontline->zone_index != push_starting_frontline_zone_ ||
+            (push_starting_frontline_zone_.has_value() &&
+             *push_starting_frontline_zone_ < world.zones().size() &&
+             world.zones()[*push_starting_frontline_zone_].owner() !=
+                 push_starting_frontline_owner_);
+        if (frontline_advanced) {
+            end_coordinated_push(world, true);
+            continue;
+        }
+        const std::uint64_t timeout = ticks_for(
+            default_ai_coordinated_push_rules.advance_timeout_seconds);
+        const std::uint64_t until_timeout = timeout > push_elapsed_ticks_
+            ? timeout - push_elapsed_ticks_ : 0;
+        if (remaining < until_timeout) {
+            push_elapsed_ticks_ += remaining;
+            return;
+        }
+        remaining -= until_timeout;
+        push_elapsed_ticks_ = timeout;
+        end_coordinated_push(world, true);
+    }
 }
 
 void AiCommander::make_strategy_decision(World& world) {
@@ -1173,6 +1530,32 @@ bool AiCommander::is_objective_holder(const Unit::Id unit_id) const noexcept {
         });
 }
 
+AiPushState AiCommander::push_state() const noexcept { return push_state_; }
+
+std::optional<std::uint32_t> AiCommander::push_id() const noexcept {
+    return push_id_;
+}
+
+std::span<const Unit::Id> AiCommander::push_members() const noexcept {
+    return push_member_ids_;
+}
+
+std::optional<Vec2> AiCommander::push_staging_point() const noexcept {
+    return push_staging_point_;
+}
+
+std::size_t AiCommander::push_ready_member_count() const noexcept {
+    return push_ready_member_count_;
+}
+
+std::uint64_t AiCommander::push_elapsed_ticks() const noexcept {
+    return push_elapsed_ticks_;
+}
+
+std::uint64_t AiCommander::push_cooldown_ticks() const noexcept {
+    return push_cooldown_ticks_;
+}
+
 std::string_view to_string(const AiCommanderStatus status) noexcept {
     switch (status) {
     case AiCommanderStatus::enabled:
@@ -1197,6 +1580,18 @@ std::string_view to_string(const AiObjectiveCoverage coverage) noexcept {
         return "reinforcement pending";
     case AiObjectiveCoverage::uncovered:
         return "uncovered";
+    }
+    return "unknown";
+}
+
+std::string_view to_string(const AiPushState state) noexcept {
+    switch (state) {
+    case AiPushState::idle:
+        return "idle";
+    case AiPushState::staging:
+        return "staging";
+    case AiPushState::advancing:
+        return "advancing";
     }
     return "unknown";
 }

@@ -302,6 +302,23 @@ void Unit::set_ai_objective_assignment_active(const bool active) noexcept {
         ai_objective_hold_position_.has_value();
 }
 
+void Unit::set_ai_push_assignment(const std::uint32_t push_id,
+                                  const Vec2 staging_position) noexcept {
+    ai_push_id_ = push_id;
+    ai_push_staging_position_ = staging_position;
+}
+
+void Unit::clear_ai_push_assignment() noexcept {
+    ai_push_id_.reset();
+    ai_push_staging_position_.reset();
+    ai_push_staging_active_ = false;
+}
+
+void Unit::set_ai_push_staging_active(const bool active) noexcept {
+    ai_push_staging_active_ = active && ai_push_id_.has_value() &&
+        ai_push_staging_position_.has_value();
+}
+
 void Unit::tick_weapon_cooldown(const double delta_seconds) noexcept {
     weapon_cooldown_remaining_ =
         std::max(0.0F, weapon_cooldown_remaining_ -
@@ -366,6 +383,15 @@ std::optional<Vec2> Unit::ai_objective_hold_position() const noexcept {
 }
 bool Unit::ai_objective_assignment_active() const noexcept {
     return ai_objective_assignment_active_;
+}
+std::optional<std::uint32_t> Unit::ai_push_id() const noexcept {
+    return ai_push_id_;
+}
+std::optional<Vec2> Unit::ai_push_staging_position() const noexcept {
+    return ai_push_staging_position_;
+}
+bool Unit::ai_push_staging_active() const noexcept {
+    return ai_push_staging_active_;
 }
 float Unit::move_speed() const noexcept { return move_speed_; }
 float Unit::rotation_speed() const noexcept { return rotation_speed_; }
