@@ -53,6 +53,7 @@ endif()
 add_executable(siege
     src/main.cpp
     src/core/ai_commander.cpp
+    src/core/ai_objective_occupancy.cpp
     src/core/game.cpp
     src/core/combat_behavior.cpp
     src/core/deployment.cpp
@@ -117,6 +118,7 @@ if(BUILD_TESTING)
     add_executable(siege_core_tests
         tests/core_tests.cpp
         src/core/ai_commander.cpp
+        src/core/ai_objective_occupancy.cpp
         src/core/combat_behavior.cpp
         src/core/deployment.cpp
         src/core/economy.cpp

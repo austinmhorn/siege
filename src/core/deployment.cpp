@@ -1,5 +1,6 @@
 #include "core/deployment.hpp"
 
+#include "core/ai_objective_occupancy.hpp"
 #include "core/environment_collision.hpp"
 #include "core/troop_definition.hpp"
 #include "core/zone_capture.hpp"
@@ -77,8 +78,21 @@ void update_pending_deployments(World& world,
     auto& pending = world.pending_deployments();
     for (auto deployment = pending.begin(); deployment != pending.end();) {
         if (deployment->remaining_seconds <= elapsed + 1.0e-9) {
-            world.spawn_unit(deployment->troop_type, deployment->team,
-                             deployment->position);
+            Unit& unit = world.spawn_unit(deployment->troop_type,
+                                          deployment->team,
+                                          deployment->position);
+            if (deployment->ai_objective_zone.has_value() &&
+                *deployment->ai_objective_zone < world.zones().size() &&
+                world.zones()[*deployment->ai_objective_zone].owner() ==
+                    deployment->team) {
+                const std::size_t zone_index = *deployment->ai_objective_zone;
+                unit.set_ai_objective_assignment(
+                    zone_index,
+                    ai_objective_hold_position(
+                        world, world.zones()[zone_index], unit.team(),
+                        unit.preferred_y(), unit.hit_radius()));
+                unit.set_ai_objective_assignment_active(true);
+            }
             deployment = pending.erase(deployment);
         } else {
             deployment->remaining_seconds -= elapsed;

@@ -1,5 +1,6 @@
 #include "core/ai_commander.hpp"
 
+#include "core/ai_objective_occupancy.hpp"
 #include "core/deployment.hpp"
 #include "core/frontline.hpp"
 #include "core/map_definition.hpp"
@@ -13,6 +14,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -85,7 +87,8 @@ ForceAssessment assess_force(const World& world, const Team team,
         const float distance_squared =
             squared_distance_to_bounds(unit.position(), bounds);
         if (unit.team() == team &&
-            unit.mobility_mode() != MobilityMode::player_path_only) {
+            unit.mobility_mode() != MobilityMode::player_path_only &&
+            !unit.ai_objective_zone().has_value()) {
             friendly_candidates.emplace_back(distance_squared, unit.id());
             if (distance_squared <= margin_squared) {
                 assessment.unit_ids.push_back(unit.id());
@@ -525,16 +528,21 @@ void AiCommander::update(World& world, const Team locally_controlled_team,
                          std::uint64_t fixed_tick_count) {
     if (!world.match_state().active()) {
         status_ = AiCommanderStatus::stopped_match_finished;
+        set_objective_holder_movement_active(world, false);
         return;
     }
     if (locally_controlled_team == team_) {
         status_ = AiCommanderStatus::paused_local_control;
+        set_objective_holder_movement_active(world, false);
         return;
     }
     status_ = AiCommanderStatus::enabled;
+    set_objective_holder_movement_active(world, true);
     if (fixed_tick_count == 0 || team_ == Team::none) {
         return;
     }
+
+    update_objective_occupancy(world, fixed_tick_count);
 
     const auto interval_ticks = [&world](const double seconds) {
         return std::max<std::uint64_t>(
@@ -618,9 +626,15 @@ void AiCommander::make_purchase_decision(World& world) {
 
     TroopType troop_type = *planned_purchase_;
     bool purchasing_plan = true;
-    if (!player->can_afford(planned_definition->purchase_cost)) {
-        const TroopDefinition* fallback =
-            troop_definition_for(TroopType::rifle);
+    bool occupancy_fallback = false;
+    const TroopDefinition* fallback = troop_definition_for(TroopType::rifle);
+    if (objective_fallback_request_.has_value() && fallback != nullptr &&
+        player->can_afford(fallback->purchase_cost)) {
+        troop_type = TroopType::rifle;
+        purchasing_plan = false;
+        occupancy_fallback = true;
+        emergency_override_active_ = true;
+    } else if (!player->can_afford(planned_definition->purchase_cost)) {
         if (!emergency_spent_for_plan_ &&
             immediate_defensive_emergency(world, team_) &&
             fallback != nullptr &&
@@ -640,7 +654,7 @@ void AiCommander::make_purchase_decision(World& world) {
         team_forward_definition(world.map(), team_);
     if (!bounds.has_value() || forward == nullptr) {
         last_result_ = AiDecisionResult::no_valid_deployment;
-        if (++deployment_failure_evaluations_ >= 3) {
+        if (purchasing_plan && ++deployment_failure_evaluations_ >= 3) {
             planned_purchase_.reset();
             planned_purchase_reason_.reset();
             emergency_spent_for_plan_ = false;
@@ -679,7 +693,7 @@ void AiCommander::make_purchase_decision(World& world) {
     }
     if (!position.has_value()) {
         last_result_ = AiDecisionResult::no_valid_deployment;
-        if (++deployment_failure_evaluations_ >= 3) {
+        if (purchasing_plan && ++deployment_failure_evaluations_ >= 3) {
             planned_purchase_.reset();
             planned_purchase_reason_.reset();
             emergency_spent_for_plan_ = false;
@@ -697,16 +711,211 @@ void AiCommander::make_purchase_decision(World& world) {
     last_result_ = AiDecisionResult::purchased;
     last_deployment_position_ = *position;
     deployment_failure_evaluations_ = 0;
+    if (occupancy_fallback && objective_fallback_request_.has_value() &&
+        !world.pending_deployments().empty()) {
+        world.pending_deployments().back().ai_objective_zone =
+            *objective_fallback_request_;
+        objective_fallback_request_.reset();
+    }
     if (purchasing_plan) {
         last_purchased_troop_ = troop_type;
         planned_purchase_.reset();
         planned_purchase_reason_.reset();
         emergency_spent_for_plan_ = false;
-    } else {
+    } else if (!occupancy_fallback) {
         emergency_spent_for_plan_ = true;
     }
     placement_cursor_ += selected_placement_offset + 1;
     ++successful_deployments_;
+}
+
+void AiCommander::set_objective_holder_movement_active(
+    World& world, const bool active) const noexcept {
+    for (Unit& unit : world.units()) {
+        if (unit.team() == team_ && unit.ai_objective_zone().has_value()) {
+            unit.set_ai_objective_assignment_active(active);
+        }
+    }
+}
+
+void AiCommander::update_objective_occupancy(
+    World& world, const std::uint64_t fixed_tick_count) {
+    const std::uint64_t grace_ticks = std::max<std::uint64_t>(
+        1, static_cast<std::uint64_t>(std::llround(
+               ai_objective_natural_occupancy_grace_seconds *
+               world.match_state().rules().fixed_ticks_per_second)));
+
+    const auto previous_status = [this](const std::size_t zone_index) {
+        return std::ranges::find_if(
+            objective_occupancy_, [zone_index](const auto& status) {
+                return status.zone_index == zone_index;
+            });
+    };
+    std::vector<AiObjectiveOccupancyStatus> next;
+    next.reserve(world.map().objective_zone_indices.size());
+    objective_fallback_request_.reset();
+
+    const auto unit_zone = [&world](const Unit& unit) {
+        return zone_index_for_position(world, unit.position());
+    };
+    const auto sole_occupant_of_other_owned_objective =
+        [&world, this, &unit_zone](const Unit& unit,
+                                  const std::size_t destination_zone) {
+            const auto current_zone = unit_zone(unit);
+            if (!current_zone.has_value() ||
+                *current_zone == destination_zone ||
+                *current_zone >= world.zones().size()) {
+                return false;
+            }
+            const Zone& zone = world.zones()[*current_zone];
+            if (zone.type() != ZoneType::objective || zone.owner() != team_) {
+                return false;
+            }
+            return std::ranges::count_if(
+                       world.units(), [this, &unit_zone, current_zone](
+                                          const Unit& other) {
+                           return other.is_alive() && other.team() == team_ &&
+                               unit_zone(other) == current_zone;
+                       }) == 1;
+        };
+
+    for (const std::size_t zone_index : world.map().objective_zone_indices) {
+        AiObjectiveOccupancyStatus status{.zone_index = zone_index};
+        const auto old = previous_status(zone_index);
+        if (old != objective_occupancy_.end()) {
+            status.natural_occupancy_ticks = old->natural_occupancy_ticks;
+        }
+        if (zone_index >= world.zones().size() ||
+            world.zones()[zone_index].owner() != team_) {
+            for (Unit& unit : world.units()) {
+                if (unit.team() == team_ &&
+                    unit.ai_objective_zone() == zone_index) {
+                    unit.clear_ai_objective_assignment();
+                }
+            }
+            for (PendingDeployment& pending : world.pending_deployments()) {
+                if (pending.team == team_ &&
+                    pending.ai_objective_zone == zone_index) {
+                    pending.ai_objective_zone.reset();
+                }
+            }
+            status.coverage = AiObjectiveCoverage::not_owned;
+            status.natural_occupancy_ticks = 0;
+            next.push_back(status);
+            continue;
+        }
+
+        Unit* holder = nullptr;
+        for (Unit& unit : world.units()) {
+            if (!unit.is_alive() || unit.team() != team_ ||
+                unit.ai_objective_zone() != zone_index) {
+                continue;
+            }
+            const bool assignment_valid =
+                unit.troop_type() != TroopType::mortar &&
+                !unit.has_movement_path() &&
+                unit.tactical_order() != TacticalOrder::hold &&
+                unit.tactical_order() != TacticalOrder::regroup;
+            if (!assignment_valid || holder != nullptr) {
+                unit.clear_ai_objective_assignment();
+                continue;
+            }
+            holder = &unit;
+            holder->set_ai_objective_assignment_active(true);
+        }
+
+        const bool naturally_occupied = std::ranges::any_of(
+            world.units(), [this, zone_index, holder, &unit_zone](
+                               const Unit& unit) {
+                return unit.is_alive() && unit.team() == team_ &&
+                    (&unit != holder) && unit_zone(unit) == zone_index;
+            });
+        if (naturally_occupied) {
+            if (holder != nullptr) {
+                status.natural_occupancy_ticks = std::min(
+                    grace_ticks,
+                    status.natural_occupancy_ticks + fixed_tick_count);
+                if (status.natural_occupancy_ticks >= grace_ticks) {
+                    holder->clear_ai_objective_assignment();
+                    holder = nullptr;
+                }
+            } else {
+                status.natural_occupancy_ticks = grace_ticks;
+            }
+            status.coverage = holder == nullptr
+                ? AiObjectiveCoverage::naturally_occupied
+                : AiObjectiveCoverage::assigned;
+            if (holder != nullptr) {
+                status.holder_id = holder->id();
+            }
+            next.push_back(status);
+            continue;
+        }
+        status.natural_occupancy_ticks = 0;
+
+        if (holder == nullptr) {
+            std::vector<Unit*> candidates;
+            for (Unit& unit : world.units()) {
+                if (!unit.is_alive() || unit.team() != team_ ||
+                    unit.troop_type() == TroopType::mortar ||
+                    unit.mobility_mode() == MobilityMode::player_path_only ||
+                    unit.has_movement_path() ||
+                    unit.tactical_order() == TacticalOrder::hold ||
+                    unit.tactical_order() == TacticalOrder::regroup ||
+                    unit.ai_objective_zone().has_value() ||
+                    sole_occupant_of_other_owned_objective(unit, zone_index)) {
+                    continue;
+                }
+                candidates.push_back(&unit);
+            }
+            const Bounds& bounds = world.zones()[zone_index].bounds();
+            std::ranges::sort(candidates, [&bounds](const Unit* left,
+                                                    const Unit* right) {
+                const auto key = [&bounds](const Unit* unit) {
+                    const TroopDefinition* definition =
+                        troop_definition_for(unit->troop_type());
+                    const Money cost = definition == nullptr
+                        ? Money{} : definition->purchase_cost;
+                    return std::tuple{
+                        unit->target_id().has_value(),
+                        unit->target_category() == TargetCategory::vehicle,
+                        cost,
+                        squared_distance_to_bounds(unit->position(), bounds),
+                        unit->id()};
+                };
+                return key(left) < key(right);
+            });
+            if (!candidates.empty()) {
+                holder = candidates.front();
+                holder->set_ai_objective_assignment(
+                    zone_index,
+                    ai_objective_hold_position(
+                        world, world.zones()[zone_index], team_,
+                        holder->preferred_y(), holder->hit_radius()));
+                holder->set_ai_objective_assignment_active(true);
+            }
+        }
+
+        if (holder != nullptr) {
+            status.coverage = AiObjectiveCoverage::assigned;
+            status.holder_id = holder->id();
+        } else {
+            const bool pending = std::ranges::any_of(
+                world.pending_deployments(), [this, zone_index](
+                                                 const PendingDeployment& item) {
+                    return item.team == team_ &&
+                        item.ai_objective_zone == zone_index;
+                });
+            status.coverage = pending
+                ? AiObjectiveCoverage::pending_reinforcement
+                : AiObjectiveCoverage::uncovered;
+            if (!pending && !objective_fallback_request_.has_value()) {
+                objective_fallback_request_ = zone_index;
+            }
+        }
+        next.push_back(status);
+    }
+    objective_occupancy_ = std::move(next);
 }
 
 void AiCommander::make_strategy_decision(World& world) {
@@ -952,6 +1161,18 @@ const AiCommanderRules& AiCommander::rules() const noexcept { return rules_; }
 
 const AiProfile& AiCommander::profile() const noexcept { return profile_; }
 
+std::span<const AiObjectiveOccupancyStatus>
+AiCommander::objective_occupancy() const noexcept {
+    return objective_occupancy_;
+}
+
+bool AiCommander::is_objective_holder(const Unit::Id unit_id) const noexcept {
+    return std::ranges::any_of(
+        objective_occupancy_, [unit_id](const auto& status) {
+            return status.holder_id == unit_id;
+        });
+}
+
 std::string_view to_string(const AiCommanderStatus status) noexcept {
     switch (status) {
     case AiCommanderStatus::enabled:
@@ -960,6 +1181,22 @@ std::string_view to_string(const AiCommanderStatus status) noexcept {
         return "paused";
     case AiCommanderStatus::stopped_match_finished:
         return "stopped";
+    }
+    return "unknown";
+}
+
+std::string_view to_string(const AiObjectiveCoverage coverage) noexcept {
+    switch (coverage) {
+    case AiObjectiveCoverage::not_owned:
+        return "not owned";
+    case AiObjectiveCoverage::naturally_occupied:
+        return "naturally occupied";
+    case AiObjectiveCoverage::assigned:
+        return "holder";
+    case AiObjectiveCoverage::pending_reinforcement:
+        return "reinforcement pending";
+    case AiObjectiveCoverage::uncovered:
+        return "uncovered";
     }
     return "unknown";
 }

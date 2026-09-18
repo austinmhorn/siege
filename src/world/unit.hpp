@@ -98,6 +98,10 @@ public:
     void set_preferred_y(float preferred_y) noexcept;
     void set_group_id(std::optional<GroupId> group_id) noexcept;
     void clear_group_id() noexcept;
+    void set_ai_objective_assignment(std::size_t zone_index,
+                                     Vec2 hold_position) noexcept;
+    void clear_ai_objective_assignment() noexcept;
+    void set_ai_objective_assignment_active(bool active) noexcept;
     void tick_weapon_cooldown(double delta_seconds) noexcept;
     void reset_weapon_cooldown() noexcept;
     void apply_damage(float damage) noexcept;
@@ -119,6 +123,10 @@ public:
     [[nodiscard]] std::optional<Id> target_id() const noexcept;
     [[nodiscard]] float preferred_y() const noexcept;
     [[nodiscard]] std::optional<GroupId> group_id() const noexcept;
+    [[nodiscard]] std::optional<std::size_t> ai_objective_zone() const noexcept;
+    [[nodiscard]] std::optional<Vec2> ai_objective_hold_position()
+        const noexcept;
+    [[nodiscard]] bool ai_objective_assignment_active() const noexcept;
     [[nodiscard]] float move_speed() const noexcept;
     [[nodiscard]] float rotation_speed() const noexcept;
     [[nodiscard]] float vision_range() const noexcept;
@@ -180,6 +188,9 @@ private:
     float turret_rotation_speed_{};
     std::optional<Id> target_id_{};
     std::optional<GroupId> group_id_{};
+    std::optional<std::size_t> ai_objective_zone_{};
+    std::optional<Vec2> ai_objective_hold_position_{};
+    bool ai_objective_assignment_active_{};
     float preferred_y_{};
     float move_speed_{};
     float rotation_speed_{};

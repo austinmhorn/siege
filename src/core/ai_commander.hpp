@@ -102,6 +102,21 @@ enum class AiPurchasePlanReason {
     artillery_support,
 };
 
+enum class AiObjectiveCoverage {
+    not_owned,
+    naturally_occupied,
+    assigned,
+    pending_reinforcement,
+    uncovered,
+};
+
+struct AiObjectiveOccupancyStatus {
+    std::size_t zone_index{};
+    AiObjectiveCoverage coverage{AiObjectiveCoverage::not_owned};
+    std::optional<Unit::Id> holder_id{};
+    std::uint64_t natural_occupancy_ticks{};
+};
+
 class AiCommander {
 public:
     explicit AiCommander(
@@ -140,10 +155,17 @@ public:
     [[nodiscard]] std::uint64_t tactical_command_issue_count() const noexcept;
     [[nodiscard]] const AiCommanderRules& rules() const noexcept;
     [[nodiscard]] const AiProfile& profile() const noexcept;
+    [[nodiscard]] std::span<const AiObjectiveOccupancyStatus>
+        objective_occupancy() const noexcept;
+    [[nodiscard]] bool is_objective_holder(Unit::Id unit_id) const noexcept;
 
 private:
     void make_purchase_decision(World& world);
     void make_strategy_decision(World& world);
+    void update_objective_occupancy(World& world,
+                                    std::uint64_t fixed_tick_count);
+    void set_objective_holder_movement_active(World& world,
+                                              bool active) const noexcept;
     void issue_tactical_command(World& world, TacticalOrder order,
                                 std::size_t objective_index,
                                 std::vector<Unit::Id> unit_ids);
@@ -176,6 +198,8 @@ private:
     std::size_t last_commanded_unit_count_{};
     std::optional<std::size_t> last_command_objective_{};
     std::vector<Unit::Id> last_commanded_unit_ids_{};
+    std::vector<AiObjectiveOccupancyStatus> objective_occupancy_{};
+    std::optional<std::size_t> objective_fallback_request_{};
 };
 
 [[nodiscard]] std::string_view to_string(AiCommanderStatus status) noexcept;
@@ -184,5 +208,6 @@ private:
 [[nodiscard]] std::string_view to_string(AiDifficulty difficulty) noexcept;
 [[nodiscard]] std::string_view to_string(AiPlaystyle playstyle) noexcept;
 [[nodiscard]] std::string_view to_string(AiPurchasePlanReason reason) noexcept;
+[[nodiscard]] std::string_view to_string(AiObjectiveCoverage coverage) noexcept;
 
 } // namespace siege

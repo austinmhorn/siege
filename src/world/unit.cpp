@@ -285,6 +285,23 @@ void Unit::clear_group_id() noexcept {
     group_id_.reset();
 }
 
+void Unit::set_ai_objective_assignment(const std::size_t zone_index,
+                                       const Vec2 hold_position) noexcept {
+    ai_objective_zone_ = zone_index;
+    ai_objective_hold_position_ = hold_position;
+}
+
+void Unit::clear_ai_objective_assignment() noexcept {
+    ai_objective_zone_.reset();
+    ai_objective_hold_position_.reset();
+    ai_objective_assignment_active_ = false;
+}
+
+void Unit::set_ai_objective_assignment_active(const bool active) noexcept {
+    ai_objective_assignment_active_ = active && ai_objective_zone_.has_value() &&
+        ai_objective_hold_position_.has_value();
+}
+
 void Unit::tick_weapon_cooldown(const double delta_seconds) noexcept {
     weapon_cooldown_remaining_ =
         std::max(0.0F, weapon_cooldown_remaining_ -
@@ -340,6 +357,15 @@ std::optional<Unit::Id> Unit::target_id() const noexcept { return target_id_; }
 float Unit::preferred_y() const noexcept { return preferred_y_; }
 std::optional<Unit::GroupId> Unit::group_id() const noexcept {
     return group_id_;
+}
+std::optional<std::size_t> Unit::ai_objective_zone() const noexcept {
+    return ai_objective_zone_;
+}
+std::optional<Vec2> Unit::ai_objective_hold_position() const noexcept {
+    return ai_objective_hold_position_;
+}
+bool Unit::ai_objective_assignment_active() const noexcept {
+    return ai_objective_assignment_active_;
 }
 float Unit::move_speed() const noexcept { return move_speed_; }
 float Unit::rotation_speed() const noexcept { return rotation_speed_; }

@@ -6,6 +6,7 @@
 #include "client/ui_layout.hpp"
 #include "client/unit_selection.hpp"
 #include "core/ai_commander.hpp"
+#include "core/ai_objective_occupancy.hpp"
 #include "core/deployment.hpp"
 #include "core/economy.hpp"
 #include "core/environment_collision.hpp"
@@ -2475,13 +2476,234 @@ int main() {
                 TacticalOrder::automatic,
         "AI-issued Regroup uses normal consolidation and automatic completion");
     regroup_commander.update(ai_regroup_world, Team::team_a, 60);
+    const Unit* regroup_710 = ai_regroup_world.find_unit(710);
+    const Unit* regroup_720 = ai_regroup_world.find_unit(720);
     passed &= check(
         regroup_commander.strategy() == AiStrategy::attack &&
-            ai_regroup_world.find_unit(710)->tactical_order() ==
-                TacticalOrder::advance &&
-            ai_regroup_world.find_unit(720)->tactical_order() ==
-                TacticalOrder::advance,
-        "a consolidated AI regroup resumes the normal frontline attack");
+            (regroup_710->tactical_order() == TacticalOrder::advance ||
+             regroup_710->ai_objective_zone().has_value()) &&
+            (regroup_720->tactical_order() == TacticalOrder::advance ||
+             regroup_720->ai_objective_zone().has_value()) &&
+            (regroup_710->tactical_order() == TacticalOrder::advance ||
+             regroup_720->tactical_order() == TacticalOrder::advance),
+        "a consolidated AI regroup resumes attack while preserving an objective holder");
+
+    World occupancy_world;
+    occupancy_world.units().clear();
+    occupancy_world.find_player(Team::team_b)->reset_cash(0);
+    secure_objective(occupancy_world, 3, Team::team_b);
+    occupancy_world.units().push_back(
+        unit_from_definition(901, Team::team_b, {2'180.0F, 420.0F}, 180.0F,
+                             medium_tank_definition));
+    occupancy_world.units().push_back(
+        unit_from_definition(902, Team::team_b, {2'260.0F, 520.0F}, 180.0F,
+                             machine_gun_definition));
+    occupancy_world.units().push_back(
+        test_unit(903, Team::team_b, {2'340.0F, 620.0F}, 180.0F));
+    occupancy_world.find_unit(903)->set_target_id(999);
+    update_zone_capture(occupancy_world, 0.0);
+    AiCommander occupancy_commander{Team::team_b};
+    occupancy_commander.update(occupancy_world, Team::team_a);
+    const Unit* deterministic_holder = occupancy_world.find_unit(902);
+    passed &= check(
+        deterministic_holder != nullptr &&
+            deterministic_holder->ai_objective_zone() == 3 &&
+            occupancy_commander.is_objective_holder(902) &&
+            !occupancy_commander.is_objective_holder(901) &&
+            !occupancy_commander.is_objective_holder(903) &&
+            is_objective_holder(occupancy_world, 902),
+        "an uncovered owned objective deterministically prefers targetless infantry over a vehicle or fighting unit");
+    const Bounds occupancy_bounds = occupancy_world.zones()[3].bounds();
+    const Vec2 occupancy_hold =
+        *deterministic_holder->ai_objective_hold_position();
+    passed &= check(
+        occupancy_hold.x >= occupancy_bounds.x + occupancy_bounds.width * 0.5F &&
+            occupancy_hold.x < occupancy_bounds.x + occupancy_bounds.width &&
+            near(occupancy_hold.y, deterministic_holder->preferred_y()),
+        "RED objective holder uses a map-derived rear-half point and preserves preferred y");
+
+    Simulation occupancy_simulation{occupancy_world};
+    for (int tick = 0; tick < 420; ++tick) {
+        occupancy_simulation.update(1.0 / 60.0);
+    }
+    deterministic_holder = occupancy_world.find_unit(902);
+    passed &= check(
+        deterministic_holder != nullptr &&
+            zone_index_for_position(occupancy_world,
+                                    deterministic_holder->position()) == 3 &&
+            length(deterministic_holder->position() - occupancy_hold) < 55.0F,
+        "assigned holder navigates into its objective and stops near the hold point");
+
+    World holder_combat_world;
+    holder_combat_world.units().clear();
+    secure_objective(holder_combat_world, 3, Team::team_b);
+    holder_combat_world.units().push_back(unit_from_definition(
+        905, Team::team_b, {1'920.0F, 520.0F}, 90.0F,
+        machine_gun_definition));
+    holder_combat_world.units().push_back(unit_from_definition(
+        906, Team::team_a, {1'700.0F, 520.0F}, 90.0F,
+        medium_tank_definition));
+    Unit* combat_holder = holder_combat_world.find_unit(905);
+    combat_holder->set_ai_objective_assignment(3, {1'920.0F, 520.0F});
+    combat_holder->set_ai_objective_assignment_active(true);
+    Simulation holder_combat_simulation{holder_combat_world};
+    for (int tick = 0; tick < 30; ++tick) {
+        holder_combat_simulation.update(1.0 / 60.0);
+    }
+    const float combat_displacement =
+        length(holder_combat_world.find_unit(905)->position() -
+               Vec2{1'920.0F, 520.0F});
+    std::erase_if(holder_combat_world.units(), [](const Unit& unit) {
+        return unit.team() == Team::team_a;
+    });
+    holder_combat_world.projectiles().clear();
+    for (int tick = 0; tick < 180; ++tick) {
+        holder_combat_simulation.update(1.0 / 60.0);
+    }
+    passed &= check(
+        combat_displacement > 5.0F &&
+            length(holder_combat_world.find_unit(905)->position() -
+                   Vec2{1'920.0F, 520.0F}) < 45.0F,
+        "objective holder keeps combat behavior and returns after pressure clears");
+
+    occupancy_world.units().push_back(
+        test_unit(904, Team::team_b, {1'800.0F, 700.0F}, 180.0F));
+    update_zone_capture(occupancy_world, 0.0);
+    occupancy_commander.update(occupancy_world, Team::team_a, 119);
+    passed &= check(occupancy_world.find_unit(902)->ai_objective_zone() == 3,
+                    "natural occupation observes the deterministic release grace");
+    occupancy_commander.update(occupancy_world, Team::team_a, 1);
+    passed &= check(
+        !occupancy_world.find_unit(902)->ai_objective_zone().has_value(),
+        "a naturally occupied objective releases its reserved holder after two seconds");
+
+    World occupancy_reassignment_world;
+    occupancy_reassignment_world.units().clear();
+    occupancy_reassignment_world.find_player(Team::team_b)->reset_cash(0);
+    secure_objective(occupancy_reassignment_world, 3, Team::team_b);
+    occupancy_reassignment_world.units().push_back(
+        test_unit(911, Team::team_b, {2'160.0F, 360.0F}, 180.0F));
+    occupancy_reassignment_world.units().push_back(
+        test_unit(912, Team::team_b, {2'260.0F, 760.0F}, 180.0F));
+    AiCommander reassignment_commander{Team::team_b};
+    reassignment_commander.update(occupancy_reassignment_world, Team::team_a);
+    const Unit::Id first_holder =
+        reassignment_commander.objective_occupancy()[2].holder_id.value();
+    occupancy_reassignment_world.find_unit(first_holder)->apply_damage(10'000.0F);
+    occupancy_reassignment_world.remove_dead_units();
+    reassignment_commander.update(occupancy_reassignment_world, Team::team_a);
+    passed &= check(
+        reassignment_commander.objective_occupancy()[2].holder_id.has_value() &&
+            *reassignment_commander.objective_occupancy()[2].holder_id !=
+                first_holder,
+        "holder death causes deterministic reassignment");
+    occupancy_reassignment_world.zones()[3].set_owner(Team::none);
+    reassignment_commander.update(occupancy_reassignment_world, Team::team_a);
+    passed &= check(
+        reassignment_commander.objective_occupancy()[2].coverage ==
+                AiObjectiveCoverage::not_owned &&
+            std::ranges::none_of(
+                occupancy_reassignment_world.units(), [](const Unit& unit) {
+                    return unit.ai_objective_zone().has_value();
+                }),
+        "ownership loss immediately releases objective assignments");
+
+    World protected_occupant_world;
+    protected_occupant_world.units().clear();
+    protected_occupant_world.find_player(Team::team_b)->reset_cash(0);
+    secure_objective(protected_occupant_world, 2, Team::team_b);
+    secure_objective(protected_occupant_world, 3, Team::team_b);
+    protected_occupant_world.units().push_back(
+        test_unit(915, Team::team_b, {1'300.0F, 420.0F}, 180.0F));
+    protected_occupant_world.units().push_back(
+        unit_from_definition(916, Team::team_b, {2'300.0F, 620.0F}, 180.0F,
+                             mortar_definition));
+    protected_occupant_world.units().push_back(
+        test_unit(917, Team::team_b, {2'280.0F, 760.0F}, 180.0F));
+    protected_occupant_world.find_unit(917)->set_tactical_order(
+        TacticalOrder::hold, Vec2{2'280.0F, 760.0F});
+    update_zone_capture(protected_occupant_world, 0.0);
+    AiCommander protected_occupant_commander{Team::team_b};
+    protected_occupant_commander.update(protected_occupant_world,
+                                        Team::team_a);
+    passed &= check(
+        !protected_occupant_world.find_unit(915)
+             ->ai_objective_zone().has_value() &&
+            !protected_occupant_world.find_unit(916)
+                 ->ai_objective_zone().has_value() &&
+            !protected_occupant_world.find_unit(917)
+                 ->ai_objective_zone().has_value() &&
+            protected_occupant_commander.objective_occupancy()[2].coverage ==
+                AiObjectiveCoverage::uncovered,
+        "occupancy assignment neither steals another objective's sole occupant nor uses Mortar/manual Hold units");
+
+    World deterministic_occupancy_a;
+    World deterministic_occupancy_b;
+    for (World* replay : {&deterministic_occupancy_a,
+                          &deterministic_occupancy_b}) {
+        replay->units().clear();
+        replay->find_player(Team::team_b)->reset_cash(0);
+        secure_objective(*replay, 3, Team::team_b);
+        replay->units().push_back(
+            test_unit(918, Team::team_b, {2'260.0F, 450.0F}, 180.0F));
+        replay->units().push_back(
+            test_unit(919, Team::team_b, {2'260.0F, 750.0F}, 180.0F));
+    }
+    AiCommander deterministic_occupancy_commander_a{Team::team_b};
+    AiCommander deterministic_occupancy_commander_b{Team::team_b};
+    deterministic_occupancy_commander_a.update(deterministic_occupancy_a,
+                                                Team::team_a);
+    deterministic_occupancy_commander_b.update(deterministic_occupancy_b,
+                                                Team::team_a);
+    passed &= check(
+        deterministic_occupancy_commander_a.objective_occupancy()[2]
+                .holder_id ==
+            deterministic_occupancy_commander_b.objective_occupancy()[2]
+                .holder_id &&
+            deterministic_occupancy_commander_a.objective_occupancy()[2]
+                    .holder_id == 918,
+        "objective-holder selection is stable across deterministic replay");
+
+    World occupancy_fallback_world;
+    occupancy_fallback_world.units().clear();
+    secure_objective(occupancy_fallback_world, 3, Team::team_b);
+    occupancy_fallback_world.units().push_back(unit_from_definition(
+        921, Team::team_b, {2'300.0F, 500.0F}, 180.0F,
+        mortar_definition));
+    AiCommander fallback_commander{Team::team_b};
+    fallback_commander.update(occupancy_fallback_world, Team::team_a);
+    const auto saved_plan = fallback_commander.planned_purchase();
+    passed &= check(
+        occupancy_fallback_world.pending_deployments().size() == 1 &&
+            occupancy_fallback_world.pending_deployments()[0].troop_type ==
+                TroopType::rifle &&
+            occupancy_fallback_world.pending_deployments()[0]
+                    .ai_objective_zone == 3 &&
+            saved_plan.has_value(),
+        "an uncovered objective requests one tagged Rifleman fallback without discarding the saved purchase plan");
+    fallback_commander.update(occupancy_fallback_world, Team::team_a, 120);
+    passed &= check(
+        std::ranges::count_if(
+            occupancy_fallback_world.pending_deployments(),
+            [](const PendingDeployment& pending) {
+                return pending.ai_objective_zone == 3;
+            }) == 1,
+                    "pending occupancy fallback does not spam extra Riflemen");
+    update_pending_deployments(occupancy_fallback_world, 1.0);
+    const auto fallback_holder = std::ranges::find_if(
+        occupancy_fallback_world.units(), [](const Unit& unit) {
+            return unit.troop_type() == TroopType::rifle;
+        });
+    passed &= check(
+        fallback_holder != occupancy_fallback_world.units().end() &&
+            fallback_holder->ai_objective_zone() == 3,
+        "completed fallback deployment becomes the requested objective holder");
+    fallback_commander.update(occupancy_fallback_world, Team::team_b);
+    passed &= check(
+        fallback_commander.status() ==
+                AiCommanderStatus::paused_local_control &&
+            !fallback_holder->ai_objective_assignment_active(),
+        "F4 RED control pauses holder movement while retaining assignment metadata");
 
     World ai_frontline_limit_world;
     ai_frontline_limit_world.units().clear();

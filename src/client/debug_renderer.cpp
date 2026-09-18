@@ -43,7 +43,7 @@ constexpr float left_panel_width = 256.0F;
 constexpr float unit_column_preferred_width = 190.0F;
 constexpr float unit_column_minimum_width = 148.0F;
 constexpr float unit_block_gap = 6.0F;
-constexpr std::size_t unit_block_line_count = 28;
+constexpr std::size_t unit_block_line_count = 29;
 
 struct TextCursor {
     FontSystem& fonts;
@@ -414,6 +414,25 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
             }
         }
 
+        if (std::ranges::find(selected_unit_ids, unit.id()) !=
+                selected_unit_ids.end() &&
+            unit.ai_objective_hold_position().has_value()) {
+            set_color(renderer_, 110, 255, 120, 225);
+            const Vec2 hold = *unit.ai_objective_hold_position();
+            if (!draw_world_line(renderer_, transform, position, hold)) {
+                return false;
+            }
+            constexpr float holder_marker_size = 9.0F;
+            if (!draw_world_line(renderer_, transform,
+                                 {hold.x - holder_marker_size, hold.y},
+                                 {hold.x + holder_marker_size, hold.y}) ||
+                !draw_world_line(renderer_, transform,
+                                 {hold.x, hold.y - holder_marker_size},
+                                 {hold.x, hold.y + holder_marker_size})) {
+                return false;
+            }
+        }
+
     }
 
     int output_width = 0;
@@ -595,6 +614,19 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                   static_cast<double>(
                       ai_commander.ticks_until_next_strategy_evaluation()) /
                       simulation_hz);
+    for (const AiObjectiveOccupancyStatus& occupancy :
+         ai_commander.objective_occupancy()) {
+        const auto coverage = to_string(occupancy.coverage);
+        if (occupancy.holder_id.has_value()) {
+            global.format(FontRole::debug, debug_text,
+                          "Z%zu: holder #%u",
+                          occupancy.zone_index, *occupancy.holder_id);
+        } else {
+            global.format(FontRole::debug, debug_text, "Z%zu: %.*s",
+                          occupancy.zone_index,
+                          static_cast<int>(coverage.size()), coverage.data());
+        }
+    }
     global.blank();
 
     global.line(FontRole::debug_bold, debug_heading, "REGULATION SCORE");
@@ -736,6 +768,15 @@ bool DebugRenderer::render(const World& world, const WorldTransform& transform,
                           tactical_group_members(world, *group_id).size());
         } else {
             cursor.line(FontRole::debug, debug_muted, "group: none");
+        }
+        if (const auto objective = unit.ai_objective_zone()) {
+            cursor.format(FontRole::debug, debug_text,
+                          "objective hold: Z%zu%s", *objective,
+                          unit.ai_objective_assignment_active()
+                              ? "" : " (paused)");
+        } else {
+            cursor.line(FontRole::debug, debug_muted,
+                        "objective hold: none");
         }
         if (unit.troop_type() == TroopType::anti_tank) {
             const auto escort = anti_tank_escort_target(unit, world.units());
